@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "100226634982",
+    "project_id": "discount-link-532cc",
+    "storage_bucket": "discount-link-532cc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:100226634982:android:80072cc2de21a0fcb29727",
+        "android_client_info": {
+          "package_name": "net.vigourtech.dl"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB_Eh9ZPXkMjBVPEEYKX4vM4fUZAt0NQhE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

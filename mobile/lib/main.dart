@@ -10,6 +10,8 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
+import 'firebase_options.dart';
+
 const apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
   defaultValue: 'http://10.0.2.2:8000/api',
@@ -19,7 +21,9 @@ const googleServerClientId = String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
   } catch (_) {}
   try {
     await GoogleSignIn.instance.initialize(
