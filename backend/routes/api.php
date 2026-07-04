@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\DeliveryController;
+use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PaymentWebhookController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ShopController;
@@ -29,9 +30,11 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
     Route::get('/cart', [CartController::class, 'index']);
     Route::post('/cart/{product}', [CartController::class, 'add']);
     Route::post('/checkout', [CartController::class, 'checkout']);
+    Route::get('/orders/active', [OrderController::class, 'active']);
 
     Route::get('/deliveries', [DeliveryController::class, 'available']);
     Route::post('/deliveries/{assignment}/accept', [DeliveryController::class, 'accept']);
+    Route::post('/deliveries/{assignment}/location', [DeliveryController::class, 'updateLocation']);
     Route::post('/deliveries/{assignment}/complete', [DeliveryController::class, 'complete']);
 
     Route::get('/conversations', [ChatController::class, 'conversations']);

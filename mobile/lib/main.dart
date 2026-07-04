@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -276,6 +279,7 @@ class _HomePageState extends State<HomePage> {
     final role = widget.user['role'] as String;
     final pages = <Widget>[
       if (role == 'buyer') BuyerPage(client: widget.client, user: widget.user),
+      if (role == 'buyer') OrdersPage(client: widget.client),
       if (role == 'seller')
         SellerPage(client: widget.client, user: widget.user),
       if (role == 'deliverer') DeliveryPage(client: widget.client),
@@ -289,6 +293,11 @@ class _HomePageState extends State<HomePage> {
     final destinations = <NavigationDestination>[
       if (role == 'buyer')
         const NavigationDestination(icon: Icon(Icons.search), label: 'Buy'),
+      if (role == 'buyer')
+        const NavigationDestination(
+          icon: Icon(Icons.map_outlined),
+          label: 'Orders',
+        ),
       if (role == 'seller')
         const NavigationDestination(
           icon: Icon(Icons.storefront),
@@ -549,6 +558,58 @@ class _BuyerPageState extends State<BuyerPage> {
   }
 }
 
+class OrdersPage extends StatefulWidget {
+  const OrdersPage({super.key, required this.client});
+  final ApiClient client;
+  @override
+  State<OrdersPage> createState() => _OrdersPageState();
+}
+
+class _OrdersPageState extends State<OrdersPage> {
+  List orders = [];
+  Timer? refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+    refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) => load());
+  }
+
+  @override
+  void dispose() {
+    refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> load() async {
+    final r = await widget.client.get('/orders/active');
+    if (mounted) setState(() => orders = r['orders'] as List);
+  }
+
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(
+    onRefresh: load,
+    child: ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text('Active orders', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 8),
+        if (orders.isEmpty)
+          const InfoCard(
+            title: 'No active orders',
+            subtitle: 'Orders waiting for delivery tracking will appear here.',
+          ),
+        for (final order in orders)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: TrackingCard(order: order as Map<String, dynamic>),
+          ),
+      ],
+    ),
+  );
+}
+
 class SellerPage extends StatefulWidget {
   const SellerPage({super.key, required this.client, required this.user});
   final ApiClient client;
@@ -700,15 +761,78 @@ class DeliveryPage extends StatefulWidget {
 class _DeliveryPageState extends State<DeliveryPage> {
   List jobs = [];
   final code = TextEditingController();
+  Timer? locationTimer;
+  bool sharingLocation = false;
+
   @override
   void initState() {
     super.initState();
     load();
+    locationTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => shareAcceptedLocation(silent: true),
+    );
+  }
+
+  @override
+  void dispose() {
+    locationTimer?.cancel();
+    code.dispose();
+    super.dispose();
   }
 
   Future<void> load() async {
     final r = await widget.client.get('/deliveries');
-    setState(() => jobs = r['jobs'] as List);
+    if (mounted) setState(() => jobs = r['jobs'] as List);
+  }
+
+  Future<Position> currentPosition() async {
+    final enabled = await Geolocator.isLocationServiceEnabled();
+    if (!enabled) throw Exception('Turn on location services to share tracking.');
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      throw Exception('Location permission is required to track deliveries.');
+    }
+
+    return Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+      ),
+    );
+  }
+
+  Future<void> shareAcceptedLocation({bool silent = false}) async {
+    final accepted = jobs
+        .where((j) => (j as Map<String, dynamic>)['status'] == 'accepted')
+        .cast<Map<String, dynamic>>()
+        .toList();
+    if (accepted.isEmpty || sharingLocation) return;
+
+    setState(() => sharingLocation = true);
+    try {
+      final position = await currentPosition();
+      for (final job in accepted) {
+        await widget.client.post('/deliveries/${job['id']}/location', {
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+        });
+      }
+      await load();
+      if (!silent && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Delivery location shared.')),
+        );
+      }
+    } catch (error) {
+      if (!silent && mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => sharingLocation = false);
+    }
   }
 
   @override
@@ -745,6 +869,27 @@ class _DeliveryPageState extends State<DeliveryPage> {
                         label: const Text('Accept delivery'),
                       ),
                     if (j['status'] == 'accepted') ...[
+                      const SizedBox(height: 8),
+                      TrackingMiniMap(
+                        shopLatitude: toDouble(j['order']?['shop']?['latitude']),
+                        shopLongitude: toDouble(
+                          j['order']?['shop']?['longitude'],
+                        ),
+                        delivererLatitude: toDouble(j['deliverer_latitude']),
+                        delivererLongitude: toDouble(j['deliverer_longitude']),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: sharingLocation
+                            ? null
+                            : () => shareAcceptedLocation(),
+                        icon: const Icon(Icons.my_location),
+                        label: Text(
+                          sharingLocation
+                              ? 'Sharing location...'
+                              : 'Share current location',
+                        ),
+                      ),
                       Field(
                         controller: code,
                         label: 'Buyer delivery code',
@@ -864,6 +1009,226 @@ class InfoCard extends StatelessWidget {
       ),
     ),
   );
+}
+
+class TrackingCard extends StatelessWidget {
+  const TrackingCard({super.key, required this.order});
+  final Map<String, dynamic> order;
+
+  @override
+  Widget build(BuildContext context) {
+    final assignment = order['delivery_assignment'] as Map<String, dynamic>?;
+    final deliverer = assignment?['deliverer'] as Map<String, dynamic>?;
+    final shop = order['shop'] as Map<String, dynamic>?;
+    final updatedAt = assignment?['location_updated_at'];
+    final delivererLatitude = toDouble(assignment?['deliverer_latitude']);
+    final delivererLongitude = toDouble(assignment?['deliverer_longitude']);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              order['reference'] ?? 'Order',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${order['status']} - ${order['delivery_address']}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 10),
+            TrackingMiniMap(
+              shopLatitude: toDouble(shop?['latitude']),
+              shopLongitude: toDouble(shop?['longitude']),
+              delivererLatitude: delivererLatitude,
+              delivererLongitude: delivererLongitude,
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(Icons.delivery_dining_outlined, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    deliverer == null
+                        ? 'Waiting for a deliverer'
+                        : '${deliverer['name']} ${updatedAt == null ? '' : '- updated ${formatDateTime(updatedAt)}'}',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class TrackingMiniMap extends StatelessWidget {
+  const TrackingMiniMap({
+    super.key,
+    required this.shopLatitude,
+    required this.shopLongitude,
+    required this.delivererLatitude,
+    required this.delivererLongitude,
+  });
+
+  final double? shopLatitude;
+  final double? shopLongitude;
+  final double? delivererLatitude;
+  final double? delivererLongitude;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasDeliverer = delivererLatitude != null && delivererLongitude != null;
+    return SizedBox(
+      height: 180,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xffe8f3f1),
+          border: Border.all(color: Theme.of(context).dividerColor),
+          borderRadius: const BorderRadius.all(Radius.circular(8)),
+        ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.all(Radius.circular(8)),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              CustomPaint(
+                painter: TrackingMapPainter(
+                  shopLatitude: shopLatitude,
+                  shopLongitude: shopLongitude,
+                  delivererLatitude: delivererLatitude,
+                  delivererLongitude: delivererLongitude,
+                  textColor: Theme.of(context).colorScheme.onSurface,
+                  primary: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              if (!hasDeliverer)
+                const Center(
+                  child: Text('Deliverer location has not been shared yet'),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class TrackingMapPainter extends CustomPainter {
+  TrackingMapPainter({
+    required this.shopLatitude,
+    required this.shopLongitude,
+    required this.delivererLatitude,
+    required this.delivererLongitude,
+    required this.textColor,
+    required this.primary,
+  });
+
+  final double? shopLatitude;
+  final double? shopLongitude;
+  final double? delivererLatitude;
+  final double? delivererLongitude;
+  final Color textColor;
+  final Color primary;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final gridPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.55)
+      ..strokeWidth = 1;
+    for (var i = 1; i < 4; i++) {
+      final dx = size.width * i / 4;
+      final dy = size.height * i / 4;
+      canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), gridPaint);
+      canvas.drawLine(Offset(0, dy), Offset(size.width, dy), gridPaint);
+    }
+
+    final points = <_MapPoint>[
+      if (shopLatitude != null && shopLongitude != null)
+        _MapPoint('Shop', shopLatitude!, shopLongitude!, Colors.deepOrange),
+      if (delivererLatitude != null && delivererLongitude != null)
+        _MapPoint('Deliverer', delivererLatitude!, delivererLongitude!, primary),
+    ];
+    if (points.isEmpty) return;
+
+    final minLat = points.map((p) => p.latitude).reduce((a, b) => a < b ? a : b);
+    final maxLat = points.map((p) => p.latitude).reduce((a, b) => a > b ? a : b);
+    final minLng = points.map((p) => p.longitude).reduce((a, b) => a < b ? a : b);
+    final maxLng = points.map((p) => p.longitude).reduce((a, b) => a > b ? a : b);
+    final latSpan = (maxLat - minLat).abs() < 0.001 ? 0.001 : maxLat - minLat;
+    final lngSpan = (maxLng - minLng).abs() < 0.001 ? 0.001 : maxLng - minLng;
+
+    Offset project(_MapPoint point) {
+      final x = 24 + ((point.longitude - minLng) / lngSpan) * (size.width - 48);
+      final y =
+          24 + ((maxLat - point.latitude) / latSpan) * (size.height - 48);
+      return Offset(x, y);
+    }
+
+    if (points.length > 1) {
+      final routePaint = Paint()
+        ..color = primary.withValues(alpha: 0.38)
+        ..strokeWidth = 3
+        ..style = PaintingStyle.stroke;
+      canvas.drawLine(project(points.first), project(points.last), routePaint);
+    }
+
+    for (final point in points) {
+      final offset = project(point);
+      canvas.drawCircle(offset, 10, Paint()..color = Colors.white);
+      canvas.drawCircle(offset, 7, Paint()..color = point.color);
+      _drawLabel(canvas, point.label, offset + const Offset(12, -24));
+    }
+  }
+
+  void _drawLabel(Canvas canvas, String text, Offset offset) {
+    final span = TextSpan(
+      text: text,
+      style: TextStyle(
+        color: textColor,
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+    final painter = TextPainter(
+      text: span,
+      textDirection: ui.TextDirection.ltr,
+    )..layout();
+    painter.paint(canvas, offset);
+  }
+
+  @override
+  bool shouldRepaint(covariant TrackingMapPainter oldDelegate) =>
+      oldDelegate.shopLatitude != shopLatitude ||
+      oldDelegate.shopLongitude != shopLongitude ||
+      oldDelegate.delivererLatitude != delivererLatitude ||
+      oldDelegate.delivererLongitude != delivererLongitude;
+}
+
+class _MapPoint {
+  _MapPoint(this.label, this.latitude, this.longitude, this.color);
+  final String label;
+  final double latitude;
+  final double longitude;
+  final Color color;
+}
+
+double? toDouble(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value.toString());
+}
+
+String formatDateTime(dynamic value) {
+  final parsed = DateTime.tryParse(value.toString());
+  if (parsed == null) return value.toString();
+  return DateFormat('MMM d, HH:mm').format(parsed.toLocal());
 }
 
 void showError(BuildContext context, Object error) {
