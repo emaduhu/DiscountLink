@@ -7,4 +7,7 @@ Route::redirect('/', '/dashboard');
 Route::get('/admin/login', [DashboardController::class, 'login'])->name('admin.login');
 Route::post('/admin/login', [DashboardController::class, 'authenticate'])->name('admin.authenticate');
 Route::post('/admin/logout', [DashboardController::class, 'logout'])->name('admin.logout');
+Route::post('/dashboard/notifications', [DashboardController::class, 'sendNotification'])->name('dashboard.notifications');
+Route::post('/dashboard/users/{user}/toggle', [DashboardController::class, 'toggleUser'])->name('dashboard.users.toggle');
+Route::post('/dashboard/otp-settings', [DashboardController::class, 'updateOtpSettings'])->name('dashboard.otp-settings');
 Route::get('/dashboard', DashboardController::class)->name('dashboard');

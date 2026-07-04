@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -354,6 +355,110 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   final code = TextEditingController();
   bool sent = false;
+  bool loading = false;
+  String otpProvider = 'beem';
+  String? firebaseVerificationId;
+
+  @override
+  void initState() {
+    super.initState();
+    loadProvider();
+  }
+
+  @override
+  void dispose() {
+    code.dispose();
+    super.dispose();
+  }
+
+  Future<void> loadProvider() async {
+    try {
+      final r = await widget.client.get('/otp/provider');
+      if (mounted) setState(() => otpProvider = r['provider'] as String);
+    } catch (_) {}
+  }
+
+  Future<void> sendOtp() async {
+    setState(() => loading = true);
+    try {
+      final phone = widget.user['phone'] as String;
+      if (otpProvider == 'firebase') {
+        await FirebaseAuth.instance.verifyPhoneNumber(
+          phoneNumber: phone.startsWith('+') ? phone : '+$phone',
+          verificationCompleted: (credential) async {
+            final firebaseUser = await FirebaseAuth.instance
+                .signInWithCredential(credential);
+            final idToken = await firebaseUser.user?.getIdToken();
+            if (idToken != null) {
+              await verifyFirebaseToken(idToken);
+            }
+          },
+          verificationFailed: (error) {
+            if (mounted) showError(context, error.message ?? error);
+          },
+          codeSent: (verificationId, _) {
+            if (mounted) {
+              setState(() {
+                firebaseVerificationId = verificationId;
+                sent = true;
+              });
+            }
+          },
+          codeAutoRetrievalTimeout: (verificationId) {
+            firebaseVerificationId = verificationId;
+          },
+        );
+      } else {
+        await widget.client.post('/otp/request', {'phone': phone});
+        if (mounted) setState(() => sent = true);
+      }
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> verifyFirebaseToken(String idToken) async {
+    final r = await widget.client.post('/otp/verify', {
+      'phone': widget.user['phone'],
+      'firebase_id_token': idToken,
+    });
+    widget.onUserChanged(r['user'] as Map<String, dynamic>);
+  }
+
+  Future<void> verifyOtp() async {
+    setState(() => loading = true);
+    try {
+      if (otpProvider == 'firebase') {
+        final verificationId = firebaseVerificationId;
+        if (verificationId == null) {
+          throw Exception('Request the Firebase code first.');
+        }
+        final credential = PhoneAuthProvider.credential(
+          verificationId: verificationId,
+          smsCode: code.text,
+        );
+        final firebaseUser = await FirebaseAuth.instance.signInWithCredential(
+          credential,
+        );
+        final idToken = await firebaseUser.user?.getIdToken();
+        if (idToken == null) throw Exception('Firebase token was not issued.');
+        await verifyFirebaseToken(idToken);
+      } else {
+        final r = await widget.client.post('/otp/verify', {
+          'phone': widget.user['phone'],
+          'code': code.text,
+        });
+        widget.onUserChanged(r['user'] as Map<String, dynamic>);
+      }
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final verified = widget.user['phone_verified_at'] != null;
@@ -372,18 +477,15 @@ class _ProfilePageState extends State<ProfilePage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  verified ? 'Phone verified' : 'Verify phone',
+                  verified
+                      ? 'Phone verified'
+                      : 'Verify phone with ${otpProviderLabel(otpProvider)}',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 10),
                 if (!verified) ...[
                   FilledButton.icon(
-                    onPressed: () async {
-                      await widget.client.post('/otp/request', {
-                        'phone': widget.user['phone'],
-                      });
-                      setState(() => sent = true);
-                    },
+                    onPressed: loading ? null : sendOtp,
                     icon: const Icon(Icons.sms_outlined),
                     label: Text(sent ? 'OTP sent again' : 'Send OTP'),
                   ),
@@ -394,14 +496,8 @@ class _ProfilePageState extends State<ProfilePage> {
                     keyboard: TextInputType.number,
                   ),
                   FilledButton(
-                    onPressed: () async {
-                      final r = await widget.client.post('/otp/verify', {
-                        'phone': widget.user['phone'],
-                        'code': code.text,
-                      });
-                      widget.onUserChanged(r['user'] as Map<String, dynamic>);
-                    },
-                    child: const Text('Verify'),
+                    onPressed: loading ? null : verifyOtp,
+                    child: Text(loading ? 'Checking...' : 'Verify'),
                   ),
                 ],
               ],
@@ -1234,6 +1330,12 @@ String formatDateTime(dynamic value) {
   if (parsed == null) return value.toString();
   return DateFormat('MMM d, HH:mm').format(parsed.toLocal());
 }
+
+String otpProviderLabel(String provider) => switch (provider) {
+  'firebase' => 'Firebase',
+  'infobip' => 'Infobip',
+  _ => 'Beem Africa',
+};
 
 void showError(BuildContext context, Object error) {
   ScaffoldMessenger.of(context).showSnackBar(

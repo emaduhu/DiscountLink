@@ -18,6 +18,7 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/me/fcm-token', [AuthController::class, 'updateFcm']);
     Route::post('/otp/request', [AuthController::class, 'requestOtp']);
+    Route::get('/otp/provider', [AuthController::class, 'otpProvider']);
     Route::post('/otp/verify', [AuthController::class, 'verifyOtp']);
 
     Route::get('/products', [ProductController::class, 'index']);

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AppSetting;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -14,10 +15,13 @@ class BeemOtpService
             return 'local-log';
         }
 
+        $senderId = AppSetting::get('beem_sender_id', config('services.beem.sender_id'));
+        $baseUrl = AppSetting::get('beem_base_url', config('services.beem.base_url'));
+
         $response = Http::withBasicAuth(config('services.beem.api_key'), config('services.beem.secret_key'))
             ->acceptJson()
-            ->post(rtrim(config('services.beem.base_url'), '/').'/sms/v1/send', [
-                'source_addr' => config('services.beem.sender_id'),
+            ->post(rtrim($baseUrl, '/').'/sms/v1/send', [
+                'source_addr' => $senderId,
                 'encoding' => 0,
                 'schedule_time' => '',
                 'message' => "Your DiscountLink verification code is {$code}.",

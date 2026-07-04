@@ -6,8 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\PhoneOtp;
 use App\Models\User;
 use App\Services\ApiTokenService;
-use App\Services\BeemOtpService;
+use App\Services\FirebasePhoneAuthService;
 use App\Services\GoogleAuthService;
+use App\Services\OtpProviderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -50,26 +51,53 @@ class AuthController extends Controller
         return response()->json(['token' => $tokens->issue($user), 'user' => $user, 'phone_verified' => (bool) $user->phone_verified_at]);
     }
 
-    public function requestOtp(Request $request, BeemOtpService $beem): JsonResponse
+    public function otpProvider(OtpProviderService $otp): JsonResponse
+    {
+        return response()->json(['provider' => $otp->activeProvider()]);
+    }
+
+    public function requestOtp(Request $request, OtpProviderService $otp): JsonResponse
     {
         $data = $request->validate(['phone' => ['required', 'string', 'max:30']]);
+        if (!$otp->shouldCreateBackendOtp()) {
+            return response()->json([
+                'message' => 'Use Firebase phone authentication.',
+                'provider' => 'firebase',
+            ]);
+        }
+
         $code = (string) random_int(100000, 999999);
-        $reference = $beem->send($data['phone'], $code);
+        $reference = $otp->send($data['phone'], $code);
 
         PhoneOtp::create([
             'user_id' => $request->user()->id,
             'phone' => $data['phone'],
-            'code_hash' => Hash::make($code),
+            'code_hash' => $otp->hashCode($code),
             'provider_reference' => $reference,
             'expires_at' => now()->addMinutes(10),
         ]);
 
-        return response()->json(['message' => 'OTP sent.']);
+        return response()->json(['message' => 'OTP sent.', 'provider' => $otp->activeProvider()]);
     }
 
-    public function verifyOtp(Request $request): JsonResponse
+    public function verifyOtp(Request $request, OtpProviderService $otp, FirebasePhoneAuthService $firebase): JsonResponse
     {
-        $data = $request->validate(['phone' => ['required', 'string'], 'code' => ['required', 'string', 'size:6']]);
+        $rules = ['phone' => ['required', 'string']];
+        if ($otp->activeProvider() === 'firebase') {
+            $rules['firebase_id_token'] = ['required', 'string'];
+        } else {
+            $rules['code'] = ['required', 'string', 'size:6'];
+        }
+
+        $data = $request->validate($rules);
+
+        if ($otp->activeProvider() === 'firebase') {
+            $firebase->verifyPhoneToken($data['firebase_id_token'], $data['phone']);
+            $request->user()->update(['phone' => $data['phone'], 'phone_verified_at' => now()]);
+
+            return response()->json(['message' => 'Phone verified.', 'user' => $request->user()->fresh()]);
+        }
+
         $otp = PhoneOtp::where('user_id', $request->user()->id)->where('phone', $data['phone'])->latest()->first();
         abort_if(!$otp || $otp->expires_at->isPast() || !Hash::check($data['code'], $otp->code_hash), 422, 'Invalid or expired OTP.');
 
