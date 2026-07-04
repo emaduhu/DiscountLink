@@ -29,9 +29,15 @@ Use MySQL or PostgreSQL in production. Run Laravel behind HTTPS, configure queue
 Configure Google Sign-In SHA certificates/package IDs in Google Cloud, Firebase Android/iOS apps for FCM, and set the production API URL:
 
 ```bash
-flutter build apk --release --dart-define=API_BASE_URL=https://api.example.com/api
-flutter build appbundle --release --dart-define=API_BASE_URL=https://api.example.com/api
+flutter build apk --release \
+  --dart-define=API_BASE_URL=https://api.example.com/api \
+  --dart-define=GOOGLE_SERVER_CLIENT_ID=your-oauth-web-client-id.apps.googleusercontent.com
+flutter build appbundle --release \
+  --dart-define=API_BASE_URL=https://api.example.com/api \
+  --dart-define=GOOGLE_SERVER_CLIENT_ID=your-oauth-web-client-id.apps.googleusercontent.com
 ```
+
+`GOOGLE_SERVER_CLIENT_ID` must be the Google OAuth 2.0 Web Client ID from Google Auth Platform/Credentials. It is not the Firebase app ID.
 
 ## Payment flow
 
