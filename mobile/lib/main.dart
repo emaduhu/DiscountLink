@@ -146,7 +146,6 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final name = TextEditingController(text: 'Demo Buyer');
-  final username = TextEditingController(text: 'demo_buyer');
   final phone = TextEditingController(text: '255700000001');
   final address = TextEditingController(text: 'Dar es Salaam');
   final email = TextEditingController(text: 'buyer@discountlink.local');
@@ -193,7 +192,6 @@ class _LoginPageState extends State<LoginPage> {
       final response = await widget.client.post('/auth/register', {
         'role': role,
         'full_name': name.text.trim(),
-        'username': username.text.trim(),
         'email': email.text.trim(),
         'phone': phone.text.trim(),
         'password': password.text,
@@ -246,7 +244,7 @@ class _LoginPageState extends State<LoginPage> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Sign in with Google, or register and log in with username, email, or phone.',
+              'Sign in with Google, or register and log in with email or phone.',
             ),
             const SizedBox(height: 24),
             SegmentedButton<String>(
@@ -277,11 +275,6 @@ class _LoginPageState extends State<LoginPage> {
               icon: Icons.person_outline,
             ),
             Field(
-              controller: username,
-              label: 'Username',
-              icon: Icons.badge_outlined,
-            ),
-            Field(
               controller: phone,
               label: 'Phone for OTP and disbursements',
               icon: Icons.phone_outlined,
@@ -294,14 +287,15 @@ class _LoginPageState extends State<LoginPage> {
             ),
             Field(
               controller: email,
-              label: 'Email or username/phone for login',
+              label: 'Email or phone for login',
               icon: Icons.alternate_email,
-              keyboard: TextInputType.emailAddress,
+              keyboard: TextInputType.text,
             ),
             Field(
               controller: password,
               label: 'Password',
               icon: Icons.lock_outline,
+              obscure: true,
             ),
             const SizedBox(height: 12),
             FilledButton.icon(
@@ -1132,17 +1126,20 @@ class Field extends StatelessWidget {
     required this.label,
     required this.icon,
     this.keyboard,
+    this.obscure = false,
   });
   final TextEditingController controller;
   final String label;
   final IconData icon;
   final TextInputType? keyboard;
+  final bool obscure;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 10),
     child: TextField(
       controller: controller,
       keyboardType: keyboard,
+      obscureText: obscure,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon),

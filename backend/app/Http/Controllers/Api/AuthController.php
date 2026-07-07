@@ -21,7 +21,6 @@ class AuthController extends Controller
         $data = $request->validate([
             'role' => ['required', Rule::in(['seller', 'deliverer', 'buyer'])],
             'full_name' => ['required', 'string', 'max:160'],
-            'username' => ['nullable', 'string', 'max:80', 'alpha_dash', Rule::unique('users', 'username')],
             'email' => ['required', 'email', 'max:190', Rule::unique('users', 'email')],
             'phone' => ['required', 'string', 'max:30', Rule::unique('users', 'phone')],
             'password' => ['required', 'string', 'min:6', 'max:120'],
@@ -34,7 +33,6 @@ class AuthController extends Controller
         $user = User::create([
             'role' => $data['role'],
             'name' => $data['full_name'],
-            'username' => $data['username'] ?? null,
             'email' => $data['email'],
             'email_verified_at' => now(),
             'password' => $data['password'],
@@ -60,7 +58,6 @@ class AuthController extends Controller
         $identifier = $data['identifier'];
         $user = User::where('email', $identifier)
             ->orWhere('phone', $identifier)
-            ->orWhere('username', $identifier)
             ->first();
 
         abort_if(!$user || !$user->password || !Hash::check($data['password'], $user->password), 422, 'Invalid login credentials.');

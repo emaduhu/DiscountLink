@@ -22,9 +22,9 @@ Admin dashboard: `http://127.0.0.1:8000/dashboard?token=change-me`
 
 Sample app users:
 
-- Buyer: `demo_buyer` / `buyer@discountlink.local` / `255700000001`
-- Seller: `demo_seller` / `seller@discountlink.local` / `255700000002`
-- Deliverer: `demo_deliverer` / `deliverer@discountlink.local` / `255700000003`
+- Buyer: `buyer@discountlink.local` or `255700000001`
+- Seller: `seller@discountlink.local` or `255700000002`
+- Deliverer: `deliverer@discountlink.local` or `255700000003`
 
 Password for all sample users: `password`.
 

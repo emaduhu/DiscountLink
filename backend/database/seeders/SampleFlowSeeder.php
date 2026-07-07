@@ -19,7 +19,6 @@ class SampleFlowSeeder extends Seeder
             [
                 'role' => 'seller',
                 'name' => 'Demo Seller',
-                'username' => 'demo_seller',
                 'google_id' => sha1('seller@discountlink.local'),
                 'password' => $password,
                 'phone' => '255700000002',
@@ -37,7 +36,6 @@ class SampleFlowSeeder extends Seeder
             [
                 'role' => 'buyer',
                 'name' => 'Demo Buyer',
-                'username' => 'demo_buyer',
                 'google_id' => sha1('buyer@discountlink.local'),
                 'password' => $password,
                 'phone' => '255700000001',
@@ -55,7 +53,6 @@ class SampleFlowSeeder extends Seeder
             [
                 'role' => 'deliverer',
                 'name' => 'Demo Deliverer',
-                'username' => 'demo_deliverer',
                 'google_id' => sha1('deliverer@discountlink.local'),
                 'password' => $password,
                 'phone' => '255700000003',
