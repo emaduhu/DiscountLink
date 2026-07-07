@@ -18,10 +18,15 @@ class DatabaseSeeder extends Seeder
         $this->call(AdminUserSeeder::class);
 
         if (! app()->isProduction()) {
-            User::factory()->create([
-                'name' => 'Test User',
-                'email' => 'test@example.com',
-            ]);
+            User::updateOrCreate(
+                ['email' => 'test@example.com'],
+                User::factory()->make([
+                    'name' => 'Test User',
+                    'email' => 'test@example.com',
+                ])->toArray(),
+            );
+
+            $this->call(SampleFlowSeeder::class);
         }
     }
 }

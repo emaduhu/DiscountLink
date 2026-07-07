@@ -20,6 +20,14 @@ php artisan serve
 
 Admin dashboard: `http://127.0.0.1:8000/dashboard?token=change-me`
 
+Local sample app users are seeded outside production:
+
+- Buyer: `buyer@discountlink.local`
+- Seller: `seller@discountlink.local`
+- Deliverer: `deliverer@discountlink.local`
+
+Use local dev sign-in in the app with the matching role and email.
+
 ## Mobile quick start
 
 ```bash
