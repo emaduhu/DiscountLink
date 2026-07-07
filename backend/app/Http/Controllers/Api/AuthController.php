@@ -16,6 +16,63 @@ use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
 {
+    public function register(Request $request, ApiTokenService $tokens): JsonResponse
+    {
+        $data = $request->validate([
+            'role' => ['required', Rule::in(['seller', 'deliverer', 'buyer'])],
+            'full_name' => ['required', 'string', 'max:160'],
+            'username' => ['nullable', 'string', 'max:80', 'alpha_dash', Rule::unique('users', 'username')],
+            'email' => ['required', 'email', 'max:190', Rule::unique('users', 'email')],
+            'phone' => ['required', 'string', 'max:30', Rule::unique('users', 'phone')],
+            'password' => ['required', 'string', 'min:6', 'max:120'],
+            'address' => ['required', 'string', 'max:255'],
+            'latitude' => ['nullable', 'numeric'],
+            'longitude' => ['nullable', 'numeric'],
+            'fcm_token' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $user = User::create([
+            'role' => $data['role'],
+            'name' => $data['full_name'],
+            'username' => $data['username'] ?? null,
+            'email' => $data['email'],
+            'email_verified_at' => now(),
+            'password' => $data['password'],
+            'phone' => $data['phone'],
+            'address' => $data['address'],
+            'latitude' => $data['latitude'] ?? null,
+            'longitude' => $data['longitude'] ?? null,
+            'fcm_token' => $data['fcm_token'] ?? null,
+            'is_active' => true,
+        ]);
+
+        return response()->json(['token' => $tokens->issue($user), 'user' => $user, 'phone_verified' => false], 201);
+    }
+
+    public function login(Request $request, ApiTokenService $tokens): JsonResponse
+    {
+        $data = $request->validate([
+            'identifier' => ['required', 'string', 'max:190'],
+            'password' => ['required', 'string'],
+            'fcm_token' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $identifier = $data['identifier'];
+        $user = User::where('email', $identifier)
+            ->orWhere('phone', $identifier)
+            ->orWhere('username', $identifier)
+            ->first();
+
+        abort_if(!$user || !$user->password || !Hash::check($data['password'], $user->password), 422, 'Invalid login credentials.');
+        abort_unless($user->is_active, 403, 'Your account is blocked.');
+
+        if (!empty($data['fcm_token'])) {
+            $user->update(['fcm_token' => $data['fcm_token']]);
+        }
+
+        return response()->json(['token' => $tokens->issue($user), 'user' => $user->fresh(), 'phone_verified' => (bool) $user->phone_verified_at]);
+    }
+
     public function google(Request $request, GoogleAuthService $google, ApiTokenService $tokens): JsonResponse
     {
         $data = $request->validate([

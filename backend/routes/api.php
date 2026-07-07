@@ -12,6 +12,8 @@ use App\Http\Middleware\AuthenticateApiToken;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/auth/google', [AuthController::class, 'google']);
+Route::post('/auth/register', [AuthController::class, 'register']);
+Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/webhooks/clickpesa', [PaymentWebhookController::class, 'clickpesa'])->name('api.clickpesa.callback');
 
 Route::middleware(AuthenticateApiToken::class)->group(function () {

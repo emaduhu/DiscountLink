@@ -15,7 +15,7 @@ import 'firebase_options.dart';
 
 const apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://10.0.2.2:8000/api',
+  defaultValue: 'https://dl.vigourtech.net/api',
 );
 const googleServerClientId = String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
 
@@ -146,31 +146,78 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final name = TextEditingController(text: 'Demo Buyer');
+  final username = TextEditingController(text: 'demo_buyer');
   final phone = TextEditingController(text: '255700000001');
   final address = TextEditingController(text: 'Dar es Salaam');
   final email = TextEditingController(text: 'buyer@discountlink.local');
+  final password = TextEditingController(text: 'password');
   String role = 'buyer';
   bool loading = false;
 
-  Future<void> signIn({required bool google}) async {
+  Future<String?> fcmToken() async {
+    try {
+      return FirebaseMessaging.instance.getToken();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> googleSignIn() async {
     setState(() => loading = true);
     try {
-      String token = 'dev-google-token:${email.text.trim()}';
-      if (google) {
-        final account = await GoogleSignIn.instance.authenticate();
-        token = account.authentication.idToken ?? token;
-      }
-      String? fcmToken;
-      try {
-        fcmToken = await FirebaseMessaging.instance.getToken();
-      } catch (_) {}
+      final account = await GoogleSignIn.instance.authenticate();
+      final token = account.authentication.idToken;
+      if (token == null) throw Exception('Google did not return an ID token.');
       final response = await widget.client.post('/auth/google', {
         'google_id_token': token,
         'role': role,
         'full_name': name.text.trim(),
         'phone': phone.text.trim(),
         'address': address.text.trim(),
-        'fcm_token': fcmToken,
+        'fcm_token': await fcmToken(),
+      });
+      widget.onSignedIn(
+        response['token'] as String,
+        response['user'] as Map<String, dynamic>,
+      );
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> register() async {
+    setState(() => loading = true);
+    try {
+      final response = await widget.client.post('/auth/register', {
+        'role': role,
+        'full_name': name.text.trim(),
+        'username': username.text.trim(),
+        'email': email.text.trim(),
+        'phone': phone.text.trim(),
+        'password': password.text,
+        'address': address.text.trim(),
+        'fcm_token': await fcmToken(),
+      });
+      widget.onSignedIn(
+        response['token'] as String,
+        response['user'] as Map<String, dynamic>,
+      );
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> passwordLogin() async {
+    setState(() => loading = true);
+    try {
+      final response = await widget.client.post('/auth/login', {
+        'identifier': email.text.trim(),
+        'password': password.text,
+        'fcm_token': await fcmToken(),
       });
       widget.onSignedIn(
         response['token'] as String,
@@ -199,7 +246,7 @@ class _LoginPageState extends State<LoginPage> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Register with Google, verify your phone, then sell, buy, deliver, and chat.',
+              'Sign in with Google, or register and log in with username, email, or phone.',
             ),
             const SizedBox(height: 24),
             SegmentedButton<String>(
@@ -230,6 +277,11 @@ class _LoginPageState extends State<LoginPage> {
               icon: Icons.person_outline,
             ),
             Field(
+              controller: username,
+              label: 'Username',
+              icon: Icons.badge_outlined,
+            ),
+            Field(
               controller: phone,
               label: 'Phone for OTP and disbursements',
               icon: Icons.phone_outlined,
@@ -242,19 +294,30 @@ class _LoginPageState extends State<LoginPage> {
             ),
             Field(
               controller: email,
-              label: 'Local dev email',
+              label: 'Email or username/phone for login',
               icon: Icons.alternate_email,
               keyboard: TextInputType.emailAddress,
             ),
+            Field(
+              controller: password,
+              label: 'Password',
+              icon: Icons.lock_outline,
+            ),
             const SizedBox(height: 12),
             FilledButton.icon(
-              onPressed: loading ? null : () => signIn(google: true),
+              onPressed: loading ? null : googleSignIn,
               icon: const Icon(Icons.login),
               label: Text(loading ? 'Signing in...' : 'Continue with Google'),
             ),
-            TextButton(
-              onPressed: loading ? null : () => signIn(google: false),
-              child: const Text('Use local dev sign-in'),
+            FilledButton.tonalIcon(
+              onPressed: loading ? null : register,
+              icon: const Icon(Icons.person_add_alt_1),
+              label: const Text('Register with form'),
+            ),
+            TextButton.icon(
+              onPressed: loading ? null : passwordLogin,
+              icon: const Icon(Icons.password),
+              label: const Text('Login with password'),
             ),
           ],
         ),
