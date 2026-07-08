@@ -69,6 +69,17 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
       client.token = token;
       user = signedUser;
     });
+    registerNotifications();
+  }
+
+  Future<void> registerNotifications() async {
+    try {
+      await FirebaseMessaging.instance.requestPermission();
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        await client.post('/me/fcm-token', {'fcm_token': token});
+      }
+    } catch (_) {}
   }
 
   Future<void> signedOut() async {
@@ -217,6 +228,13 @@ class ApiClient {
     return _send('POST', path, body: body);
   }
 
+  Future<Map<String, dynamic>> put(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    return _send('PUT', path, body: body);
+  }
+
   Future<Map<String, dynamic>> delete(String path) async {
     final uri = Uri.parse('$baseUrl$path');
     return _request(() => http.delete(uri, headers: _headers()));
@@ -257,9 +275,14 @@ class ApiClient {
     Map<String, dynamic>? body,
   }) async {
     final uri = Uri.parse('$baseUrl$path');
-    return _request(
-      () => http.post(uri, headers: _headers(), body: jsonEncode(body ?? {})),
-    );
+    return _request(() {
+      final headers = _headers();
+      final encoded = jsonEncode(body ?? {});
+      if (method == 'PUT') {
+        return http.put(uri, headers: headers, body: encoded);
+      }
+      return http.post(uri, headers: headers, body: encoded);
+    });
   }
 
   Future<Map<String, dynamic>> _request(
@@ -552,7 +575,12 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final role = widget.user['role'] as String;
     final pages = <Widget>[
-      if (role == 'buyer') BuyerPage(client: widget.client, user: widget.user),
+      if (role == 'buyer')
+        BuyerPage(
+          client: widget.client,
+          user: widget.user,
+          onUserChanged: widget.onUserChanged,
+        ),
       if (role == 'buyer') OrdersPage(client: widget.client),
       if (role == 'seller')
         SellerPage(client: widget.client, user: widget.user),
@@ -904,9 +932,15 @@ class _ProfilePageState extends State<ProfilePage> {
 }
 
 class BuyerPage extends StatefulWidget {
-  const BuyerPage({super.key, required this.client, required this.user});
+  const BuyerPage({
+    super.key,
+    required this.client,
+    required this.user,
+    required this.onUserChanged,
+  });
   final ApiClient client;
   final Map<String, dynamic> user;
+  final ValueChanged<Map<String, dynamic>> onUserChanged;
   @override
   State<BuyerPage> createState() => _BuyerPageState();
 }
@@ -989,6 +1023,15 @@ class _BuyerPageState extends State<BuyerPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Chat started. Open Chat to continue.')),
+    );
+  }
+
+  Future<void> saveAddress() async {
+    final r = await widget.client.put('/me', {'address': checkoutAddress()});
+    widget.onUserChanged(r['user'] as Map<String, dynamic>);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(tx('Address saved.', 'Anwani imehifadhiwa.'))),
     );
   }
 
@@ -1177,6 +1220,12 @@ class _BuyerPageState extends State<BuyerPage> {
                   icon: Icons.phone_outlined,
                   keyboard: TextInputType.phone,
                 ),
+                OutlinedButton.icon(
+                  onPressed: saveAddress,
+                  icon: const Icon(Icons.save_outlined),
+                  label: Text(tx('Save address', 'Hifadhi anwani')),
+                ),
+                const SizedBox(height: 8),
                 FilledButton.icon(
                   onPressed: cart.isEmpty
                       ? null
@@ -1319,6 +1368,190 @@ class _SellerPageState extends State<SellerPage> {
 
   List<String> productImagePaths() {
     return selectedProductImages.map((image) => image.path).toList();
+  }
+
+  Future<void> editShop(Map<String, dynamic> shop) async {
+    final name = TextEditingController(text: shop['name'] ?? '');
+    final shopAddress = TextEditingController(text: shop['address'] ?? '');
+    final categories = <String>{
+      ...(((shop['categories'] as List?) ?? [shop['category']])
+          .whereType<String>()),
+    };
+    if (categories.isEmpty) categories.add('Electronics');
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit shop'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Field(controller: name, label: 'Shop name', icon: Icons.store),
+                CategoryMultiSelect(
+                  selected: categories,
+                  onChanged: (next) => setDialogState(() {
+                    categories
+                      ..clear()
+                      ..addAll(next);
+                  }),
+                ),
+                Field(
+                  controller: shopAddress,
+                  label: 'Address',
+                  icon: Icons.place_outlined,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                try {
+                  await widget.client.put('/shops/${shop['id']}', {
+                    'name': name.text.trim(),
+                    'category': categories.first,
+                    'categories': categories.toList(),
+                    'address': shopAddress.text.trim(),
+                  });
+                  if (!dialogContext.mounted) return;
+                  Navigator.pop(dialogContext);
+                  await load();
+                } catch (error) {
+                  if (dialogContext.mounted) showError(dialogContext, error);
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> editProduct(Map<String, dynamic> product) async {
+    final name = TextEditingController(text: product['name'] ?? '');
+    final productDescription = TextEditingController(
+      text: product['description'] ?? '',
+    );
+    final productPrice = TextEditingController(
+      text: '${product['price'] ?? ''}',
+    );
+    final productDiscount = TextEditingController(
+      text: '${product['discount_percent'] ?? '0'}',
+    );
+    final productDelivery = TextEditingController(
+      text: '${product['delivery_price'] ?? ''}',
+    );
+    final productStock = TextEditingController(
+      text: '${product['stock'] ?? '0'}',
+    );
+    var replacementImages = <XFile>[];
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit product'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Field(
+                  controller: name,
+                  label: 'Product name',
+                  icon: Icons.inventory_2_outlined,
+                ),
+                Field(
+                  controller: productDescription,
+                  label: 'Description',
+                  icon: Icons.notes,
+                ),
+                Field(
+                  controller: productPrice,
+                  label: 'Price',
+                  icon: Icons.sell_outlined,
+                  keyboard: TextInputType.number,
+                ),
+                Field(
+                  controller: productDiscount,
+                  label: 'Discount percent',
+                  icon: Icons.percent,
+                  keyboard: TextInputType.number,
+                ),
+                Field(
+                  controller: productDelivery,
+                  label: 'Delivery price',
+                  icon: Icons.delivery_dining,
+                  keyboard: TextInputType.number,
+                ),
+                Field(
+                  controller: productStock,
+                  label: 'Stock',
+                  icon: Icons.numbers,
+                  keyboard: TextInputType.number,
+                ),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final images = await picker.pickMultiImage(
+                      imageQuality: 75,
+                    );
+                    if (images.isNotEmpty) {
+                      setDialogState(() => replacementImages = images);
+                    }
+                  },
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: Text(
+                    replacementImages.isEmpty
+                        ? 'Replace images'
+                        : '${replacementImages.length} images chosen',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                try {
+                  final body = <String, dynamic>{
+                    'name': name.text.trim(),
+                    'description': productDescription.text.trim(),
+                    'price': double.parse(productPrice.text),
+                    'discount_percent':
+                        double.tryParse(productDiscount.text) ?? 0,
+                    'delivery_price': double.parse(productDelivery.text),
+                    'stock': int.parse(productStock.text),
+                  };
+                  if (replacementImages.isNotEmpty) {
+                    if (replacementImages.length < 3) {
+                      throw Exception('Choose at least 3 product images.');
+                    }
+                    body['images'] = replacementImages
+                        .map((image) => image.path)
+                        .toList();
+                  }
+                  await widget.client.put('/products/${product['id']}', body);
+                  if (!dialogContext.mounted) return;
+                  Navigator.pop(dialogContext);
+                  await load();
+                } catch (error) {
+                  if (dialogContext.mounted) showError(dialogContext, error);
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -1485,10 +1718,54 @@ class _SellerPageState extends State<SellerPage> {
         ),
         const SizedBox(height: 12),
         for (final s in shops)
-          InfoCard(
-            title: s['name'],
-            subtitle:
-                '${((s['categories'] as List?) ?? [s['category']]).where((category) => category != null).join(', ')} - ${s['products']?.length ?? 0} products',
+          SurfacePanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            s['name'] ?? '',
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${((s['categories'] as List?) ?? [s['category']]).where((category) => category != null).join(', ')} - ${s['products']?.length ?? 0} products',
+                            style: const TextStyle(color: kTextColor),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Edit shop',
+                      onPressed: () => editShop(s as Map<String, dynamic>),
+                      icon: const Icon(Icons.edit_outlined),
+                    ),
+                  ],
+                ),
+                for (final product in ((s['products'] as List?) ?? []))
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const CircleAvatar(
+                      backgroundColor: kPrimaryLightColor,
+                      child: Icon(Icons.inventory_2_outlined),
+                    ),
+                    title: Text(product['name'] ?? ''),
+                    subtitle: Text('TZS ${product['auto_total']}'),
+                    trailing: IconButton(
+                      tooltip: 'Edit product',
+                      onPressed: () =>
+                          editProduct(product as Map<String, dynamic>),
+                      icon: const Icon(Icons.edit_outlined),
+                    ),
+                  ),
+              ],
+            ),
           ),
       ],
     );
@@ -1803,7 +2080,7 @@ class ChatListTile extends StatelessWidget {
     final messages = (conversation['messages'] as List?) ?? [];
     final last = messages.isEmpty
         ? null
-        : messages.first as Map<String, dynamic>;
+        : messages.last as Map<String, dynamic>;
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       leading: CircleAvatar(
@@ -2379,12 +2656,22 @@ String productImageSource(
   Map<String, dynamic> product, {
   required String fallback,
 }) {
+  return productImageSources(product, fallback: fallback).first;
+}
+
+List<String> productImageSources(
+  Map<String, dynamic> product, {
+  required String fallback,
+}) {
   final images = product['images'];
-  if (images is List && images.isNotEmpty) {
-    final first = '${images.first}'.trim();
-    if (first.isNotEmpty) return first;
+  if (images is List) {
+    final sources = images
+        .map((image) => '$image'.trim())
+        .where((image) => image.isNotEmpty)
+        .toList();
+    if (sources.isNotEmpty) return sources;
   }
-  return fallback;
+  return [fallback];
 }
 
 class ProductImage extends StatelessWidget {
@@ -2566,6 +2853,7 @@ class ProductQuickView extends StatelessWidget {
   Widget build(BuildContext context) {
     final total = num.tryParse('${product['auto_total']}') ?? 0;
     final maxHeight = MediaQuery.sizeOf(context).height * 0.86;
+    final images = productImageSources(product, fallback: imageAsset);
     return SafeArea(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxHeight),
@@ -2576,8 +2864,25 @@ class ProductQuickView extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               SizedBox(
-                height: 150,
-                child: ProductImage(source: imageAsset, fit: BoxFit.contain),
+                height: 170,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: images.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 10),
+                  itemBuilder: (context, index) => AspectRatio(
+                    aspectRatio: 1,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: DecoratedBox(
+                        decoration: const BoxDecoration(color: kSurfaceColor),
+                        child: ProductImage(
+                          source: images[index],
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               Text(

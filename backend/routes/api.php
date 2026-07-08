@@ -18,6 +18,7 @@ Route::post('/webhooks/clickpesa', [PaymentWebhookController::class, 'clickpesa'
 
 Route::middleware(AuthenticateApiToken::class)->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
+    Route::put('/me', [AuthController::class, 'updateProfile']);
     Route::post('/me/fcm-token', [AuthController::class, 'updateFcm']);
     Route::post('/otp/request', [AuthController::class, 'requestOtp']);
     Route::get('/otp/provider', [AuthController::class, 'otpProvider']);
@@ -28,7 +29,9 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
 
     Route::post('/shops', [ShopController::class, 'store']);
     Route::get('/seller/shops', [ShopController::class, 'mine']);
+    Route::put('/shops/{shop}', [ShopController::class, 'update']);
     Route::post('/shops/{shop}/products', [ShopController::class, 'product']);
+    Route::put('/products/{product}', [ShopController::class, 'updateProduct']);
 
     Route::get('/cart', [CartController::class, 'index']);
     Route::post('/cart/{product}', [CartController::class, 'add']);

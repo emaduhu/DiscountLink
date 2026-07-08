@@ -166,6 +166,19 @@ class AuthController extends Controller
         return response()->json(['user' => $request->user()]);
     }
 
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'address' => ['nullable', 'string', 'max:255'],
+            'latitude' => ['nullable', 'numeric'],
+            'longitude' => ['nullable', 'numeric'],
+        ]);
+
+        $request->user()->update($data);
+
+        return response()->json(['user' => $request->user()->fresh()]);
+    }
+
     public function updateFcm(Request $request): JsonResponse
     {
         $data = $request->validate(['fcm_token' => ['required', 'string', 'max:255']]);

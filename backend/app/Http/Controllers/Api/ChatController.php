@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use App\Services\FcmService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -16,7 +17,7 @@ class ChatController extends Controller
         $conversations = Conversation::with(['messages', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone'])
             ->where('user_one_id', $request->user()->id)
             ->orWhere('user_two_id', $request->user()->id)
-            ->latest()
+            ->latest('updated_at')
             ->get();
         return response()->json(['conversations' => $conversations]);
     }
@@ -54,11 +55,22 @@ class ChatController extends Controller
         return response()->json(['messages' => $conversation->messages()->latest()->paginate(50)]);
     }
 
-    public function send(Request $request, Conversation $conversation): JsonResponse
+    public function send(Request $request, Conversation $conversation, FcmService $fcm): JsonResponse
     {
         abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
         $data = $request->validate(['body' => ['required', 'string', 'max:4000']]);
         $message = Message::create(['conversation_id' => $conversation->id, 'sender_id' => $request->user()->id, 'body' => $data['body']]);
+        $conversation->touch();
+        $recipientId = $conversation->user_one_id === $request->user()->id ? $conversation->user_two_id : $conversation->user_one_id;
+        $recipient = User::find($recipientId);
+        if ($recipient) {
+            $fcm->sendToUser($recipient, 'New message from '.$request->user()->name, $message->body, [
+                'type' => 'chat_message',
+                'conversation_id' => (string) $conversation->id,
+                'message_id' => (string) $message->id,
+                'sender_id' => (string) $request->user()->id,
+            ]);
+        }
         return response()->json(['message' => $message], 201);
     }
 }
