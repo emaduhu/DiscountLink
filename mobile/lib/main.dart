@@ -1707,8 +1707,6 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   List conversations = [];
-  List contacts = [];
-  final message = TextEditingController();
 
   @override
   void initState() {
@@ -1716,217 +1714,436 @@ class _ChatPageState extends State<ChatPage> {
     load();
   }
 
-  @override
-  void dispose() {
-    message.dispose();
-    super.dispose();
-  }
-
   Future<void> load() async {
     final r = await widget.client.get('/conversations');
     setState(() => conversations = r['conversations'] as List);
   }
 
-  Future<void> loadContacts() async {
-    final r = await widget.client.get('/chat/contacts');
-    setState(() => contacts = r['contacts'] as List);
-  }
-
-  Future<void> startChat(Map<String, dynamic> contact) async {
-    await widget.client.post('/conversations', {'user_id': contact['id']});
-    await load();
-    if (!mounted) return;
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(tx('Chat started.', 'Mazungumzo yameanzishwa.'))),
-    );
-  }
-
-  Future<void> showStartChatSheet() async {
-    await loadContacts();
-    if (!mounted) return;
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (_) => ListView(
-        padding: const EdgeInsets.all(kDefaultPadding),
-        children: [
-          SectionTitle(title: tx('Start chat', 'Anzisha mazungumzo')),
-          const SizedBox(height: 8),
-          if (contacts.isEmpty)
-            EmptyState(
-              icon: Icons.people_outline,
-              title: tx('No contacts', 'Hakuna anwani'),
-              subtitle: tx(
-                'Users available for chat will appear here.',
-                'Watumiaji wa kuzungumza nao wataonekana hapa.',
-              ),
-            )
-          else
-            for (final contact in contacts)
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: kPrimaryLightColor,
-                  child: Text(initials(contact['name'] ?? 'DL')),
-                ),
-                title: Text(contact['name'] ?? ''),
-                subtitle: Text(
-                  '${contact['role']} - ${contact['phone'] ?? ''}',
-                ),
-                trailing: const Icon(Icons.chat_bubble_outline),
-                onTap: () => startChat(contact as Map<String, dynamic>),
-              ),
-        ],
+  Future<void> showStartChatPage() async {
+    final conversation = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(
+        builder: (_) => ChatContactsPage(client: widget.client),
       ),
     );
+    if (conversation == null || !mounted) return;
+    await load();
+    if (!mounted) return;
+    await openConversation(conversation);
   }
 
   Future<void> openConversation(Map<String, dynamic> conversation) async {
-    final r = await widget.client.get(
-      '/conversations/${conversation['id']}/messages',
-    );
-    final messages = (r['messages']['data'] as List?) ?? [];
-    if (!mounted) return;
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => Padding(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 8,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ChatConversationPage(
+          client: widget.client,
+          user: widget.user,
+          conversation: conversation,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+      ),
+    );
+    if (!mounted) return;
+    await load();
+  }
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    children: [
+      RefreshIndicator(
+        onRefresh: load,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
           children: [
-            SectionTitle(title: tx('Conversation', 'Mazungumzo')),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: SectionTitle(title: tx('Chats', 'Mazungumzo')),
+            ),
             const SizedBox(height: 8),
-            SizedBox(
-              height: 260,
-              child: messages.isEmpty
-                  ? Center(
-                      child: Text(
-                        tx('No messages yet.', 'Bado hakuna ujumbe.'),
-                        style: const TextStyle(color: kTextColor),
+            if (conversations.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: EmptyState(
+                  icon: Icons.chat_bubble_outline,
+                  title: tx('No conversations yet', 'Bado hakuna mazungumzo'),
+                  subtitle: tx(
+                    'Start a chat with a seller, buyer, or deliverer.',
+                    'Anzisha mazungumzo na muuzaji, mnunuzi, au msafirishaji.',
+                  ),
+                ),
+              ),
+            for (final item in conversations)
+              ChatListTile(
+                conversation: item as Map<String, dynamic>,
+                currentUserId: widget.user['id'],
+                onTap: () => openConversation(item),
+              ),
+          ],
+        ),
+      ),
+      Positioned(
+        right: 18,
+        bottom: 18,
+        child: FloatingActionButton.extended(
+          onPressed: showStartChatPage,
+          icon: const Icon(Icons.add_comment_outlined),
+          label: Text(tx('New chat', 'Soga jipya')),
+        ),
+      ),
+    ],
+  );
+}
+
+class ChatListTile extends StatelessWidget {
+  const ChatListTile({
+    super.key,
+    required this.conversation,
+    required this.currentUserId,
+    required this.onTap,
+  });
+
+  final Map<String, dynamic> conversation;
+  final dynamic currentUserId;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final other = conversationOther(conversation, currentUserId);
+    final name =
+        other?['name'] ??
+        '${tx('Conversation', 'Mazungumzo')} #${conversation['id']}';
+    final role = other?['role'] ?? '';
+    final messages = (conversation['messages'] as List?) ?? [];
+    final last = messages.isEmpty
+        ? null
+        : messages.first as Map<String, dynamic>;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      leading: CircleAvatar(
+        radius: 25,
+        backgroundColor: kPrimaryLightColor,
+        child: Text(
+          initials(name),
+          style: const TextStyle(
+            color: kPrimaryColor,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+      title: Text(
+        name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontWeight: FontWeight.w800),
+      ),
+      subtitle: Text(
+        last?['body'] ?? role,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: onTap,
+    );
+  }
+}
+
+class ChatContactsPage extends StatefulWidget {
+  const ChatContactsPage({super.key, required this.client});
+  final ApiClient client;
+
+  @override
+  State<ChatContactsPage> createState() => _ChatContactsPageState();
+}
+
+class _ChatContactsPageState extends State<ChatContactsPage> {
+  List contacts = [];
+  bool loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  Future<void> load() async {
+    final r = await widget.client.get('/chat/contacts');
+    if (!mounted) return;
+    setState(() {
+      contacts = r['contacts'] as List;
+      loading = false;
+    });
+  }
+
+  Future<void> startChat(Map<String, dynamic> contact) async {
+    final r = await widget.client.post('/conversations', {
+      'user_id': contact['id'],
+    });
+    if (!mounted) return;
+    Navigator.pop(context, r['conversation'] as Map<String, dynamic>);
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(tx('New chat', 'Soga jipya'))),
+    body: loading
+        ? const Center(child: CircularProgressIndicator())
+        : RefreshIndicator(
+            onRefresh: load,
+            child: ListView(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              children: [
+                if (contacts.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: EmptyState(
+                      icon: Icons.people_outline,
+                      title: tx('No contacts', 'Hakuna anwani'),
+                      subtitle: tx(
+                        'Users available for chat will appear here.',
+                        'Watumiaji wa kuzungumza nao wataonekana hapa.',
                       ),
-                    )
-                  : ListView.builder(
-                      reverse: true,
-                      itemCount: messages.length,
-                      itemBuilder: (context, index) {
-                        final item = messages[index] as Map<String, dynamic>;
-                        final mine = item['sender_id'] == widget.user['id'];
-                        return Align(
-                          alignment: mine
-                              ? Alignment.centerRight
-                              : Alignment.centerLeft,
-                          child: Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: mine ? kPrimaryColor : kPrimaryLightColor,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: Text(
-                              item['body'] ?? '',
-                              style: TextStyle(
-                                color: mine ? Colors.white : null,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
                     ),
+                  ),
+                for (final item in contacts)
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 6,
+                    ),
+                    leading: CircleAvatar(
+                      radius: 25,
+                      backgroundColor: kPrimaryLightColor,
+                      child: Text(
+                        initials(item['name'] ?? 'DL'),
+                        style: const TextStyle(
+                          color: kPrimaryColor,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    title: Text(
+                      item['name'] ?? '',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    subtitle: Text('${item['role']} - ${item['phone'] ?? ''}'),
+                    onTap: () => startChat(item as Map<String, dynamic>),
+                  ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Field(
-              controller: message,
-              label: tx('Type message', 'Andika ujumbe'),
-              icon: Icons.message_outlined,
+          ),
+  );
+}
+
+class ChatConversationPage extends StatefulWidget {
+  const ChatConversationPage({
+    super.key,
+    required this.client,
+    required this.user,
+    required this.conversation,
+  });
+
+  final ApiClient client;
+  final Map<String, dynamic> user;
+  final Map<String, dynamic> conversation;
+
+  @override
+  State<ChatConversationPage> createState() => _ChatConversationPageState();
+}
+
+class _ChatConversationPageState extends State<ChatConversationPage> {
+  final message = TextEditingController();
+  List messages = [];
+  bool loading = true;
+  Timer? refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+    refreshTimer = Timer.periodic(const Duration(seconds: 8), (_) => load());
+  }
+
+  @override
+  void dispose() {
+    refreshTimer?.cancel();
+    message.dispose();
+    super.dispose();
+  }
+
+  Future<void> load() async {
+    final r = await widget.client.get(
+      '/conversations/${widget.conversation['id']}/messages',
+    );
+    if (!mounted) return;
+    setState(() {
+      messages = (r['messages']['data'] as List?) ?? [];
+      loading = false;
+    });
+  }
+
+  Future<void> send() async {
+    final body = message.text.trim();
+    if (body.isEmpty) return;
+    message.clear();
+    await widget.client.post(
+      '/conversations/${widget.conversation['id']}/messages',
+      {'body': body},
+    );
+    await load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final other = conversationOther(widget.conversation, widget.user['id']);
+    final title =
+        other?['name'] ??
+        '${tx('Conversation', 'Mazungumzo')} #${widget.conversation['id']}';
+    final role = other?['role'];
+    return Scaffold(
+      appBar: AppBar(
+        titleSpacing: 0,
+        title: Row(
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: kPrimaryLightColor,
+              child: Text(
+                initials(title),
+                style: const TextStyle(
+                  color: kPrimaryColor,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ),
-            FilledButton.icon(
-              onPressed: () async {
-                if (message.text.trim().isEmpty) return;
-                final navigator = Navigator.of(context);
-                await widget.client.post(
-                  '/conversations/${conversation['id']}/messages',
-                  {'body': message.text.trim()},
-                );
-                message.clear();
-                navigator.pop();
-                if (!mounted) return;
-                await openConversation(conversation);
-              },
-              icon: const Icon(Icons.send),
-              label: Text(tx('Send', 'Tuma')),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  if (role != null)
+                    Text(
+                      role,
+                      style: const TextStyle(fontSize: 12, color: kTextColor),
+                    ),
+                ],
+              ),
             ),
           ],
         ),
       ),
+      body: Column(
+        children: [
+          Expanded(
+            child: loading
+                ? const Center(child: CircularProgressIndicator())
+                : messages.isEmpty
+                ? Center(
+                    child: Text(
+                      tx('No messages yet.', 'Bado hakuna ujumbe.'),
+                      style: const TextStyle(color: kTextColor),
+                    ),
+                  )
+                : ListView.builder(
+                    reverse: true,
+                    padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) {
+                      final item = messages[index] as Map<String, dynamic>;
+                      final mine = item['sender_id'] == widget.user['id'];
+                      return ChatBubble(message: item, mine: mine);
+                    },
+                  ),
+          ),
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+              color: Colors.white,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: message,
+                      minLines: 1,
+                      maxLines: 4,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => send(),
+                      decoration: InputDecoration(
+                        hintText: tx('Message', 'Ujumbe'),
+                        filled: true,
+                        fillColor: kSurfaceColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filled(
+                    onPressed: send,
+                    icon: const Icon(Icons.send),
+                    style: IconButton.styleFrom(
+                      backgroundColor: kPrimaryColor,
+                      fixedSize: const Size(48, 48),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
+}
+
+class ChatBubble extends StatelessWidget {
+  const ChatBubble({super.key, required this.message, required this.mine});
+  final Map<String, dynamic> message;
+  final bool mine;
 
   @override
-  Widget build(BuildContext context) => RefreshIndicator(
-    onRefresh: load,
-    child: ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        SectionTitle(
-          title: tx('Chats', 'Mazungumzo'),
-          action: tx('Start chat', 'Anzisha'),
-          onAction: showStartChatSheet,
+  Widget build(BuildContext context) => Align(
+    alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+    child: Container(
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.sizeOf(context).width * 0.78,
+      ),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: mine ? const Color(0xffdcf8c6) : Colors.white,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(16),
+          topRight: const Radius.circular(16),
+          bottomLeft: Radius.circular(mine ? 16 : 4),
+          bottomRight: Radius.circular(mine ? 4 : 16),
         ),
-        const SizedBox(height: 8),
-        FilledButton.icon(
-          onPressed: showStartChatSheet,
-          icon: const Icon(Icons.add_comment_outlined),
-          label: Text(tx('Start chat', 'Anzisha mazungumzo')),
-        ),
-        const SizedBox(height: 12),
-        if (conversations.isEmpty)
-          EmptyState(
-            icon: Icons.chat_bubble_outline,
-            title: tx('No conversations yet', 'Bado hakuna mazungumzo'),
-            subtitle: tx(
-              'Start a chat with a seller, buyer, or deliverer.',
-              'Anzisha mazungumzo na muuzaji, mnunuzi, au msafirishaji.',
-            ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
-        for (final c in conversations)
-          SurfacePanel(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: ListTile(
-              leading: const CircleAvatar(
-                backgroundColor: kPrimaryLightColor,
-                child: Icon(Icons.chat_bubble_outline, color: kPrimaryColor),
-              ),
-              title: Text(conversationTitle(c as Map<String, dynamic>)),
-              subtitle: Text(
-                '${(c['messages'] as List?)?.length ?? 0} ${tx('messages', 'jumbe')}',
-              ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => openConversation(c),
-            ),
-          ),
-      ],
+        ],
+      ),
+      child: Text(message['body'] ?? ''),
     ),
   );
+}
 
-  String conversationTitle(Map<String, dynamic> conversation) {
-    final currentId = widget.user['id'];
-    final one = conversation['user_one'] as Map<String, dynamic>?;
-    final two = conversation['user_two'] as Map<String, dynamic>?;
-    final other = conversation['user_one_id'] == currentId ? two : one;
-    final name =
-        other?['name'] ??
-        '${tx('Conversation', 'Mazungumzo')} #${conversation['id']}';
-    final role = other?['role'];
-    return role == null ? name : '$name - $role';
-  }
+Map<String, dynamic>? conversationOther(
+  Map<String, dynamic> conversation,
+  dynamic currentUserId,
+) {
+  final one = conversation['user_one'] as Map<String, dynamic>?;
+  final two = conversation['user_two'] as Map<String, dynamic>?;
+  return conversation['user_one_id'] == currentUserId ? two : one;
 }
 
 class SurfacePanel extends StatelessWidget {
