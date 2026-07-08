@@ -34,6 +34,13 @@ class CartController extends Controller
         return response()->json(['item' => $item->load('product')], 201);
     }
 
+    public function remove(Request $request, Product $product): JsonResponse
+    {
+        abort_unless($request->user()->role === 'buyer', 403, 'Only buyers can remove cart items.');
+        Cart::where('buyer_id', $request->user()->id)->where('product_id', $product->id)->delete();
+        return response()->json(['message' => 'Item removed from cart.']);
+    }
+
     public function checkout(Request $request, ClickPesaService $clickPesa, FcmService $fcm): JsonResponse
     {
         abort_unless($request->user()->role === 'buyer', 403);

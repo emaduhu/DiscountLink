@@ -40,8 +40,8 @@ class ShopController extends Controller
             'discount_price' => ['nullable', 'numeric', 'min:0'],
             'discount_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'delivery_price' => ['required', 'numeric', 'min:0'],
-            'images' => ['nullable', 'array'],
-            'images.*' => ['url'],
+            'images' => ['required', 'array', 'min:3'],
+            'images.*' => ['required', 'string', 'max:500'],
             'stock' => ['required', 'integer', 'min:0'],
         ]);
         $effective = $data['discount_price'] ?? round($data['price'] * (1 - (($data['discount_percent'] ?? 0) / 100)), 2);

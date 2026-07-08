@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -9,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import 'firebase_options.dart';
@@ -18,6 +20,12 @@ const apiBaseUrl = String.fromEnvironment(
   defaultValue: 'https://dl.vigourtech.net/api',
 );
 const googleServerClientId = String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
+const kPrimaryColor = Color(0xffff7643);
+const kPrimaryColor2 = Color(0xffffa53e);
+const kPrimaryLightColor = Color(0xffffecdf);
+const kTextColor = Color(0xff757575);
+const kSurfaceColor = Color(0xfff6f7fb);
+const kDefaultPadding = 20.0;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,11 +53,26 @@ class DiscountLinkApp extends StatefulWidget {
 class _DiscountLinkAppState extends State<DiscountLinkApp> {
   final client = ApiClient(apiBaseUrl);
   Map<String, dynamic>? user;
+  bool showSplash = true;
 
   void signedIn(String token, Map<String, dynamic> signedUser) {
     setState(() {
       client.token = token;
       user = signedUser;
+    });
+  }
+
+  Future<void> signedOut() async {
+    try {
+      await GoogleSignIn.instance.signOut();
+    } catch (_) {}
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
+    setState(() {
+      client.token = null;
+      user = null;
+      showSplash = false;
     });
   }
 
@@ -60,25 +83,110 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xff0f766e),
+          seedColor: kPrimaryColor,
           brightness: Brightness.light,
         ),
-        scaffoldBackgroundColor: const Color(0xfff7f8fa),
+        scaffoldBackgroundColor: kSurfaceColor,
         useMaterial3: true,
+        appBarTheme: const AppBarTheme(
+          elevation: 0,
+          centerTitle: true,
+          backgroundColor: kSurfaceColor,
+          foregroundColor: Colors.black,
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 16,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: Colors.black.withValues(alpha: 0.06)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: const BorderSide(color: kPrimaryColor, width: 1.4),
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: kPrimaryColor,
+            foregroundColor: Colors.white,
+            minimumSize: const Size.fromHeight(52),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+          ),
+        ),
         cardTheme: const CardThemeData(
           margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(8)),
+            borderRadius: BorderRadius.all(Radius.circular(18)),
           ),
         ),
       ),
-      home: user == null
+      home: showSplash
+          ? SplashPage(onContinue: () => setState(() => showSplash = false))
+          : user == null
           ? LoginPage(client: client, onSignedIn: signedIn)
           : HomePage(
               client: client,
               user: user!,
               onUserChanged: (u) => setState(() => user = u),
+              onSignOut: signedOut,
             ),
+    );
+  }
+}
+
+class SplashPage extends StatelessWidget {
+  const SplashPage({super.key, required this.onContinue});
+  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(kDefaultPadding),
+          child: Column(
+            children: [
+              const Spacer(),
+              Image.asset(
+                'assets/images/welcome_image.png',
+                height: 280,
+                fit: BoxFit.contain,
+              ),
+              const SizedBox(height: 28),
+              Text(
+                'DiscountLink',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Discounted products, verified sellers, tracked delivery, and fast checkout in one shopping flow.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: kTextColor, height: 1.45),
+              ),
+              const Spacer(),
+              FilledButton(
+                onPressed: onContinue,
+                child: const Text('Continue'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -93,6 +201,32 @@ class ApiClient {
     Map<String, dynamic> body,
   ) async {
     return _send('POST', path, body: body);
+  }
+
+  Future<Map<String, dynamic>> delete(String path) async {
+    final uri = Uri.parse('$baseUrl$path');
+    return _request(() => http.delete(uri, headers: _headers()));
+  }
+
+  Future<Map<String, dynamic>> postMultipart(
+    String path, {
+    required Map<String, String> fields,
+    File? file,
+    String fileField = 'image',
+  }) async {
+    final uri = Uri.parse('$baseUrl$path');
+    return _request(() async {
+      final request = http.MultipartRequest('POST', uri);
+      request.headers.addAll(_headers(includeContentType: false));
+      request.fields.addAll(fields);
+      if (file != null) {
+        request.files.add(
+          await http.MultipartFile.fromPath(fileField, file.path),
+        );
+      }
+      final streamed = await request.send();
+      return http.Response.fromStream(streamed);
+    });
   }
 
   Future<Map<String, dynamic>> get(
@@ -129,9 +263,9 @@ class ApiClient {
     return data;
   }
 
-  Map<String, String> _headers() => {
+  Map<String, String> _headers({bool includeContentType = true}) => {
     'Accept': 'application/json',
-    'Content-Type': 'application/json',
+    if (includeContentType) 'Content-Type': 'application/json',
     if (token != null) 'Authorization': 'Bearer $token',
   };
 }
@@ -233,85 +367,126 @@ class _LoginPageState extends State<LoginPage> {
     return Scaffold(
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(kDefaultPadding),
           children: [
-            const SizedBox(height: 24),
+            const SizedBox(height: 12),
+            Image.asset(
+              'assets/images/welcome_image.png',
+              height: 170,
+              fit: BoxFit.contain,
+            ),
+            const SizedBox(height: 18),
             Text(
-              'DiscountLink',
-              style: Theme.of(
-                context,
-              ).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w800),
+              'Welcome back',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: Colors.black,
+              ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             const Text(
-              'Sign in with Google, or register and log in with email or phone.',
+              'Sign in with Google, or use email/phone and password.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: kTextColor),
             ),
-            const SizedBox(height: 24),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(
-                  value: 'buyer',
-                  label: Text('Buyer'),
-                  icon: Icon(Icons.shopping_bag_outlined),
-                ),
-                ButtonSegment(
-                  value: 'seller',
-                  label: Text('Seller'),
-                  icon: Icon(Icons.storefront_outlined),
-                ),
-                ButtonSegment(
-                  value: 'deliverer',
-                  label: Text('Deliverer'),
-                  icon: Icon(Icons.delivery_dining_outlined),
+            const SizedBox(height: 22),
+            SurfacePanel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  RoleSelector(
+                    value: role,
+                    onChanged: (value) => setState(() => role = value),
+                  ),
+                  const SizedBox(height: 14),
+                  Field(
+                    controller: email,
+                    label: 'Email or phone',
+                    icon: Icons.alternate_email,
+                    keyboard: TextInputType.text,
+                  ),
+                  Field(
+                    controller: password,
+                    label: 'Password',
+                    icon: Icons.lock_outline,
+                    obscure: true,
+                  ),
+                  FilledButton(
+                    onPressed: loading ? null : passwordLogin,
+                    child: Text(loading ? 'Signing in...' : 'Login'),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Expanded(child: Divider()),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text(
+                          'or',
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.copyWith(color: kTextColor),
+                        ),
+                      ),
+                      const Expanded(child: Divider()),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: loading ? null : googleSignIn,
+                    icon: const Icon(Icons.login),
+                    label: const Text('Continue with Google'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52),
+                      foregroundColor: Colors.black,
+                      side: BorderSide(
+                        color: Colors.black.withValues(alpha: 0.12),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+              title: const Text('Create account with form'),
+              subtitle: const Text('Buyer, seller, or deliverer registration'),
+              childrenPadding: EdgeInsets.zero,
+              children: [
+                SurfacePanel(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Field(
+                        controller: name,
+                        label: 'Full name',
+                        icon: Icons.person_outline,
+                      ),
+                      Field(
+                        controller: phone,
+                        label: 'Phone for OTP and payments',
+                        icon: Icons.phone_outlined,
+                        keyboard: TextInputType.phone,
+                      ),
+                      Field(
+                        controller: address,
+                        label: 'Default address',
+                        icon: Icons.place_outlined,
+                      ),
+                      FilledButton.icon(
+                        onPressed: loading ? null : register,
+                        icon: const Icon(Icons.person_add_alt_1),
+                        label: const Text('Register'),
+                      ),
+                    ],
+                  ),
                 ),
               ],
-              selected: {role},
-              onSelectionChanged: (v) => setState(() => role = v.first),
-            ),
-            const SizedBox(height: 16),
-            Field(
-              controller: name,
-              label: 'Full name',
-              icon: Icons.person_outline,
-            ),
-            Field(
-              controller: phone,
-              label: 'Phone for OTP and disbursements',
-              icon: Icons.phone_outlined,
-              keyboard: TextInputType.phone,
-            ),
-            Field(
-              controller: address,
-              label: 'Default address',
-              icon: Icons.place_outlined,
-            ),
-            Field(
-              controller: email,
-              label: 'Email or phone for login',
-              icon: Icons.alternate_email,
-              keyboard: TextInputType.text,
-            ),
-            Field(
-              controller: password,
-              label: 'Password',
-              icon: Icons.lock_outline,
-              obscure: true,
-            ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: loading ? null : googleSignIn,
-              icon: const Icon(Icons.login),
-              label: Text(loading ? 'Signing in...' : 'Continue with Google'),
-            ),
-            FilledButton.tonalIcon(
-              onPressed: loading ? null : register,
-              icon: const Icon(Icons.person_add_alt_1),
-              label: const Text('Register with form'),
-            ),
-            TextButton.icon(
-              onPressed: loading ? null : passwordLogin,
-              icon: const Icon(Icons.password),
-              label: const Text('Login with password'),
             ),
           ],
         ),
@@ -326,10 +501,12 @@ class HomePage extends StatefulWidget {
     required this.client,
     required this.user,
     required this.onUserChanged,
+    required this.onSignOut,
   });
   final ApiClient client;
   final Map<String, dynamic> user;
   final ValueChanged<Map<String, dynamic>> onUserChanged;
+  final Future<void> Function() onSignOut;
   @override
   State<HomePage> createState() => _HomePageState();
 }
@@ -350,46 +527,78 @@ class _HomePageState extends State<HomePage> {
         client: widget.client,
         user: widget.user,
         onUserChanged: widget.onUserChanged,
+        onSignOut: widget.onSignOut,
       ),
     ];
     final destinations = <NavigationDestination>[
       if (role == 'buyer')
-        const NavigationDestination(icon: Icon(Icons.search), label: 'Buy'),
+        const NavigationDestination(
+          icon: Icon(Icons.storefront_outlined),
+          selectedIcon: Icon(Icons.storefront),
+          label: 'Shop',
+        ),
       if (role == 'buyer')
         const NavigationDestination(
-          icon: Icon(Icons.map_outlined),
+          icon: Icon(Icons.receipt_long_outlined),
+          selectedIcon: Icon(Icons.receipt_long),
           label: 'Orders',
         ),
       if (role == 'seller')
         const NavigationDestination(
-          icon: Icon(Icons.storefront),
+          icon: Icon(Icons.add_business_outlined),
+          selectedIcon: Icon(Icons.add_business),
           label: 'Sell',
         ),
       if (role == 'deliverer')
         const NavigationDestination(
-          icon: Icon(Icons.delivery_dining),
+          icon: Icon(Icons.delivery_dining_outlined),
+          selectedIcon: Icon(Icons.delivery_dining),
           label: 'Deliver',
         ),
       const NavigationDestination(
         icon: Icon(Icons.chat_bubble_outline),
+        selectedIcon: Icon(Icons.chat_bubble),
         label: 'Chat',
       ),
       const NavigationDestination(
         icon: Icon(Icons.person_outline),
+        selectedIcon: Icon(Icons.person),
         label: 'Profile',
       ),
     ];
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          'DiscountLink ${role[0].toUpperCase()}${role.substring(1)}',
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              role == 'buyer'
+                  ? 'DiscountLink'
+                  : '${role[0].toUpperCase()}${role.substring(1)} Hub',
+            ),
+          ],
         ),
       ),
       body: pages[index],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: index,
-        destinations: destinations,
-        onDestinationSelected: (v) => setState(() => index = v),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 24,
+              offset: const Offset(0, -10),
+            ),
+          ],
+        ),
+        child: NavigationBar(
+          selectedIndex: index,
+          backgroundColor: Colors.transparent,
+          indicatorColor: kPrimaryLightColor,
+          destinations: destinations,
+          onDestinationSelected: (v) => setState(() => index = v),
+        ),
       ),
     );
   }
@@ -401,10 +610,12 @@ class ProfilePage extends StatefulWidget {
     required this.client,
     required this.user,
     required this.onUserChanged,
+    required this.onSignOut,
   });
   final ApiClient client;
   final Map<String, dynamic> user;
   final ValueChanged<Map<String, dynamic>> onUserChanged;
+  final Future<void> Function() onSignOut;
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
@@ -520,44 +731,125 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     final verified = widget.user['phone_verified_at'] != null;
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        InfoCard(
-          title: widget.user['name'] ?? '',
-          subtitle: '${widget.user['phone']}\n${widget.user['address']}',
+        SurfacePanel(
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 34,
+                backgroundColor: kPrimaryLightColor,
+                child: Text(
+                  initials(widget.user['name'] ?? 'DL'),
+                  style: const TextStyle(
+                    color: kPrimaryColor,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 20,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.user['name'] ?? '',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${widget.user['role']} - ${widget.user['email'] ?? ''}',
+                      style: const TextStyle(color: kTextColor),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        StatusPill(
+                          label: verified ? 'Phone verified' : 'Phone pending',
+                          color: verified ? Colors.green : kPrimaryColor,
+                        ),
+                        StatusPill(
+                          label: widget.user['is_active'] == true
+                              ? 'Active'
+                              : 'Blocked',
+                          color: widget.user['is_active'] == true
+                              ? Colors.green
+                              : Colors.red,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  verified
-                      ? 'Phone verified'
-                      : 'Verify phone with ${otpProviderLabel(otpProvider)}',
-                  style: Theme.of(context).textTheme.titleMedium,
+        SurfacePanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ProfileLine(
+                icon: Icons.phone_outlined,
+                title: 'Phone',
+                value: widget.user['phone'] ?? '',
+              ),
+              ProfileLine(
+                icon: Icons.place_outlined,
+                title: 'Address',
+                value: widget.user['address'] ?? '',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        SurfacePanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                verified
+                    ? 'Phone verified'
+                    : 'Verify phone with ${otpProviderLabel(otpProvider)}',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 10),
+              if (!verified) ...[
+                FilledButton.icon(
+                  onPressed: loading ? null : sendOtp,
+                  icon: const Icon(Icons.sms_outlined),
+                  label: Text(sent ? 'OTP sent again' : 'Send OTP'),
                 ),
-                const SizedBox(height: 10),
-                if (!verified) ...[
-                  FilledButton.icon(
-                    onPressed: loading ? null : sendOtp,
-                    icon: const Icon(Icons.sms_outlined),
-                    label: Text(sent ? 'OTP sent again' : 'Send OTP'),
-                  ),
-                  Field(
-                    controller: code,
-                    label: 'Six digit OTP',
-                    icon: Icons.password,
-                    keyboard: TextInputType.number,
-                  ),
-                  FilledButton(
-                    onPressed: loading ? null : verifyOtp,
-                    child: Text(loading ? 'Checking...' : 'Verify'),
-                  ),
-                ],
+                Field(
+                  controller: code,
+                  label: 'Six digit OTP',
+                  icon: Icons.password,
+                  keyboard: TextInputType.number,
+                ),
+                FilledButton(
+                  onPressed: loading ? null : verifyOtp,
+                  child: Text(loading ? 'Checking...' : 'Verify'),
+                ),
               ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: widget.onSignOut,
+          icon: const Icon(Icons.logout),
+          label: const Text('Sign out'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.red,
+            minimumSize: const Size.fromHeight(52),
+            side: BorderSide(color: Colors.red.withValues(alpha: 0.35)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
             ),
           ),
         ),
@@ -577,16 +869,21 @@ class BuyerPage extends StatefulWidget {
 class _BuyerPageState extends State<BuyerPage> {
   final search = TextEditingController();
   final imageLabel = TextEditingController();
-  final address = TextEditingController();
+  final addressLine = TextEditingController();
+  final city = TextEditingController(text: 'Dar es Salaam');
+  final landmark = TextEditingController();
+  final checkoutPhone = TextEditingController();
   List products = [];
   List cart = [];
+  XFile? pickedImage;
   final money = NumberFormat('#,##0.00');
 
   @override
   void initState() {
     super.initState();
     load();
-    address.text = widget.user['address'] ?? '';
+    addressLine.text = widget.user['address'] ?? '';
+    checkoutPhone.text = widget.user['phone'] ?? '';
   }
 
   Future<void> load() async {
@@ -599,10 +896,53 @@ class _BuyerPageState extends State<BuyerPage> {
   }
 
   Future<void> imageSearchRun() async {
-    final r = await widget.client.post('/products/image-search', {
-      'image_label': imageLabel.text,
-    });
+    final image = pickedImage;
+    final r = image == null
+        ? await widget.client.post('/products/image-search', {
+            'image_label': imageLabel.text,
+          })
+        : await widget.client.postMultipart(
+            '/products/image-search',
+            fields: {'image_label': imageLabel.text},
+            file: File(image.path),
+          );
     setState(() => products = r['products'] as List);
+  }
+
+  Future<void> pickSearchImage() async {
+    final picker = ImagePicker();
+    final image = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 70,
+    );
+    if (image == null) return;
+    setState(() {
+      pickedImage = image;
+      imageLabel.text = image.name.replaceAll(RegExp(r'[_\-.]+'), ' ');
+    });
+  }
+
+  String checkoutAddress() => [
+    addressLine.text.trim(),
+    city.text.trim(),
+    landmark.text.trim(),
+  ].where((part) => part.isNotEmpty).join(', ');
+
+  Future<void> removeCartItem(Map<String, dynamic> item) async {
+    await widget.client.delete('/cart/${item['product']['id']}');
+    await load();
+  }
+
+  Future<void> startChat(Map<String, dynamic> product) async {
+    final sellerId = product['seller_id'];
+    if (sellerId == null) {
+      throw Exception('Seller contact is not available for this product.');
+    }
+    await widget.client.post('/conversations', {'user_id': sellerId});
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Chat started. Open Chat to continue.')),
+    );
   }
 
   @override
@@ -610,104 +950,210 @@ class _BuyerPageState extends State<BuyerPage> {
     return RefreshIndicator(
       onRefresh: load,
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Field(
-                  controller: search,
-                  label: 'Search products',
-                  icon: Icons.search,
-                ),
-              ),
-              IconButton.filled(
-                onPressed: load,
-                icon: const Icon(Icons.search),
-              ),
-            ],
+          MarketplaceHeader(
+            search: search,
+            onSearch: load,
+            cartCount: cart.length,
           ),
-          Row(
-            children: [
-              Expanded(
-                child: Field(
-                  controller: imageLabel,
-                  label: 'Image label search',
-                  icon: Icons.image_search,
+          const SizedBox(height: 18),
+          const DealsBanner(),
+          const SizedBox(height: 18),
+          SectionTitle(
+            title: 'Categories',
+            action: 'Image search',
+            onAction: () => showModalBottomSheet<void>(
+              context: context,
+              showDragHandle: true,
+              builder: (_) => Padding(
+                padding: const EdgeInsets.all(kDefaultPadding),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Search by image label',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    Field(
+                      controller: imageLabel,
+                      label: 'Example: wireless headset',
+                      icon: Icons.image_search,
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: pickSearchImage,
+                      icon: const Icon(Icons.upload_file),
+                      label: Text(
+                        pickedImage == null
+                            ? 'Upload image'
+                            : 'Selected ${pickedImage!.name}',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        await imageSearchRun();
+                      },
+                      icon: const Icon(Icons.image),
+                      label: const Text('Search'),
+                    ),
+                  ],
                 ),
               ),
-              IconButton.filledTonal(
-                onPressed: imageSearchRun,
-                icon: const Icon(Icons.image),
-              ),
-            ],
+            ),
           ),
-          Text('Products', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          for (final p in products)
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.local_offer_outlined),
-                title: Text(p['name']),
-                subtitle: Text(
-                  '${p['shop']?['name'] ?? ''}\nTZS ${money.format(num.parse('${p['auto_total']}'))} total',
-                ),
-                isThreeLine: true,
-                trailing: IconButton(
-                  icon: const Icon(Icons.add_shopping_cart),
-                  onPressed: () async {
-                    await widget.client.post('/cart/${p['id']}', {
+          const SizedBox(height: 10),
+          CategoryStrip(
+            categories: const [
+              CategoryView('Electronics', Icons.devices_other),
+              CategoryView('Fashion', Icons.checkroom_outlined),
+              CategoryView('Groceries', Icons.local_grocery_store_outlined),
+              CategoryView('Books', Icons.menu_book_outlined),
+              CategoryView('Other', Icons.category_outlined),
+            ],
+            onSelected: (name) {
+              search.text = name;
+              load();
+            },
+          ),
+          const SizedBox(height: 18),
+          SectionTitle(
+            title: 'Popular products',
+            action: 'Refresh',
+            onAction: load,
+          ),
+          const SizedBox(height: 10),
+          if (products.isEmpty)
+            const EmptyState(
+              icon: Icons.inventory_2_outlined,
+              title: 'No products found',
+              subtitle: 'Try refreshing or using a different search term.',
+            )
+          else
+            GridView.builder(
+              itemCount: products.length,
+              physics: const NeverScrollableScrollPhysics(),
+              shrinkWrap: true,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 0.72,
+              ),
+              itemBuilder: (context, index) {
+                final product = products[index] as Map<String, dynamic>;
+                return ProductDealCard(
+                  product: product,
+                  money: money,
+                  imageAsset: index.isEven
+                      ? 'assets/images/product_headset.png'
+                      : 'assets/images/product_popular_1.png',
+                  onAdd: () async {
+                    await widget.client.post('/cart/${product['id']}', {
                       'quantity': 1,
                     });
                     await load();
                   },
-                ),
-              ),
+                  onStartChat: () => startChat(product),
+                );
+              },
             ),
           const SizedBox(height: 16),
-          Text(
-            'Cart (${cart.length})',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          for (final i in cart)
-            ListTile(
-              title: Text(i['product']['name']),
-              subtitle: Text('Qty ${i['quantity']}'),
-            ),
-          Field(
-            controller: address,
-            label: 'Delivery address',
-            icon: Icons.place_outlined,
-          ),
-          FilledButton.icon(
-            onPressed: cart.isEmpty
-                ? null
-                : () async {
-                    final r = await widget.client.post('/checkout', {
-                      'delivery_address': address.text,
-                    });
-                    if (!context.mounted) {
-                      return;
-                    }
-                    showDialog(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        title: const Text('USSD push requested'),
-                        content: Text(
-                          'Order ${r['order']['reference']}\nDemo delivery code: ${r['delivery_code_demo']}',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('OK'),
-                          ),
-                        ],
+          SurfacePanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SectionTitle(title: 'Cart (${cart.length})'),
+                const SizedBox(height: 8),
+                if (cart.isEmpty)
+                  const Text(
+                    'Add products to start checkout.',
+                    style: TextStyle(color: kTextColor),
+                  )
+                else
+                  for (final i in cart.take(4))
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const CircleAvatar(
+                        backgroundColor: kPrimaryLightColor,
+                        child: Icon(Icons.shopping_bag_outlined),
                       ),
-                    );
-                    await load();
-                  },
-            icon: const Icon(Icons.payments_outlined),
-            label: const Text('Pay with ClickPesa USSD'),
+                      title: Text(i['product']['name']),
+                      subtitle: Text('Qty ${i['quantity']}'),
+                      trailing: IconButton(
+                        tooltip: 'Remove item',
+                        onPressed: () =>
+                            removeCartItem(i as Map<String, dynamic>),
+                        icon: const Icon(Icons.delete_outline),
+                      ),
+                    ),
+                const SizedBox(height: 8),
+                Field(
+                  controller: addressLine,
+                  label: 'Street or area',
+                  icon: Icons.place_outlined,
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Field(
+                        controller: city,
+                        label: 'City',
+                        icon: Icons.location_city_outlined,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Field(
+                        controller: landmark,
+                        label: 'Landmark',
+                        icon: Icons.flag_outlined,
+                      ),
+                    ),
+                  ],
+                ),
+                Field(
+                  controller: checkoutPhone,
+                  label: 'Payment phone',
+                  icon: Icons.phone_outlined,
+                  keyboard: TextInputType.phone,
+                ),
+                FilledButton.icon(
+                  onPressed: cart.isEmpty
+                      ? null
+                      : () async {
+                          final r = await widget.client.post('/checkout', {
+                            'delivery_address': checkoutAddress(),
+                            'phone': checkoutPhone.text.trim(),
+                          });
+                          if (!context.mounted) {
+                            return;
+                          }
+                          showDialog(
+                            context: context,
+                            builder: (_) => AlertDialog(
+                              title: const Text('USSD push requested'),
+                              content: Text(
+                                'Order ${r['order']['reference']}\nDemo delivery code: ${r['delivery_code_demo']}',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: const Text('OK'),
+                                ),
+                              ],
+                            ),
+                          );
+                          await load();
+                        },
+                  icon: const Icon(Icons.payments_outlined),
+                  label: const Text('Pay with ClickPesa USSD'),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -748,18 +1194,19 @@ class _OrdersPageState extends State<OrdersPage> {
   Widget build(BuildContext context) => RefreshIndicator(
     onRefresh: load,
     child: ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        Text('Active orders', style: Theme.of(context).textTheme.titleLarge),
+        SectionTitle(title: 'My orders', action: 'Refresh', onAction: load),
         const SizedBox(height: 8),
         if (orders.isEmpty)
-          const InfoCard(
+          const EmptyState(
+            icon: Icons.receipt_long_outlined,
             title: 'No active orders',
             subtitle: 'Orders waiting for delivery tracking will appear here.',
           ),
         for (final order in orders)
           Padding(
-            padding: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.only(bottom: 14),
             child: TrackingCard(order: order as Map<String, dynamic>),
           ),
       ],
@@ -777,7 +1224,6 @@ class SellerPage extends StatefulWidget {
 
 class _SellerPageState extends State<SellerPage> {
   final shopName = TextEditingController();
-  final category = TextEditingController();
   final address = TextEditingController();
   final productName = TextEditingController();
   final description = TextEditingController();
@@ -785,6 +1231,16 @@ class _SellerPageState extends State<SellerPage> {
   final discount = TextEditingController();
   final delivery = TextEditingController();
   final stock = TextEditingController(text: '10');
+  final imageOne = TextEditingController(
+    text: 'assets/images/product_headset.png',
+  );
+  final imageTwo = TextEditingController(
+    text: 'assets/images/product_popular_1.png',
+  );
+  final imageThree = TextEditingController(
+    text: 'assets/images/deals_banner.png',
+  );
+  String category = 'Electronics';
   List shops = [];
   int? selectedShopId;
 
@@ -808,93 +1264,137 @@ class _SellerPageState extends State<SellerPage> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text('Open shop', style: Theme.of(context).textTheme.titleLarge),
-        Field(
-          controller: shopName,
-          label: 'Shop name',
-          icon: Icons.store_outlined,
-        ),
-        Field(
-          controller: category,
-          label: 'Category',
-          icon: Icons.category_outlined,
-        ),
-        Field(
-          controller: address,
-          label: 'Address',
-          icon: Icons.place_outlined,
-        ),
-        FilledButton.icon(
-          onPressed: () async {
-            await widget.client.post('/shops', {
-              'name': shopName.text,
-              'category': category.text,
-              'address': address.text,
-            });
-            await load();
-          },
-          icon: const Icon(Icons.add_business),
-          label: const Text('Save shop'),
-        ),
-        const SizedBox(height: 18),
-        Text('List product', style: Theme.of(context).textTheme.titleLarge),
-        if (shops.isNotEmpty)
-          DropdownButtonFormField<int>(
-            initialValue: selectedShopId,
-            items: [
-              for (final s in shops)
-                DropdownMenuItem(value: s['id'] as int, child: Text(s['name'])),
-            ],
-            onChanged: (v) => setState(() => selectedShopId = v),
-            decoration: const InputDecoration(labelText: 'Shop'),
-          ),
-        Field(
-          controller: productName,
-          label: 'Product name',
-          icon: Icons.inventory_2_outlined,
-        ),
-        Field(controller: description, label: 'Description', icon: Icons.notes),
-        Field(
-          controller: price,
-          label: 'Price',
-          icon: Icons.sell_outlined,
-          keyboard: TextInputType.number,
-        ),
-        Field(
-          controller: discount,
-          label: 'Discount percent',
-          icon: Icons.percent,
-          keyboard: TextInputType.number,
-        ),
-        Field(
-          controller: delivery,
-          label: 'Delivery price',
-          icon: Icons.delivery_dining,
-          keyboard: TextInputType.number,
-        ),
-        Field(
-          controller: stock,
-          label: 'Stock',
-          icon: Icons.numbers,
-          keyboard: TextInputType.number,
-        ),
-        FilledButton.icon(
-          onPressed: selectedShopId == null
-              ? null
-              : () async {
-                  await widget.client.post('/shops/$selectedShopId/products', {
-                    'name': productName.text,
-                    'description': description.text,
-                    'price': double.parse(price.text),
-                    'discount_percent': double.tryParse(discount.text) ?? 0,
-                    'delivery_price': double.parse(delivery.text),
-                    'stock': int.parse(stock.text),
-                    'images': <String>[],
+        SurfacePanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SectionTitle(title: 'Open shop'),
+              Field(
+                controller: shopName,
+                label: 'Shop name',
+                icon: Icons.store_outlined,
+              ),
+              CategoryDropdown(
+                value: category,
+                onChanged: (value) => setState(() => category = value),
+              ),
+              Field(
+                controller: address,
+                label: 'Address',
+                icon: Icons.place_outlined,
+              ),
+              FilledButton.icon(
+                onPressed: () async {
+                  await widget.client.post('/shops', {
+                    'name': shopName.text,
+                    'category': category,
+                    'address': address.text,
                   });
                   await load();
                 },
-          icon: const Icon(Icons.add_box_outlined),
-          label: const Text('Publish product'),
+                icon: const Icon(Icons.add_business),
+                label: const Text('Save shop'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        SurfacePanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SectionTitle(title: 'List product'),
+              if (shops.isNotEmpty)
+                DropdownButtonFormField<int>(
+                  initialValue: selectedShopId,
+                  items: [
+                    for (final s in shops)
+                      DropdownMenuItem(
+                        value: s['id'] as int,
+                        child: Text(s['name']),
+                      ),
+                  ],
+                  onChanged: (v) => setState(() => selectedShopId = v),
+                  decoration: const InputDecoration(labelText: 'Shop'),
+                ),
+              const SizedBox(height: 12),
+              Field(
+                controller: productName,
+                label: 'Product name',
+                icon: Icons.inventory_2_outlined,
+              ),
+              Field(
+                controller: description,
+                label: 'Description',
+                icon: Icons.notes,
+              ),
+              Field(
+                controller: price,
+                label: 'Price',
+                icon: Icons.sell_outlined,
+                keyboard: TextInputType.number,
+              ),
+              Field(
+                controller: discount,
+                label: 'Discount percent',
+                icon: Icons.percent,
+                keyboard: TextInputType.number,
+              ),
+              Field(
+                controller: delivery,
+                label: 'Delivery price',
+                icon: Icons.delivery_dining,
+                keyboard: TextInputType.number,
+              ),
+              Field(
+                controller: stock,
+                label: 'Stock',
+                icon: Icons.numbers,
+                keyboard: TextInputType.number,
+              ),
+              Field(
+                controller: imageOne,
+                label: 'Image 1 URL or path',
+                icon: Icons.image_outlined,
+              ),
+              Field(
+                controller: imageTwo,
+                label: 'Image 2 URL or path',
+                icon: Icons.image_outlined,
+              ),
+              Field(
+                controller: imageThree,
+                label: 'Image 3 URL or path',
+                icon: Icons.image_outlined,
+              ),
+              FilledButton.icon(
+                onPressed: selectedShopId == null
+                    ? null
+                    : () async {
+                        await widget.client.post(
+                          '/shops/$selectedShopId/products',
+                          {
+                            'name': productName.text,
+                            'description': description.text,
+                            'price': double.parse(price.text),
+                            'discount_percent':
+                                double.tryParse(discount.text) ?? 0,
+                            'delivery_price': double.parse(delivery.text),
+                            'stock': int.parse(stock.text),
+                            'images': [
+                              imageOne.text.trim(),
+                              imageTwo.text.trim(),
+                              imageThree.text.trim(),
+                            ],
+                          },
+                        );
+                        await load();
+                      },
+                icon: const Icon(Icons.add_box_outlined),
+                label: const Text('Publish product'),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 12),
         for (final s in shops)
@@ -945,7 +1445,9 @@ class _DeliveryPageState extends State<DeliveryPage> {
 
   Future<Position> currentPosition() async {
     final enabled = await Geolocator.isLocationServiceEnabled();
-    if (!enabled) throw Exception('Turn on location services to share tracking.');
+    if (!enabled) {
+      throw Exception('Turn on location services to share tracking.');
+    }
 
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
@@ -957,9 +1459,7 @@ class _DeliveryPageState extends State<DeliveryPage> {
     }
 
     return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-      ),
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
     );
   }
 
@@ -1028,7 +1528,9 @@ class _DeliveryPageState extends State<DeliveryPage> {
                     if (j['status'] == 'accepted') ...[
                       const SizedBox(height: 8),
                       TrackingMiniMap(
-                        shopLatitude: toDouble(j['order']?['shop']?['latitude']),
+                        shopLatitude: toDouble(
+                          j['order']?['shop']?['latitude'],
+                        ),
                         shopLongitude: toDouble(
                           j['order']?['shop']?['longitude'],
                         ),
@@ -1119,6 +1621,586 @@ class _ChatPageState extends State<ChatPage> {
   );
 }
 
+class SurfacePanel extends StatelessWidget {
+  const SurfacePanel({super.key, required this.child, this.padding});
+  final Widget child;
+  final EdgeInsetsGeometry? padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: padding ?? const EdgeInsets.all(16),
+        child: child,
+      ),
+    );
+  }
+}
+
+class RoleSelector extends StatelessWidget {
+  const RoleSelector({super.key, required this.value, required this.onChanged});
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    const roles = [
+      ('buyer', 'Buyer', Icons.shopping_bag_outlined),
+      ('seller', 'Seller', Icons.storefront_outlined),
+      ('deliverer', 'Deliverer', Icons.delivery_dining_outlined),
+    ];
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final role in roles)
+          ChoiceChip(
+            selected: value == role.$1,
+            label: Text(role.$2),
+            avatar: Icon(role.$3, size: 18),
+            selectedColor: kPrimaryLightColor,
+            checkmarkColor: kPrimaryColor,
+            onSelected: (_) => onChanged(role.$1),
+          ),
+      ],
+    );
+  }
+}
+
+class MarketplaceHeader extends StatelessWidget {
+  const MarketplaceHeader({
+    super.key,
+    required this.search,
+    required this.onSearch,
+    required this.cartCount,
+  });
+  final TextEditingController search;
+  final VoidCallback onSearch;
+  final int cartCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: search,
+            onSubmitted: (_) => onSearch(),
+            decoration: const InputDecoration(
+              hintText: 'Search products',
+              prefixIcon: Icon(Icons.search),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        IconButton.filled(
+          onPressed: onSearch,
+          style: IconButton.styleFrom(
+            backgroundColor: kPrimaryColor,
+            fixedSize: const Size(52, 52),
+          ),
+          icon: const Icon(Icons.search),
+        ),
+        const SizedBox(width: 10),
+        Badge(
+          label: Text('$cartCount'),
+          isLabelVisible: cartCount > 0,
+          child: IconButton(
+            onPressed: () {},
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.white,
+              fixedSize: const Size(52, 52),
+            ),
+            icon: const Icon(Icons.shopping_cart_outlined),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class DealsBanner extends StatelessWidget {
+  const DealsBanner({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: SizedBox(
+        height: 150,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.asset('assets/images/deals_banner.png', fit: BoxFit.cover),
+            Container(color: Colors.black.withValues(alpha: 0.32)),
+            Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Flash discounts',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Buy deals with delivery tracking',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SectionTitle extends StatelessWidget {
+  const SectionTitle({
+    super.key,
+    required this.title,
+    this.action,
+    this.onAction,
+  });
+  final String title;
+  final String? action;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: Colors.black,
+            ),
+          ),
+        ),
+        if (action != null)
+          TextButton(onPressed: onAction, child: Text(action!)),
+      ],
+    );
+  }
+}
+
+class CategoryStrip extends StatelessWidget {
+  const CategoryStrip({
+    super.key,
+    required this.categories,
+    required this.onSelected,
+  });
+  final List<CategoryView> categories;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 88,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: categories.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, index) {
+          final item = categories[index];
+          return InkWell(
+            onTap: () => onSelected(item.title),
+            borderRadius: BorderRadius.circular(18),
+            child: SizedBox(
+              width: 78,
+              child: Column(
+                children: [
+                  Container(
+                    width: 54,
+                    height: 54,
+                    decoration: const BoxDecoration(
+                      color: kPrimaryLightColor,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(item.icon, color: kPrimaryColor),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class CategoryView {
+  const CategoryView(this.title, this.icon);
+  final String title;
+  final IconData icon;
+}
+
+class ProductDealCard extends StatelessWidget {
+  const ProductDealCard({
+    super.key,
+    required this.product,
+    required this.money,
+    required this.imageAsset,
+    required this.onAdd,
+    required this.onStartChat,
+  });
+  final Map<String, dynamic> product;
+  final NumberFormat money;
+  final String imageAsset;
+  final Future<void> Function() onAdd;
+  final Future<void> Function() onStartChat;
+
+  @override
+  Widget build(BuildContext context) {
+    final original = num.tryParse('${product['price']}') ?? 0;
+    final total = num.tryParse('${product['auto_total']}') ?? original;
+    final discount = num.tryParse('${product['discount_percent']}') ?? 0;
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: () => showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (_) => ProductQuickView(
+          product: product,
+          money: money,
+          imageAsset: imageAsset,
+          onAdd: onAdd,
+          onStartChat: onStartChat,
+        ),
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Stack(
+                  children: [
+                    Center(child: Image.asset(imageAsset, fit: BoxFit.contain)),
+                    if (discount > 0)
+                      Align(
+                        alignment: Alignment.topRight,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: kPrimaryColor,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '${discount.toStringAsFixed(0)}% off',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                product['name'] ?? 'Product',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                product['shop']?['name'] ?? '',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: kTextColor, fontSize: 12),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'TZS ${money.format(total)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: kPrimaryColor,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  IconButton.filled(
+                    onPressed: onAdd,
+                    icon: const Icon(Icons.add_shopping_cart, size: 18),
+                    style: IconButton.styleFrom(
+                      backgroundColor: kPrimaryColor,
+                      fixedSize: const Size(36, 36),
+                    ),
+                  ),
+                ],
+              ),
+              if (original > total)
+                Text(
+                  'TZS ${money.format(original)}',
+                  style: const TextStyle(
+                    color: kTextColor,
+                    decoration: TextDecoration.lineThrough,
+                    fontSize: 11,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ProductQuickView extends StatelessWidget {
+  const ProductQuickView({
+    super.key,
+    required this.product,
+    required this.money,
+    required this.imageAsset,
+    required this.onAdd,
+    required this.onStartChat,
+  });
+  final Map<String, dynamic> product;
+  final NumberFormat money;
+  final String imageAsset;
+  final Future<void> Function() onAdd;
+  final Future<void> Function() onStartChat;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = num.tryParse('${product['auto_total']}') ?? 0;
+    return Padding(
+      padding: const EdgeInsets.all(kDefaultPadding),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Image.asset(imageAsset, height: 150, fit: BoxFit.contain),
+          const SizedBox(height: 12),
+          Text(
+            product['name'] ?? 'Product',
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            product['description'] ?? '',
+            style: const TextStyle(color: kTextColor),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'TZS ${money.format(total)} total',
+            style: const TextStyle(
+              color: kPrimaryColor,
+              fontWeight: FontWeight.w800,
+              fontSize: 18,
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: () async {
+              await onAdd();
+              if (context.mounted) Navigator.pop(context);
+            },
+            icon: const Icon(Icons.add_shopping_cart),
+            label: const Text('Add to cart'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () async {
+              await onStartChat();
+              if (context.mounted) Navigator.pop(context);
+            },
+            icon: const Icon(Icons.chat_bubble_outline),
+            label: const Text('Start chat with seller'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class EmptyState extends StatelessWidget {
+  const EmptyState({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return SurfacePanel(
+      child: Column(
+        children: [
+          Icon(icon, color: kTextColor, size: 44),
+          const SizedBox(height: 8),
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: kTextColor),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class CategoryDropdown extends StatelessWidget {
+  const CategoryDropdown({
+    super.key,
+    required this.value,
+    required this.onChanged,
+  });
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  static const values = [
+    'Electronics',
+    'Fashion',
+    'Groceries',
+    'Books',
+    'Art',
+    'Home',
+    'Other',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DropdownButtonFormField<String>(
+        initialValue: value,
+        decoration: const InputDecoration(
+          labelText: 'Category',
+          prefixIcon: Icon(Icons.category_outlined),
+        ),
+        items: [
+          for (final item in values)
+            DropdownMenuItem(value: item, child: Text(item)),
+        ],
+        onChanged: (selected) {
+          if (selected != null) onChanged(selected);
+        },
+      ),
+    );
+  }
+}
+
+class ProfileLine extends StatelessWidget {
+  const ProfileLine({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
+  final IconData icon;
+  final String title;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: kPrimaryLightColor,
+            child: Icon(icon, color: kPrimaryColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(color: kTextColor, fontSize: 12),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class StatusPill extends StatelessWidget {
+  const StatusPill({super.key, required this.label, required this.color});
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
 class Field extends StatelessWidget {
   const Field({
     super.key,
@@ -1135,18 +2217,12 @@ class Field extends StatelessWidget {
   final bool obscure;
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 10),
+    padding: const EdgeInsets.only(bottom: 12),
     child: TextField(
       controller: controller,
       keyboardType: keyboard,
       obscureText: obscure,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon),
-        border: const OutlineInputBorder(
-          borderRadius: BorderRadius.all(Radius.circular(8)),
-        ),
-      ),
+      decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
     ),
   );
 }
@@ -1156,17 +2232,19 @@ class InfoCard extends StatelessWidget {
   final String title;
   final String subtitle;
   @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 6),
-          Text(subtitle),
-        ],
-      ),
+  Widget build(BuildContext context) => SurfacePanel(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 6),
+        Text(subtitle, style: const TextStyle(color: kTextColor, height: 1.35)),
+      ],
     ),
   );
 }
@@ -1183,46 +2261,74 @@ class TrackingCard extends StatelessWidget {
     final updatedAt = assignment?['location_updated_at'];
     final delivererLatitude = toDouble(assignment?['deliverer_latitude']);
     final delivererLongitude = toDouble(assignment?['deliverer_longitude']);
+    final items = (order['items'] as List?) ?? [];
+    final money = NumberFormat('#,##0.00');
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              order['reference'] ?? 'Order',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '${order['status']} - ${order['delivery_address']}',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 10),
-            TrackingMiniMap(
-              shopLatitude: toDouble(shop?['latitude']),
-              shopLongitude: toDouble(shop?['longitude']),
-              delivererLatitude: delivererLatitude,
-              delivererLongitude: delivererLongitude,
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Icon(Icons.delivery_dining_outlined, size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    deliverer == null
-                        ? 'Waiting for a deliverer'
-                        : '${deliverer['name']} ${updatedAt == null ? '' : '- updated ${formatDateTime(updatedAt)}'}',
+    return SurfacePanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  order['reference'] ?? 'Order',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-              ],
-            ),
+              ),
+              StatusPill(
+                label: '${order['status'] ?? 'active'}',
+                color: kPrimaryColor,
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            order['delivery_address'] ?? '',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: kTextColor),
+          ),
+          if (items.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            for (final item in items.take(3))
+              Text(
+                '${item['quantity']}x ${item['name']}',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
           ],
-        ),
+          const SizedBox(height: 8),
+          Text(
+            'Total TZS ${money.format(num.tryParse('${order['grand_total']}') ?? 0)}',
+            style: const TextStyle(
+              color: kPrimaryColor,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 10),
+          TrackingMiniMap(
+            shopLatitude: toDouble(shop?['latitude']),
+            shopLongitude: toDouble(shop?['longitude']),
+            delivererLatitude: delivererLatitude,
+            delivererLongitude: delivererLongitude,
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.delivery_dining_outlined, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  deliverer == null
+                      ? 'Waiting for a deliverer'
+                      : '${deliverer['name']} ${updatedAt == null ? '' : '- updated ${formatDateTime(updatedAt)}'}',
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1244,7 +2350,8 @@ class TrackingMiniMap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasDeliverer = delivererLatitude != null && delivererLongitude != null;
+    final hasDeliverer =
+        delivererLatitude != null && delivererLongitude != null;
     return SizedBox(
       height: 180,
       child: DecoratedBox(
@@ -1313,21 +2420,33 @@ class TrackingMapPainter extends CustomPainter {
       if (shopLatitude != null && shopLongitude != null)
         _MapPoint('Shop', shopLatitude!, shopLongitude!, Colors.deepOrange),
       if (delivererLatitude != null && delivererLongitude != null)
-        _MapPoint('Deliverer', delivererLatitude!, delivererLongitude!, primary),
+        _MapPoint(
+          'Deliverer',
+          delivererLatitude!,
+          delivererLongitude!,
+          primary,
+        ),
     ];
     if (points.isEmpty) return;
 
-    final minLat = points.map((p) => p.latitude).reduce((a, b) => a < b ? a : b);
-    final maxLat = points.map((p) => p.latitude).reduce((a, b) => a > b ? a : b);
-    final minLng = points.map((p) => p.longitude).reduce((a, b) => a < b ? a : b);
-    final maxLng = points.map((p) => p.longitude).reduce((a, b) => a > b ? a : b);
+    final minLat = points
+        .map((p) => p.latitude)
+        .reduce((a, b) => a < b ? a : b);
+    final maxLat = points
+        .map((p) => p.latitude)
+        .reduce((a, b) => a > b ? a : b);
+    final minLng = points
+        .map((p) => p.longitude)
+        .reduce((a, b) => a < b ? a : b);
+    final maxLng = points
+        .map((p) => p.longitude)
+        .reduce((a, b) => a > b ? a : b);
     final latSpan = (maxLat - minLat).abs() < 0.001 ? 0.001 : maxLat - minLat;
     final lngSpan = (maxLng - minLng).abs() < 0.001 ? 0.001 : maxLng - minLng;
 
     Offset project(_MapPoint point) {
       final x = 24 + ((point.longitude - minLng) / lngSpan) * (size.width - 48);
-      final y =
-          24 + ((maxLat - point.latitude) / latSpan) * (size.height - 48);
+      final y = 24 + ((maxLat - point.latitude) / latSpan) * (size.height - 48);
       return Offset(x, y);
     }
 
@@ -1356,10 +2475,8 @@ class TrackingMapPainter extends CustomPainter {
         fontWeight: FontWeight.w700,
       ),
     );
-    final painter = TextPainter(
-      text: span,
-      textDirection: ui.TextDirection.ltr,
-    )..layout();
+    final painter = TextPainter(text: span, textDirection: ui.TextDirection.ltr)
+      ..layout();
     painter.paint(canvas, offset);
   }
 
@@ -1389,6 +2506,12 @@ String formatDateTime(dynamic value) {
   final parsed = DateTime.tryParse(value.toString());
   if (parsed == null) return value.toString();
   return DateFormat('MMM d, HH:mm').format(parsed.toLocal());
+}
+
+String initials(String name) {
+  final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
+  final letters = parts.take(2).map((part) => part[0].toUpperCase()).join();
+  return letters.isEmpty ? 'DL' : letters;
 }
 
 String otpProviderLabel(String provider) => switch (provider) {

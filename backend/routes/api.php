@@ -32,6 +32,7 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
 
     Route::get('/cart', [CartController::class, 'index']);
     Route::post('/cart/{product}', [CartController::class, 'add']);
+    Route::delete('/cart/{product}', [CartController::class, 'remove']);
     Route::post('/checkout', [CartController::class, 'checkout']);
     Route::get('/orders/active', [OrderController::class, 'active']);
 

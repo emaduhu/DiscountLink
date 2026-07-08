@@ -23,12 +23,22 @@ class ProductController extends Controller
 
     public function imageSearch(Request $request): JsonResponse
     {
-        $data = $request->validate(['image_label' => ['required', 'string', 'max:120']]);
+        $data = $request->validate([
+            'image_label' => ['nullable', 'string', 'max:120'],
+            'image' => ['nullable', 'image', 'max:4096'],
+        ]);
+        $label = trim((string) ($data['image_label'] ?? ''));
+        if ($label === '' && $request->hasFile('image')) {
+            $label = pathinfo($request->file('image')->getClientOriginalName(), PATHINFO_FILENAME);
+            $label = trim(preg_replace('/[^a-z0-9]+/i', ' ', $label) ?? '');
+        }
+        abort_if($label === '', 422, 'Upload an image or provide an image label.');
+
         $products = Product::with('shop')
             ->where('is_active', true)
-            ->where(fn ($query) => $query->where('name', 'like', '%'.$data['image_label'].'%')->orWhere('description', 'like', '%'.$data['image_label'].'%'))
+            ->where(fn ($query) => $query->where('name', 'like', '%'.$label.'%')->orWhere('description', 'like', '%'.$label.'%'))
             ->limit(20)
             ->get();
-        return response()->json(['products' => $products, 'message' => 'Image labels are accepted from the mobile ML layer or a production vision provider.']);
+        return response()->json(['products' => $products, 'label' => $label, 'message' => 'Image uploads are matched by detected or filename label until a production vision provider is connected.']);
     }
 }
