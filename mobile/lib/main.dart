@@ -1677,16 +1677,31 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   List conversations = [];
+  Timer? refreshTimer;
+  bool refreshing = false;
 
   @override
   void initState() {
     super.initState();
     load();
+    refreshTimer = Timer.periodic(const Duration(seconds: 8), (_) => load());
+  }
+
+  @override
+  void dispose() {
+    refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> load() async {
-    final r = await widget.client.get('/conversations');
-    setState(() => conversations = r['conversations'] as List);
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      final r = await widget.client.get('/conversations');
+      if (mounted) setState(() => conversations = r['conversations'] as List);
+    } finally {
+      refreshing = false;
+    }
   }
 
   Future<void> showStartChatPage() async {
