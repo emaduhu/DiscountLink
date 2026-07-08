@@ -937,6 +937,7 @@ class _BuyerPageState extends State<BuyerPage> {
     if (selectedCategory != null) query['category'] = selectedCategory!;
     final r = await widget.client.get('/products', query);
     final c = await widget.client.get('/cart');
+    if (!mounted) return;
     setState(() {
       products = r['products']['data'] as List;
       cart = c['items'] as List;
@@ -953,6 +954,7 @@ class _BuyerPageState extends State<BuyerPage> {
       fields: const {},
       file: File(image.path),
     );
+    if (!mounted) return;
     setState(() => products = r['products'] as List);
   }
 
@@ -963,6 +965,7 @@ class _BuyerPageState extends State<BuyerPage> {
       imageQuality: 70,
     );
     if (image == null) return;
+    if (!mounted) return;
     setState(() => pickedImage = image);
   }
 
@@ -1301,6 +1304,7 @@ class _SellerPageState extends State<SellerPage> {
 
   Future<void> load() async {
     final r = await widget.client.get('/seller/shops');
+    if (!mounted) return;
     setState(() {
       shops = r['shops'] as List;
       if (shops.isNotEmpty) selectedShopId ??= shops.first['id'] as int;
@@ -2437,6 +2441,7 @@ class ProductDealCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(18),
       onTap: () => showModalBottomSheet<void>(
         context: context,
+        isScrollControlled: true,
         showDragHandle: true,
         builder: (_) => ProductQuickView(
           product: product,
@@ -2560,56 +2565,64 @@ class ProductQuickView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final total = num.tryParse('${product['auto_total']}') ?? 0;
-    return Padding(
-      padding: const EdgeInsets.all(kDefaultPadding),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            height: 150,
-            child: ProductImage(source: imageAsset, fit: BoxFit.contain),
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.86;
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(kDefaultPadding),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: 150,
+                child: ProductImage(source: imageAsset, fit: BoxFit.contain),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                product['name'] ?? 'Product',
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                product['description'] ?? '',
+                style: const TextStyle(color: kTextColor),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'TZS ${money.format(total)} total',
+                style: const TextStyle(
+                  color: kPrimaryColor,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () async {
+                  await onAdd();
+                  if (context.mounted) Navigator.pop(context);
+                },
+                icon: const Icon(Icons.add_shopping_cart),
+                label: const Text('Add to cart'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await onStartChat();
+                  if (context.mounted) Navigator.pop(context);
+                },
+                icon: const Icon(Icons.chat_bubble_outline),
+                label: const Text('Start chat with seller'),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          Text(
-            product['name'] ?? 'Product',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            product['description'] ?? '',
-            style: const TextStyle(color: kTextColor),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'TZS ${money.format(total)} total',
-            style: const TextStyle(
-              color: kPrimaryColor,
-              fontWeight: FontWeight.w800,
-              fontSize: 18,
-            ),
-          ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: () async {
-              await onAdd();
-              if (context.mounted) Navigator.pop(context);
-            },
-            icon: const Icon(Icons.add_shopping_cart),
-            label: const Text('Add to cart'),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: () async {
-              await onStartChat();
-              if (context.mounted) Navigator.pop(context);
-            },
-            icon: const Icon(Icons.chat_bubble_outline),
-            label: const Text('Start chat with seller'),
-          ),
-        ],
+        ),
       ),
     );
   }
