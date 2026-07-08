@@ -1286,15 +1286,6 @@ class _SellerPageState extends State<SellerPage> {
   final discount = TextEditingController();
   final delivery = TextEditingController();
   final stock = TextEditingController(text: '10');
-  final imageOne = TextEditingController(
-    text: 'assets/images/product_headset.png',
-  );
-  final imageTwo = TextEditingController(
-    text: 'assets/images/product_popular_1.png',
-  );
-  final imageThree = TextEditingController(
-    text: 'assets/images/deals_banner.png',
-  );
   final selectedCategories = <String>{'Electronics'};
   final picker = ImagePicker();
   List<XFile> selectedProductImages = [];
@@ -1319,17 +1310,11 @@ class _SellerPageState extends State<SellerPage> {
   Future<void> pickProductImages() async {
     final images = await picker.pickMultiImage(imageQuality: 75);
     if (images.isEmpty) return;
-    setState(() => selectedProductImages = images.take(3).toList());
+    setState(() => selectedProductImages = images);
   }
 
   List<String> productImagePaths() {
-    final picked = selectedProductImages.map((image) => image.path);
-    final typed = [
-      imageOne.text,
-      imageTwo.text,
-      imageThree.text,
-    ].map((value) => value.trim()).where((value) => value.isNotEmpty);
-    return [...picked, ...typed].take(3).toList();
+    return selectedProductImages.map((image) => image.path).toList();
   }
 
   @override
@@ -1430,27 +1415,12 @@ class _SellerPageState extends State<SellerPage> {
                 icon: Icons.numbers,
                 keyboard: TextInputType.number,
               ),
-              Field(
-                controller: imageOne,
-                label: 'Image 1 URL or path',
-                icon: Icons.image_outlined,
-              ),
-              Field(
-                controller: imageTwo,
-                label: 'Image 2 URL or path',
-                icon: Icons.image_outlined,
-              ),
-              Field(
-                controller: imageThree,
-                label: 'Image 3 URL or path',
-                icon: Icons.image_outlined,
-              ),
               OutlinedButton.icon(
                 onPressed: pickProductImages,
                 icon: const Icon(Icons.photo_library_outlined),
                 label: Text(
                   selectedProductImages.isEmpty
-                      ? 'Choose images from phone'
+                      ? 'Choose product images'
                       : '${selectedProductImages.length} phone images chosen',
                 ),
               ),
@@ -1483,7 +1453,7 @@ class _SellerPageState extends State<SellerPage> {
                           final images = productImagePaths();
                           if (images.length < 3) {
                             throw Exception(
-                              'Choose or enter at least 3 images.',
+                              'Choose at least 3 product images from phone.',
                             );
                           }
                           await widget.client
