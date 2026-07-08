@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -18,6 +19,21 @@ class ChatController extends Controller
             ->latest()
             ->get();
         return response()->json(['conversations' => $conversations]);
+    }
+
+    public function contacts(Request $request): JsonResponse
+    {
+        $contacts = User::query()
+            ->where('id', '!=', $request->user()->id)
+            ->where('is_active', true)
+            ->when($request->query('role'), fn ($query, $role) => $query->where('role', $role))
+            ->select('id', 'name', 'role', 'email', 'phone')
+            ->orderBy('role')
+            ->orderBy('name')
+            ->limit(50)
+            ->get();
+
+        return response()->json(['contacts' => $contacts]);
     }
 
     public function start(Request $request): JsonResponse

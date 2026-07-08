@@ -24,15 +24,11 @@ class ProductController extends Controller
     public function imageSearch(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'image_label' => ['nullable', 'string', 'max:120'],
-            'image' => ['nullable', 'image', 'max:4096'],
+            'image' => ['required', 'image', 'max:4096'],
         ]);
-        $label = trim((string) ($data['image_label'] ?? ''));
-        if ($label === '' && $request->hasFile('image')) {
-            $label = pathinfo($request->file('image')->getClientOriginalName(), PATHINFO_FILENAME);
-            $label = trim(preg_replace('/[^a-z0-9]+/i', ' ', $label) ?? '');
-        }
-        abort_if($label === '', 422, 'Upload an image or provide an image label.');
+        $label = pathinfo($request->file('image')->getClientOriginalName(), PATHINFO_FILENAME);
+        $label = trim(preg_replace('/[^a-z0-9]+/i', ' ', $label) ?? '');
+        abort_if($label === '', 422, 'The uploaded image name could not be used for search.');
 
         $products = Product::with('shop')
             ->where('is_active', true)

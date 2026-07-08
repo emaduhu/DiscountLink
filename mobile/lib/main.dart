@@ -26,6 +26,12 @@ const kPrimaryLightColor = Color(0xffffecdf);
 const kTextColor = Color(0xff757575);
 const kSurfaceColor = Color(0xfff6f7fb);
 const kDefaultPadding = 20.0;
+final appLanguage = ValueNotifier<AppLanguage>(AppLanguage.en);
+
+enum AppLanguage { en, sw }
+
+String tx(String english, String swahili) =>
+    appLanguage.value == AppLanguage.sw ? swahili : english;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -78,69 +84,74 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'DiscountLink',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: kPrimaryColor,
-          brightness: Brightness.light,
-        ),
-        scaffoldBackgroundColor: kSurfaceColor,
-        useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          elevation: 0,
-          centerTitle: true,
-          backgroundColor: kSurfaceColor,
-          foregroundColor: Colors.black,
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 18,
-            vertical: 16,
+    return ValueListenableBuilder<AppLanguage>(
+      valueListenable: appLanguage,
+      builder: (context, _, _) => MaterialApp(
+        title: 'DiscountLink',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: kPrimaryColor,
+            brightness: Brightness.light,
           ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide.none,
+          scaffoldBackgroundColor: kSurfaceColor,
+          useMaterial3: true,
+          appBarTheme: const AppBarTheme(
+            elevation: 0,
+            centerTitle: true,
+            backgroundColor: kSurfaceColor,
+            foregroundColor: Colors.black,
           ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: Colors.black.withValues(alpha: 0.06)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: const BorderSide(color: kPrimaryColor, width: 1.4),
-          ),
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            backgroundColor: kPrimaryColor,
-            foregroundColor: Colors.white,
-            minimumSize: const Size.fromHeight(52),
-            shape: RoundedRectangleBorder(
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 18,
+              vertical: 16,
+            ),
+            border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(18),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(18),
+              borderSide: BorderSide(
+                color: Colors.black.withValues(alpha: 0.06),
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(18),
+              borderSide: const BorderSide(color: kPrimaryColor, width: 1.4),
+            ),
+          ),
+          filledButtonTheme: FilledButtonThemeData(
+            style: FilledButton.styleFrom(
+              backgroundColor: kPrimaryColor,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+            ),
+          ),
+          cardTheme: const CardThemeData(
+            margin: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(18)),
             ),
           ),
         ),
-        cardTheme: const CardThemeData(
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(18)),
-          ),
-        ),
+        home: showSplash
+            ? SplashPage(onContinue: () => setState(() => showSplash = false))
+            : user == null
+            ? LoginPage(client: client, onSignedIn: signedIn)
+            : HomePage(
+                client: client,
+                user: user!,
+                onUserChanged: (u) => setState(() => user = u),
+                onSignOut: signedOut,
+              ),
       ),
-      home: showSplash
-          ? SplashPage(onContinue: () => setState(() => showSplash = false))
-          : user == null
-          ? LoginPage(client: client, onSignedIn: signedIn)
-          : HomePage(
-              client: client,
-              user: user!,
-              onUserChanged: (u) => setState(() => user = u),
-              onSignOut: signedOut,
-            ),
     );
   }
 }
@@ -181,7 +192,7 @@ class SplashPage extends StatelessWidget {
               const Spacer(),
               FilledButton(
                 onPressed: onContinue,
-                child: const Text('Continue'),
+                child: Text(tx('Continue', 'Endelea')),
               ),
             ],
           ),
@@ -402,19 +413,23 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 14),
                   Field(
                     controller: email,
-                    label: 'Email or phone',
+                    label: tx('Email or phone', 'Barua pepe au simu'),
                     icon: Icons.alternate_email,
                     keyboard: TextInputType.text,
                   ),
                   Field(
                     controller: password,
-                    label: 'Password',
+                    label: tx('Password', 'Nenosiri'),
                     icon: Icons.lock_outline,
                     obscure: true,
                   ),
                   FilledButton(
                     onPressed: loading ? null : passwordLogin,
-                    child: Text(loading ? 'Signing in...' : 'Login'),
+                    child: Text(
+                      loading
+                          ? tx('Signing in...', 'Inaingia...')
+                          : tx('Login', 'Ingia'),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -436,7 +451,9 @@ class _LoginPageState extends State<LoginPage> {
                   OutlinedButton.icon(
                     onPressed: loading ? null : googleSignIn,
                     icon: const Icon(Icons.login),
-                    label: const Text('Continue with Google'),
+                    label: Text(
+                      tx('Continue with Google', 'Endelea na Google'),
+                    ),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
                       foregroundColor: Colors.black,
@@ -454,8 +471,15 @@ class _LoginPageState extends State<LoginPage> {
             const SizedBox(height: 14),
             ExpansionTile(
               tilePadding: const EdgeInsets.symmetric(horizontal: 4),
-              title: const Text('Create account with form'),
-              subtitle: const Text('Buyer, seller, or deliverer registration'),
+              title: Text(
+                tx('Create account with form', 'Fungua akaunti kwa fomu'),
+              ),
+              subtitle: Text(
+                tx(
+                  'Buyer, seller, or deliverer registration',
+                  'Usajili wa mnunuzi, muuzaji, au msafirishaji',
+                ),
+              ),
               childrenPadding: EdgeInsets.zero,
               children: [
                 SurfacePanel(
@@ -464,24 +488,27 @@ class _LoginPageState extends State<LoginPage> {
                     children: [
                       Field(
                         controller: name,
-                        label: 'Full name',
+                        label: tx('Full name', 'Jina kamili'),
                         icon: Icons.person_outline,
                       ),
                       Field(
                         controller: phone,
-                        label: 'Phone for OTP and payments',
+                        label: tx(
+                          'Phone for OTP and payments',
+                          'Simu ya OTP na malipo',
+                        ),
                         icon: Icons.phone_outlined,
                         keyboard: TextInputType.phone,
                       ),
                       Field(
                         controller: address,
-                        label: 'Default address',
+                        label: tx('Default address', 'Anwani ya msingi'),
                         icon: Icons.place_outlined,
                       ),
                       FilledButton.icon(
                         onPressed: loading ? null : register,
                         icon: const Icon(Icons.person_add_alt_1),
-                        label: const Text('Register'),
+                        label: Text(tx('Register', 'Jisajili')),
                       ),
                     ],
                   ),
@@ -794,14 +821,16 @@ class _ProfilePageState extends State<ProfilePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              LanguageSwitch(),
+              const Divider(height: 24),
               ProfileLine(
                 icon: Icons.phone_outlined,
-                title: 'Phone',
+                title: tx('Phone', 'Simu'),
                 value: widget.user['phone'] ?? '',
               ),
               ProfileLine(
                 icon: Icons.place_outlined,
-                title: 'Address',
+                title: tx('Address', 'Anwani'),
                 value: widget.user['address'] ?? '',
               ),
             ],
@@ -814,8 +843,8 @@ class _ProfilePageState extends State<ProfilePage> {
             children: [
               Text(
                 verified
-                    ? 'Phone verified'
-                    : 'Verify phone with ${otpProviderLabel(otpProvider)}',
+                    ? tx('Phone verified', 'Simu imethibitishwa')
+                    : '${tx('Verify phone with', 'Thibitisha simu kwa')} ${otpProviderLabel(otpProvider)}',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 10),
@@ -823,17 +852,25 @@ class _ProfilePageState extends State<ProfilePage> {
                 FilledButton.icon(
                   onPressed: loading ? null : sendOtp,
                   icon: const Icon(Icons.sms_outlined),
-                  label: Text(sent ? 'OTP sent again' : 'Send OTP'),
+                  label: Text(
+                    sent
+                        ? tx('OTP sent again', 'OTP imetumwa tena')
+                        : tx('Send OTP', 'Tuma OTP'),
+                  ),
                 ),
                 Field(
                   controller: code,
-                  label: 'Six digit OTP',
+                  label: tx('Six digit OTP', 'OTP ya tarakimu sita'),
                   icon: Icons.password,
                   keyboard: TextInputType.number,
                 ),
                 FilledButton(
                   onPressed: loading ? null : verifyOtp,
-                  child: Text(loading ? 'Checking...' : 'Verify'),
+                  child: Text(
+                    loading
+                        ? tx('Checking...', 'Inakagua...')
+                        : tx('Verify', 'Thibitisha'),
+                  ),
                 ),
               ],
             ],
@@ -843,7 +880,7 @@ class _ProfilePageState extends State<ProfilePage> {
         OutlinedButton.icon(
           onPressed: widget.onSignOut,
           icon: const Icon(Icons.logout),
-          label: const Text('Sign out'),
+          label: Text(tx('Sign out', 'Toka')),
           style: OutlinedButton.styleFrom(
             foregroundColor: Colors.red,
             minimumSize: const Size.fromHeight(52),
@@ -868,7 +905,6 @@ class BuyerPage extends StatefulWidget {
 
 class _BuyerPageState extends State<BuyerPage> {
   final search = TextEditingController();
-  final imageLabel = TextEditingController();
   final addressLine = TextEditingController();
   final city = TextEditingController(text: 'Dar es Salaam');
   final landmark = TextEditingController();
@@ -876,6 +912,7 @@ class _BuyerPageState extends State<BuyerPage> {
   List products = [];
   List cart = [];
   XFile? pickedImage;
+  String? selectedCategory;
   final money = NumberFormat('#,##0.00');
 
   @override
@@ -887,7 +924,10 @@ class _BuyerPageState extends State<BuyerPage> {
   }
 
   Future<void> load() async {
-    final r = await widget.client.get('/products', {'q': search.text});
+    final query = <String, String>{};
+    if (search.text.trim().isNotEmpty) query['q'] = search.text.trim();
+    if (selectedCategory != null) query['category'] = selectedCategory!;
+    final r = await widget.client.get('/products', query);
     final c = await widget.client.get('/cart');
     setState(() {
       products = r['products']['data'] as List;
@@ -897,15 +937,14 @@ class _BuyerPageState extends State<BuyerPage> {
 
   Future<void> imageSearchRun() async {
     final image = pickedImage;
-    final r = image == null
-        ? await widget.client.post('/products/image-search', {
-            'image_label': imageLabel.text,
-          })
-        : await widget.client.postMultipart(
-            '/products/image-search',
-            fields: {'image_label': imageLabel.text},
-            file: File(image.path),
-          );
+    if (image == null) {
+      throw Exception(tx('Upload an image first.', 'Pakia picha kwanza.'));
+    }
+    final r = await widget.client.postMultipart(
+      '/products/image-search',
+      fields: const {},
+      file: File(image.path),
+    );
     setState(() => products = r['products'] as List);
   }
 
@@ -916,10 +955,7 @@ class _BuyerPageState extends State<BuyerPage> {
       imageQuality: 70,
     );
     if (image == null) return;
-    setState(() {
-      pickedImage = image;
-      imageLabel.text = image.name.replaceAll(RegExp(r'[_\-.]+'), ' ');
-    });
+    setState(() => pickedImage = image);
   }
 
   String checkoutAddress() => [
@@ -961,8 +997,8 @@ class _BuyerPageState extends State<BuyerPage> {
           const DealsBanner(),
           const SizedBox(height: 18),
           SectionTitle(
-            title: 'Categories',
-            action: 'Image search',
+            title: tx('Categories', 'Makundi'),
+            action: tx('Image search', 'Tafuta kwa picha'),
             onAction: () => showModalBottomSheet<void>(
               context: context,
               showDragHandle: true,
@@ -973,32 +1009,31 @@ class _BuyerPageState extends State<BuyerPage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      'Search by image label',
+                      tx('Search by image', 'Tafuta kwa picha'),
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 12),
-                    Field(
-                      controller: imageLabel,
-                      label: 'Example: wireless headset',
-                      icon: Icons.image_search,
-                    ),
                     OutlinedButton.icon(
                       onPressed: pickSearchImage,
                       icon: const Icon(Icons.upload_file),
                       label: Text(
                         pickedImage == null
-                            ? 'Upload image'
-                            : 'Selected ${pickedImage!.name}',
+                            ? tx('Upload image', 'Pakia picha')
+                            : tx('Image selected', 'Picha imechaguliwa'),
                       ),
                     ),
                     const SizedBox(height: 8),
                     FilledButton.icon(
                       onPressed: () async {
-                        Navigator.pop(context);
-                        await imageSearchRun();
+                        try {
+                          Navigator.pop(context);
+                          await imageSearchRun();
+                        } catch (error) {
+                          if (mounted) showError(this.context, error);
+                        }
                       },
                       icon: const Icon(Icons.image),
-                      label: const Text('Search'),
+                      label: Text(tx('Search', 'Tafuta')),
                     ),
                   ],
                 ),
@@ -1015,22 +1050,26 @@ class _BuyerPageState extends State<BuyerPage> {
               CategoryView('Other', Icons.category_outlined),
             ],
             onSelected: (name) {
-              search.text = name;
+              selectedCategory = name;
+              search.clear();
               load();
             },
           ),
           const SizedBox(height: 18),
           SectionTitle(
-            title: 'Popular products',
-            action: 'Refresh',
+            title: tx('Popular products', 'Bidhaa maarufu'),
+            action: tx('Refresh', 'Onyesha upya'),
             onAction: load,
           ),
           const SizedBox(height: 10),
           if (products.isEmpty)
-            const EmptyState(
+            EmptyState(
               icon: Icons.inventory_2_outlined,
-              title: 'No products found',
-              subtitle: 'Try refreshing or using a different search term.',
+              title: tx('No products found', 'Hakuna bidhaa zilizopatikana'),
+              subtitle: tx(
+                'Try refreshing or using a different search term.',
+                'Jaribu kuonyesha upya au kutumia neno jingine.',
+              ),
             )
           else
             GridView.builder(
@@ -1066,12 +1105,15 @@ class _BuyerPageState extends State<BuyerPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SectionTitle(title: 'Cart (${cart.length})'),
+                SectionTitle(title: '${tx('Cart', 'Kikapu')} (${cart.length})'),
                 const SizedBox(height: 8),
                 if (cart.isEmpty)
-                  const Text(
-                    'Add products to start checkout.',
-                    style: TextStyle(color: kTextColor),
+                  Text(
+                    tx(
+                      'Add products to start checkout.',
+                      'Ongeza bidhaa ili kuanza malipo.',
+                    ),
+                    style: const TextStyle(color: kTextColor),
                   )
                 else
                   for (final i in cart.take(4))
@@ -1093,7 +1135,7 @@ class _BuyerPageState extends State<BuyerPage> {
                 const SizedBox(height: 8),
                 Field(
                   controller: addressLine,
-                  label: 'Street or area',
+                  label: tx('Street or area', 'Mtaa au eneo'),
                   icon: Icons.place_outlined,
                 ),
                 Row(
@@ -1101,7 +1143,7 @@ class _BuyerPageState extends State<BuyerPage> {
                     Expanded(
                       child: Field(
                         controller: city,
-                        label: 'City',
+                        label: tx('City', 'Jiji'),
                         icon: Icons.location_city_outlined,
                       ),
                     ),
@@ -1109,7 +1151,7 @@ class _BuyerPageState extends State<BuyerPage> {
                     Expanded(
                       child: Field(
                         controller: landmark,
-                        label: 'Landmark',
+                        label: tx('Landmark', 'Alama ya eneo'),
                         icon: Icons.flag_outlined,
                       ),
                     ),
@@ -1117,7 +1159,7 @@ class _BuyerPageState extends State<BuyerPage> {
                 ),
                 Field(
                   controller: checkoutPhone,
-                  label: 'Payment phone',
+                  label: tx('Payment phone', 'Simu ya malipo'),
                   icon: Icons.phone_outlined,
                   keyboard: TextInputType.phone,
                 ),
@@ -1150,7 +1192,9 @@ class _BuyerPageState extends State<BuyerPage> {
                           await load();
                         },
                   icon: const Icon(Icons.payments_outlined),
-                  label: const Text('Pay with ClickPesa USSD'),
+                  label: Text(
+                    tx('Pay with ClickPesa USSD', 'Lipa kwa ClickPesa USSD'),
+                  ),
                 ),
               ],
             ),
@@ -1586,15 +1630,158 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   List conversations = [];
+  List contacts = [];
+  final message = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     load();
   }
 
+  @override
+  void dispose() {
+    message.dispose();
+    super.dispose();
+  }
+
   Future<void> load() async {
     final r = await widget.client.get('/conversations');
     setState(() => conversations = r['conversations'] as List);
+  }
+
+  Future<void> loadContacts() async {
+    final r = await widget.client.get('/chat/contacts');
+    setState(() => contacts = r['contacts'] as List);
+  }
+
+  Future<void> startChat(Map<String, dynamic> contact) async {
+    await widget.client.post('/conversations', {'user_id': contact['id']});
+    await load();
+    if (!mounted) return;
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(tx('Chat started.', 'Mazungumzo yameanzishwa.'))),
+    );
+  }
+
+  Future<void> showStartChatSheet() async {
+    await loadContacts();
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => ListView(
+        padding: const EdgeInsets.all(kDefaultPadding),
+        children: [
+          SectionTitle(title: tx('Start chat', 'Anzisha mazungumzo')),
+          const SizedBox(height: 8),
+          if (contacts.isEmpty)
+            EmptyState(
+              icon: Icons.people_outline,
+              title: tx('No contacts', 'Hakuna anwani'),
+              subtitle: tx(
+                'Users available for chat will appear here.',
+                'Watumiaji wa kuzungumza nao wataonekana hapa.',
+              ),
+            )
+          else
+            for (final contact in contacts)
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: kPrimaryLightColor,
+                  child: Text(initials(contact['name'] ?? 'DL')),
+                ),
+                title: Text(contact['name'] ?? ''),
+                subtitle: Text(
+                  '${contact['role']} - ${contact['phone'] ?? ''}',
+                ),
+                trailing: const Icon(Icons.chat_bubble_outline),
+                onTap: () => startChat(contact as Map<String, dynamic>),
+              ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> openConversation(Map<String, dynamic> conversation) async {
+    final r = await widget.client.get(
+      '/conversations/${conversation['id']}/messages',
+    );
+    final messages = (r['messages']['data'] as List?) ?? [];
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 8,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SectionTitle(title: tx('Conversation', 'Mazungumzo')),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 260,
+              child: messages.isEmpty
+                  ? Center(
+                      child: Text(
+                        tx('No messages yet.', 'Bado hakuna ujumbe.'),
+                        style: const TextStyle(color: kTextColor),
+                      ),
+                    )
+                  : ListView.builder(
+                      reverse: true,
+                      itemCount: messages.length,
+                      itemBuilder: (context, index) {
+                        final item = messages[index] as Map<String, dynamic>;
+                        return Align(
+                          alignment: Alignment.centerLeft,
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: kPrimaryLightColor,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Text(item['body'] ?? ''),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            const SizedBox(height: 8),
+            Field(
+              controller: message,
+              label: tx('Type message', 'Andika ujumbe'),
+              icon: Icons.message_outlined,
+            ),
+            FilledButton.icon(
+              onPressed: () async {
+                if (message.text.trim().isEmpty) return;
+                final navigator = Navigator.of(context);
+                await widget.client.post(
+                  '/conversations/${conversation['id']}/messages',
+                  {'body': message.text.trim()},
+                );
+                message.clear();
+                navigator.pop();
+                if (!mounted) return;
+                await openConversation(conversation);
+              },
+              icon: const Icon(Icons.send),
+              label: Text(tx('Send', 'Tuma')),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -1603,18 +1790,42 @@ class _ChatPageState extends State<ChatPage> {
     child: ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text('Chats', style: Theme.of(context).textTheme.titleLarge),
+        SectionTitle(
+          title: tx('Chats', 'Mazungumzo'),
+          action: tx('Start chat', 'Anzisha'),
+          onAction: showStartChatSheet,
+        ),
         const SizedBox(height: 8),
+        FilledButton.icon(
+          onPressed: showStartChatSheet,
+          icon: const Icon(Icons.add_comment_outlined),
+          label: Text(tx('Start chat', 'Anzisha mazungumzo')),
+        ),
+        const SizedBox(height: 12),
         if (conversations.isEmpty)
-          const InfoCard(
-            title: 'No conversations yet',
-            subtitle: 'Conversations start from order or user context.',
+          EmptyState(
+            icon: Icons.chat_bubble_outline,
+            title: tx('No conversations yet', 'Bado hakuna mazungumzo'),
+            subtitle: tx(
+              'Start a chat with a seller, buyer, or deliverer.',
+              'Anzisha mazungumzo na muuzaji, mnunuzi, au msafirishaji.',
+            ),
           ),
         for (final c in conversations)
-          ListTile(
-            leading: const Icon(Icons.chat_bubble_outline),
-            title: Text('Conversation #${c['id']}'),
-            subtitle: Text('${(c['messages'] as List?)?.length ?? 0} messages'),
+          SurfacePanel(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: kPrimaryLightColor,
+                child: Icon(Icons.chat_bubble_outline, color: kPrimaryColor),
+              ),
+              title: Text('${tx('Conversation', 'Mazungumzo')} #${c['id']}'),
+              subtitle: Text(
+                '${(c['messages'] as List?)?.length ?? 0} ${tx('messages', 'jumbe')}',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => openConversation(c as Map<String, dynamic>),
+            ),
           ),
       ],
     ),
@@ -2196,6 +2407,52 @@ class StatusPill extends StatelessWidget {
           fontSize: 12,
           fontWeight: FontWeight.w800,
         ),
+      ),
+    );
+  }
+}
+
+class LanguageSwitch extends StatelessWidget {
+  const LanguageSwitch({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<AppLanguage>(
+      valueListenable: appLanguage,
+      builder: (context, language, _) => Row(
+        children: [
+          const CircleAvatar(
+            backgroundColor: kPrimaryLightColor,
+            child: Icon(Icons.language, color: kPrimaryColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  tx('Language', 'Lugha'),
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  tx('Choose app language', 'Chagua lugha ya programu'),
+                  style: const TextStyle(color: kTextColor, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          SegmentedButton<AppLanguage>(
+            segments: const [
+              ButtonSegment(value: AppLanguage.en, label: Text('EN')),
+              ButtonSegment(value: AppLanguage.sw, label: Text('SW')),
+            ],
+            selected: {language},
+            onSelectionChanged: (selection) {
+              appLanguage.value = selection.first;
+            },
+          ),
+        ],
       ),
     );
   }

@@ -42,6 +42,7 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
     Route::post('/deliveries/{assignment}/complete', [DeliveryController::class, 'complete']);
 
     Route::get('/conversations', [ChatController::class, 'conversations']);
+    Route::get('/chat/contacts', [ChatController::class, 'contacts']);
     Route::post('/conversations', [ChatController::class, 'start']);
     Route::get('/conversations/{conversation}/messages', [ChatController::class, 'messages']);
     Route::post('/conversations/{conversation}/messages', [ChatController::class, 'send']);
