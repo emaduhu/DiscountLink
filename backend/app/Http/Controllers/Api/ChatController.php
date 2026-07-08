@@ -13,7 +13,7 @@ class ChatController extends Controller
 {
     public function conversations(Request $request): JsonResponse
     {
-        $conversations = Conversation::with('messages')
+        $conversations = Conversation::with(['messages', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone'])
             ->where('user_one_id', $request->user()->id)
             ->orWhere('user_two_id', $request->user()->id)
             ->latest()
@@ -45,7 +45,7 @@ class ChatController extends Controller
             'user_two_id' => $ids[1],
             'order_id' => $data['order_id'] ?? null,
         ]);
-        return response()->json(['conversation' => $conversation], 201);
+        return response()->json(['conversation' => $conversation->load(['userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone'])], 201);
     }
 
     public function messages(Request $request, Conversation $conversation): JsonResponse

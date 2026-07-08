@@ -16,7 +16,7 @@ class ProductController extends Controller
             $query->where(fn ($builder) => $builder->where('name', 'like', "%{$search}%")->orWhere('description', 'like', "%{$search}%"));
         }
         if ($category = $request->query('category')) {
-            $query->whereHas('shop', fn ($builder) => $builder->where('category', $category));
+            $query->whereHas('shop', fn ($builder) => $builder->where('category', $category)->orWhereJsonContains('categories', $category));
         }
         return response()->json(['products' => $query->latest()->paginate(20)]);
     }

@@ -19,7 +19,10 @@ const apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
   defaultValue: 'https://dl.vigourtech.net/api',
 );
-const googleServerClientId = String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
+const googleServerClientId = String.fromEnvironment(
+  'GOOGLE_SERVER_CLIENT_ID',
+  defaultValue: '',
+);
 const kPrimaryColor = Color(0xffff7643);
 const kPrimaryColor2 = Color(0xffffa53e);
 const kPrimaryLightColor = Color(0xffffecdf);
@@ -41,11 +44,11 @@ Future<void> main() async {
     );
   } catch (_) {}
   try {
-    await GoogleSignIn.instance.initialize(
-      serverClientId: googleServerClientId.isEmpty
-          ? null
-          : googleServerClientId,
-    );
+    if (googleServerClientId.isNotEmpty) {
+      await GoogleSignIn.instance.initialize(
+        serverClientId: googleServerClientId,
+      );
+    }
   } catch (_) {}
   runApp(const DiscountLinkApp());
 }
@@ -309,6 +312,11 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> googleSignIn() async {
     setState(() => loading = true);
     try {
+      if (googleServerClientId.isEmpty) {
+        throw Exception(
+          'Google Sign-In needs GOOGLE_SERVER_CLIENT_ID. Build the app with the Firebase OAuth Web client ID.',
+        );
+      }
       final account = await GoogleSignIn.instance.authenticate();
       final token = account.authentication.idToken;
       if (token == null) throw Exception('Google did not return an ID token.');
@@ -549,7 +557,7 @@ class _HomePageState extends State<HomePage> {
       if (role == 'seller')
         SellerPage(client: widget.client, user: widget.user),
       if (role == 'deliverer') DeliveryPage(client: widget.client),
-      ChatPage(client: widget.client),
+      ChatPage(client: widget.client, user: widget.user),
       ProfilePage(
         client: widget.client,
         user: widget.user,
@@ -1087,9 +1095,12 @@ class _BuyerPageState extends State<BuyerPage> {
                 return ProductDealCard(
                   product: product,
                   money: money,
-                  imageAsset: index.isEven
-                      ? 'assets/images/product_headset.png'
-                      : 'assets/images/product_popular_1.png',
+                  imageAsset: productImageSource(
+                    product,
+                    fallback: index.isEven
+                        ? 'assets/images/product_headset.png'
+                        : 'assets/images/product_popular_1.png',
+                  ),
                   onAdd: () async {
                     await widget.client.post('/cart/${product['id']}', {
                       'quantity': 1,
@@ -1284,7 +1295,9 @@ class _SellerPageState extends State<SellerPage> {
   final imageThree = TextEditingController(
     text: 'assets/images/deals_banner.png',
   );
-  String category = 'Electronics';
+  final selectedCategories = <String>{'Electronics'};
+  final picker = ImagePicker();
+  List<XFile> selectedProductImages = [];
   List shops = [];
   int? selectedShopId;
 
@@ -1303,6 +1316,22 @@ class _SellerPageState extends State<SellerPage> {
     });
   }
 
+  Future<void> pickProductImages() async {
+    final images = await picker.pickMultiImage(imageQuality: 75);
+    if (images.isEmpty) return;
+    setState(() => selectedProductImages = images.take(3).toList());
+  }
+
+  List<String> productImagePaths() {
+    final picked = selectedProductImages.map((image) => image.path);
+    final typed = [
+      imageOne.text,
+      imageTwo.text,
+      imageThree.text,
+    ].map((value) => value.trim()).where((value) => value.isNotEmpty);
+    return [...picked, ...typed].take(3).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -1318,9 +1347,13 @@ class _SellerPageState extends State<SellerPage> {
                 label: 'Shop name',
                 icon: Icons.store_outlined,
               ),
-              CategoryDropdown(
-                value: category,
-                onChanged: (value) => setState(() => category = value),
+              CategoryMultiSelect(
+                selected: selectedCategories,
+                onChanged: (categories) => setState(() {
+                  selectedCategories
+                    ..clear()
+                    ..addAll(categories);
+                }),
               ),
               Field(
                 controller: address,
@@ -1331,7 +1364,8 @@ class _SellerPageState extends State<SellerPage> {
                 onPressed: () async {
                   await widget.client.post('/shops', {
                     'name': shopName.text,
-                    'category': category,
+                    'category': selectedCategories.first,
+                    'categories': selectedCategories.toList(),
                     'address': address.text,
                   });
                   await load();
@@ -1411,28 +1445,63 @@ class _SellerPageState extends State<SellerPage> {
                 label: 'Image 3 URL or path',
                 icon: Icons.image_outlined,
               ),
+              OutlinedButton.icon(
+                onPressed: pickProductImages,
+                icon: const Icon(Icons.photo_library_outlined),
+                label: Text(
+                  selectedProductImages.isEmpty
+                      ? 'Choose images from phone'
+                      : '${selectedProductImages.length} phone images chosen',
+                ),
+              ),
+              if (selectedProductImages.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 76,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemBuilder: (context, index) => ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(
+                        File(selectedProductImages[index].path),
+                        width: 76,
+                        height: 76,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
+                    itemCount: selectedProductImages.length,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               FilledButton.icon(
                 onPressed: selectedShopId == null
                     ? null
                     : () async {
-                        await widget.client.post(
-                          '/shops/$selectedShopId/products',
-                          {
-                            'name': productName.text,
-                            'description': description.text,
-                            'price': double.parse(price.text),
-                            'discount_percent':
-                                double.tryParse(discount.text) ?? 0,
-                            'delivery_price': double.parse(delivery.text),
-                            'stock': int.parse(stock.text),
-                            'images': [
-                              imageOne.text.trim(),
-                              imageTwo.text.trim(),
-                              imageThree.text.trim(),
-                            ],
-                          },
-                        );
-                        await load();
+                        try {
+                          final images = productImagePaths();
+                          if (images.length < 3) {
+                            throw Exception(
+                              'Choose or enter at least 3 images.',
+                            );
+                          }
+                          await widget.client
+                              .post('/shops/$selectedShopId/products', {
+                                'name': productName.text,
+                                'description': description.text,
+                                'price': double.parse(price.text),
+                                'discount_percent':
+                                    double.tryParse(discount.text) ?? 0,
+                                'delivery_price': double.parse(delivery.text),
+                                'stock': int.parse(stock.text),
+                                'images': images,
+                              });
+                          setState(() => selectedProductImages = []);
+                          await load();
+                        } catch (error) {
+                          if (context.mounted) showError(context, error);
+                        }
                       },
                 icon: const Icon(Icons.add_box_outlined),
                 label: const Text('Publish product'),
@@ -1445,7 +1514,7 @@ class _SellerPageState extends State<SellerPage> {
           InfoCard(
             title: s['name'],
             subtitle:
-                '${s['category']} - ${s['products']?.length ?? 0} products',
+                '${((s['categories'] as List?) ?? [s['category']]).where((category) => category != null).join(', ')} - ${s['products']?.length ?? 0} products',
           ),
       ],
     );
@@ -1544,74 +1613,81 @@ class _DeliveryPageState extends State<DeliveryPage> {
         padding: const EdgeInsets.all(16),
         children: [
           for (final j in jobs)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      j['order']['reference'],
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    Text(
-                      '${j['order']['delivery_address']}\nTZS ${j['order']['delivery_total']}',
-                    ),
-                    if (j['status'] == 'broadcast')
-                      FilledButton.icon(
-                        onPressed: () async {
-                          await widget.client.post(
-                            '/deliveries/${j['id']}/accept',
-                            {},
-                          );
-                          await load();
-                        },
-                        icon: const Icon(Icons.check),
-                        label: const Text('Accept delivery'),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        j['order']['reference'],
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
-                    if (j['status'] == 'accepted') ...[
-                      const SizedBox(height: 8),
-                      TrackingMiniMap(
-                        shopLatitude: toDouble(
-                          j['order']?['shop']?['latitude'],
+                      Text(
+                        '${j['order']['delivery_address']}\nTZS ${j['order']['delivery_total']}',
+                      ),
+                      if (j['status'] == 'broadcast')
+                        FilledButton.icon(
+                          onPressed: () async {
+                            await widget.client.post(
+                              '/deliveries/${j['id']}/accept',
+                              {},
+                            );
+                            await load();
+                          },
+                          icon: const Icon(Icons.check),
+                          label: const Text('Accept delivery'),
                         ),
-                        shopLongitude: toDouble(
-                          j['order']?['shop']?['longitude'],
+                      if (j['status'] == 'accepted') ...[
+                        const SizedBox(height: 8),
+                        TrackingMiniMap(
+                          shopLatitude: toDouble(
+                            j['order']?['shop']?['latitude'],
+                          ),
+                          shopLongitude: toDouble(
+                            j['order']?['shop']?['longitude'],
+                          ),
+                          delivererLatitude: toDouble(j['deliverer_latitude']),
+                          delivererLongitude: toDouble(
+                            j['deliverer_longitude'],
+                          ),
                         ),
-                        delivererLatitude: toDouble(j['deliverer_latitude']),
-                        delivererLongitude: toDouble(j['deliverer_longitude']),
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: sharingLocation
-                            ? null
-                            : () => shareAcceptedLocation(),
-                        icon: const Icon(Icons.my_location),
-                        label: Text(
-                          sharingLocation
-                              ? 'Sharing location...'
-                              : 'Share current location',
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: sharingLocation
+                              ? null
+                              : () => shareAcceptedLocation(),
+                          icon: const Icon(Icons.my_location),
+                          label: Text(
+                            sharingLocation
+                                ? 'Sharing location...'
+                                : 'Share current location',
+                          ),
                         ),
-                      ),
-                      Field(
-                        controller: code,
-                        label: 'Buyer delivery code',
-                        icon: Icons.pin,
-                        keyboard: TextInputType.number,
-                      ),
-                      FilledButton.icon(
-                        onPressed: () async {
-                          await widget.client.post(
-                            '/deliveries/${j['id']}/complete',
-                            {'delivery_code': code.text},
-                          );
-                          await load();
-                        },
-                        icon: const Icon(Icons.payments),
-                        label: const Text('Complete and trigger disbursement'),
-                      ),
+                        Field(
+                          controller: code,
+                          label: 'Buyer delivery code',
+                          icon: Icons.pin,
+                          keyboard: TextInputType.number,
+                        ),
+                        FilledButton.icon(
+                          onPressed: () async {
+                            await widget.client.post(
+                              '/deliveries/${j['id']}/complete',
+                              {'delivery_code': code.text},
+                            );
+                            await load();
+                          },
+                          icon: const Icon(Icons.payments),
+                          label: const Text(
+                            'Complete and trigger disbursement',
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -1622,8 +1698,9 @@ class _DeliveryPageState extends State<DeliveryPage> {
 }
 
 class ChatPage extends StatefulWidget {
-  const ChatPage({super.key, required this.client});
+  const ChatPage({super.key, required this.client, required this.user});
   final ApiClient client;
+  final Map<String, dynamic> user;
   @override
   State<ChatPage> createState() => _ChatPageState();
 }
@@ -1741,16 +1818,24 @@ class _ChatPageState extends State<ChatPage> {
                       itemCount: messages.length,
                       itemBuilder: (context, index) {
                         final item = messages[index] as Map<String, dynamic>;
+                        final mine = item['sender_id'] == widget.user['id'];
                         return Align(
-                          alignment: Alignment.centerLeft,
+                          alignment: mine
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
                           child: Container(
                             margin: const EdgeInsets.only(bottom: 8),
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: kPrimaryLightColor,
+                              color: mine ? kPrimaryColor : kPrimaryLightColor,
                               borderRadius: BorderRadius.circular(14),
                             ),
-                            child: Text(item['body'] ?? ''),
+                            child: Text(
+                              item['body'] ?? '',
+                              style: TextStyle(
+                                color: mine ? Colors.white : null,
+                              ),
+                            ),
                           ),
                         );
                       },
@@ -1819,17 +1904,29 @@ class _ChatPageState extends State<ChatPage> {
                 backgroundColor: kPrimaryLightColor,
                 child: Icon(Icons.chat_bubble_outline, color: kPrimaryColor),
               ),
-              title: Text('${tx('Conversation', 'Mazungumzo')} #${c['id']}'),
+              title: Text(conversationTitle(c as Map<String, dynamic>)),
               subtitle: Text(
                 '${(c['messages'] as List?)?.length ?? 0} ${tx('messages', 'jumbe')}',
               ),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => openConversation(c as Map<String, dynamic>),
+              onTap: () => openConversation(c),
             ),
           ),
       ],
     ),
   );
+
+  String conversationTitle(Map<String, dynamic> conversation) {
+    final currentId = widget.user['id'];
+    final one = conversation['user_one'] as Map<String, dynamic>?;
+    final two = conversation['user_two'] as Map<String, dynamic>?;
+    final other = conversation['user_one_id'] == currentId ? two : one;
+    final name =
+        other?['name'] ??
+        '${tx('Conversation', 'Mazungumzo')} #${conversation['id']}';
+    final role = other?['role'];
+    return role == null ? name : '$name - $role';
+  }
 }
 
 class SurfacePanel extends StatelessWidget {
@@ -2072,6 +2169,48 @@ class CategoryView {
   final IconData icon;
 }
 
+String productImageSource(
+  Map<String, dynamic> product, {
+  required String fallback,
+}) {
+  final images = product['images'];
+  if (images is List && images.isNotEmpty) {
+    final first = '${images.first}'.trim();
+    if (first.isNotEmpty) return first;
+  }
+  return fallback;
+}
+
+class ProductImage extends StatelessWidget {
+  const ProductImage({super.key, required this.source, this.fit});
+  final String source;
+  final BoxFit? fit;
+
+  @override
+  Widget build(BuildContext context) {
+    if (source.startsWith('http://') || source.startsWith('https://')) {
+      return Image.network(
+        source,
+        fit: fit ?? BoxFit.contain,
+        errorBuilder: (_, _, _) => const Icon(Icons.image_outlined, size: 48),
+      );
+    }
+    final file = File(source);
+    if (file.existsSync()) {
+      return Image.file(
+        file,
+        fit: fit ?? BoxFit.cover,
+        errorBuilder: (_, _, _) => const Icon(Icons.image_outlined, size: 48),
+      );
+    }
+    return Image.asset(
+      source,
+      fit: fit ?? BoxFit.contain,
+      errorBuilder: (_, _, _) => const Icon(Icons.image_outlined, size: 48),
+    );
+  }
+}
+
 class ProductDealCard extends StatelessWidget {
   const ProductDealCard({
     super.key,
@@ -2119,7 +2258,7 @@ class ProductDealCard extends StatelessWidget {
               Expanded(
                 child: Stack(
                   children: [
-                    Center(child: Image.asset(imageAsset, fit: BoxFit.contain)),
+                    Center(child: ProductImage(source: imageAsset)),
                     if (discount > 0)
                       Align(
                         alignment: Alignment.topRight,
@@ -2225,7 +2364,10 @@ class ProductQuickView extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Image.asset(imageAsset, height: 150, fit: BoxFit.contain),
+          SizedBox(
+            height: 150,
+            child: ProductImage(source: imageAsset, fit: BoxFit.contain),
+          ),
           const SizedBox(height: 12),
           Text(
             product['name'] ?? 'Product',
@@ -2338,6 +2480,49 @@ class CategoryDropdown extends StatelessWidget {
         onChanged: (selected) {
           if (selected != null) onChanged(selected);
         },
+      ),
+    );
+  }
+}
+
+class CategoryMultiSelect extends StatelessWidget {
+  const CategoryMultiSelect({
+    super.key,
+    required this.selected,
+    required this.onChanged,
+  });
+  final Set<String> selected;
+  final ValueChanged<Set<String>> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          labelText: 'Shop categories',
+          prefixIcon: Icon(Icons.category_outlined),
+        ),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: [
+            for (final category in CategoryDropdown.values)
+              FilterChip(
+                label: Text(category),
+                selected: selected.contains(category),
+                onSelected: (checked) {
+                  final next = {...selected};
+                  if (checked) {
+                    next.add(category);
+                  } else if (next.length > 1) {
+                    next.remove(category);
+                  }
+                  onChanged(next);
+                },
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -2520,6 +2705,7 @@ class TrackingCard extends StatelessWidget {
     final delivererLongitude = toDouble(assignment?['deliverer_longitude']);
     final items = (order['items'] as List?) ?? [];
     final money = NumberFormat('#,##0.00');
+    final deliveryCode = '${order['delivery_code_demo'] ?? ''}'.trim();
 
     return SurfacePanel(
       child: Column(
@@ -2564,6 +2750,28 @@ class TrackingCard extends StatelessWidget {
               fontWeight: FontWeight.w900,
             ),
           ),
+          if (deliveryCode.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: kPrimaryLightColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.pin_outlined, color: kPrimaryColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Delivery code $deliveryCode',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
           TrackingMiniMap(
             shopLatitude: toDouble(shop?['latitude']),

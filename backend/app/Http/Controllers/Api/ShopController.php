@@ -15,12 +15,23 @@ class ShopController extends Controller
         abort_unless($request->user()->role === 'seller', 403, 'Only sellers can open shops.');
         $data = $request->validate([
             'name' => ['required', 'string', 'max:160'],
-            'category' => ['required', 'string', 'max:100'],
+            'category' => ['nullable', 'string', 'max:100'],
+            'categories' => ['nullable', 'array', 'min:1'],
+            'categories.*' => ['required', 'string', 'max:100'],
             'address' => ['nullable', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
         ]);
+        $categories = collect($data['categories'] ?? [$data['category'] ?? null])
+            ->filter()
+            ->map(fn (string $category) => trim($category))
+            ->filter()
+            ->unique()
+            ->values();
+        abort_if($categories->isEmpty(), 422, 'Choose at least one shop category.');
         $data['address'] = $data['address'] ?: $request->user()->address;
+        $data['category'] = $categories->first();
+        $data['categories'] = $categories->all();
         $shop = Shop::create($data + ['seller_id' => $request->user()->id]);
         return response()->json(['shop' => $shop], 201);
     }

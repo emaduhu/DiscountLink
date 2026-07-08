@@ -7,12 +7,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['seller_id', 'name', 'category', 'address', 'latitude', 'longitude', 'is_active'])]
+#[Fillable(['seller_id', 'name', 'category', 'categories', 'address', 'latitude', 'longitude', 'is_active'])]
 class Shop extends Model
 {
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return ['categories' => 'array', 'is_active' => 'boolean'];
     }
 
     public function seller(): BelongsTo

@@ -64,6 +64,7 @@ class CartController extends Controller
                 'delivery_total' => $delivery,
                 'grand_total' => $subtotal + $delivery,
                 'delivery_code_hash' => Hash::make($code),
+                'delivery_code_demo' => $code,
             ]);
             foreach ($items as $item) {
                 $unit = $item->product->discount_price ?? $item->product->price;
@@ -77,9 +78,10 @@ class CartController extends Controller
                     'line_total' => ($unit + $item->product->delivery_price) * $item->quantity,
                 ]);
             }
-            DeliveryAssignment::create(['order_id' => $order->id]);
+            $assignment = DeliveryAssignment::create(['order_id' => $order->id]);
             Cart::where('buyer_id', $request->user()->id)->delete();
             $order->setAttribute('plain_delivery_code', $code);
+            $order->setRelation('deliveryAssignment', $assignment);
             return $order;
         });
 
@@ -91,7 +93,17 @@ class CartController extends Controller
             'phone' => $data['phone'] ?? $request->user()->phone,
         ]);
         $push = $clickPesa->requestUssdPush($payment);
-        User::where('role', 'deliverer')->whereNotNull('phone_verified_at')->get()->each(fn ($deliverer) => $fcm->sendToUser($deliverer, 'New delivery', 'A paid order needs delivery.', ['order_id' => $order->id]));
+        $assignmentId = (string) $order->deliveryAssignment?->id;
+        User::where('role', 'deliverer')
+            ->where('is_active', true)
+            ->whereNotNull('fcm_token')
+            ->get()
+            ->each(fn ($deliverer) => $fcm->sendToUser($deliverer, 'New delivery request', 'Open DiscountLink to accept order '.$order->reference.'.', [
+                'type' => 'delivery_request',
+                'order_id' => (string) $order->id,
+                'delivery_assignment_id' => $assignmentId,
+                'reference' => $order->reference,
+            ]));
 
         return response()->json(['order' => $order->load('items'), 'payment' => $payment->fresh(), 'ussd_push' => $push, 'delivery_code_demo' => $order->plain_delivery_code], 201);
     }
