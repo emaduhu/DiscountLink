@@ -796,10 +796,11 @@ class _RegisterPageState extends State<RegisterPage> {
           children: [
             const RegisterVisualHeader(),
             Padding(
-              padding: const EdgeInsets.all(kDefaultPadding),
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
               child: Column(
                 children: [
                   SurfacePanel(
+                    padding: const EdgeInsets.all(12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -816,18 +817,11 @@ class _RegisterPageState extends State<RegisterPage> {
                           value: role,
                           onChanged: (value) => setState(() => role = value),
                         ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  SurfacePanel(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
+                        const SizedBox(height: 10),
                         SectionTitle(
                           title: tx('Fast registration', 'Usajili wa haraka'),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 6),
                         OutlinedButton.icon(
                           onPressed: loading ? null : googleRegister,
                           icon: const Icon(Icons.login),
@@ -850,13 +844,14 @@ class _RegisterPageState extends State<RegisterPage> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 10),
                   SurfacePanel(
+                    padding: const EdgeInsets.all(12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         SectionTitle(title: tx('Your details', 'Taarifa zako')),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 6),
                         Field(
                           controller: name,
                           label: tx('Full name', 'Jina kamili'),
@@ -924,35 +919,35 @@ class RegisterVisualHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 230,
+      height: 132,
       child: Stack(
         fit: StackFit.expand,
         children: [
           Image.asset('assets/images/deals_banner.png', fit: BoxFit.cover),
           Container(color: Colors.black.withValues(alpha: 0.42)),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Container(
-                  width: 84,
-                  height: 84,
+                  width: 58,
+                  height: 58,
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(14),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(alpha: 0.18),
-                        blurRadius: 18,
-                        offset: const Offset(0, 8),
+                        blurRadius: 12,
+                        offset: const Offset(0, 5),
                       ),
                     ],
                   ),
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(8),
                   child: Image.asset('assets/images/app_icon.png'),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -960,13 +955,12 @@ class RegisterVisualHeader extends StatelessWidget {
                     children: [
                       Text(
                         kAppName,
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w900,
-                            ),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 3),
                       Text(
                         tx(
                           'Join buyers, sellers, and deliverers in one discount marketplace.',
@@ -974,8 +968,11 @@ class RegisterVisualHeader extends StatelessWidget {
                         ),
                         style: const TextStyle(
                           color: Colors.white,
-                          height: 1.35,
+                          fontSize: 12,
+                          height: 1.25,
                         ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
@@ -3465,7 +3462,8 @@ class RoleSelector extends StatelessWidget {
 }
 
 ButtonStyle socialButtonStyle() => OutlinedButton.styleFrom(
-  minimumSize: const Size.fromHeight(48),
+  minimumSize: const Size.fromHeight(44),
+  visualDensity: VisualDensity.compact,
   foregroundColor: Colors.black,
   side: BorderSide(color: Colors.black.withValues(alpha: 0.12)),
   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
