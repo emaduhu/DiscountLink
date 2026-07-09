@@ -141,10 +141,16 @@ class AuthController extends Controller
             $attributes['name'] = $data['full_name'];
         }
         if (!empty($data['phone'])) {
+            $existingPhone = User::where('phone', $data['phone'])
+                ->when($user, fn ($query) => $query->where('id', '!=', $user->id))
+                ->exists();
+            abort_if($existingPhone, 422, 'The phone number has already been registered.');
             $attributes['phone'] = $data['phone'];
         }
         if (!empty($data['nida_number'])) {
-            $existingNida = User::where('nida_number', $data['nida_number'])->where('email', '!=', $email)->exists();
+            $existingNida = User::where('nida_number', $data['nida_number'])
+                ->when($user, fn ($query) => $query->where('id', '!=', $user->id))
+                ->exists();
             abort_if($existingNida, 422, 'The NIDA number has already been registered.');
             $attributes['nida_number'] = $data['nida_number'];
         }
