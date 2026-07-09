@@ -70,37 +70,57 @@ class AuthController extends Controller
         return response()->json(['token' => $tokens->issue($user), 'user' => $user->fresh(), 'phone_verified' => (bool) $user->phone_verified_at]);
     }
 
-    public function google(Request $request, GoogleAuthService $google, ApiTokenService $tokens): JsonResponse
+    public function google(Request $request, GoogleAuthService $google, FirebasePhoneAuthService $firebase, ApiTokenService $tokens): JsonResponse
     {
         $data = $request->validate([
-            'google_id_token' => ['required', 'string'],
+            'google_id_token' => ['required_without_all:firebase_id_token,google_access_token', 'string'],
+            'google_access_token' => ['required_without_all:firebase_id_token,google_id_token', 'string'],
+            'firebase_id_token' => ['required_without_all:google_id_token,google_access_token', 'string'],
             'role' => ['required', Rule::in(['seller', 'deliverer', 'buyer'])],
-            'full_name' => ['required', 'string', 'max:160'],
-            'phone' => ['required', 'string', 'max:30'],
-            'address' => ['required', 'string', 'max:255'],
+            'full_name' => ['nullable', 'string', 'max:160'],
+            'phone' => ['nullable', 'string', 'max:30'],
+            'address' => ['nullable', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'fcm_token' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $profile = $google->verify($data['google_id_token']);
+        $profile = match (true) {
+            ! empty($data['firebase_id_token']) => $firebase->verifyAuthToken($data['firebase_id_token']),
+            ! empty($data['google_access_token']) => $google->verifyAccessToken($data['google_access_token']),
+            default => $google->verify($data['google_id_token']),
+        };
         $email = $profile['email'] ?? null;
-        abort_unless($email, 422, 'Google account must expose an email address.');
+        abort_unless($email, 422, 'The selected account must expose an email address.');
 
-        $user = User::updateOrCreate(
-            ['email' => $email],
-            [
-                'google_id' => $profile['sub'] ?? null,
-                'email_verified_at' => now(),
-                'role' => $data['role'],
-                'name' => $data['full_name'],
-                'phone' => $data['phone'],
-                'address' => $data['address'],
-                'latitude' => $data['latitude'] ?? null,
-                'longitude' => $data['longitude'] ?? null,
-                'fcm_token' => $data['fcm_token'] ?? null,
-            ]
+        $user = User::where('email', $email)->first();
+        abort_if(
+            !$user && (empty($data['full_name']) || empty($data['phone']) || empty($data['address'])),
+            422,
+            'Complete registration with your name, phone, and address before using social sign-in.'
         );
+
+        $attributes = [
+            'google_id' => $profile['sub'] ?? $profile['user_id'] ?? null,
+            'email_verified_at' => now(),
+            'latitude' => $data['latitude'] ?? null,
+            'longitude' => $data['longitude'] ?? null,
+            'fcm_token' => $data['fcm_token'] ?? null,
+        ];
+        if (! $user) {
+            $attributes['role'] = $data['role'];
+        }
+        if (!empty($data['full_name'])) {
+            $attributes['name'] = $data['full_name'];
+        }
+        if (!empty($data['phone'])) {
+            $attributes['phone'] = $data['phone'];
+        }
+        if (!empty($data['address'])) {
+            $attributes['address'] = $data['address'];
+        }
+
+        $user = User::updateOrCreate(['email' => $email], $attributes);
 
         return response()->json(['token' => $tokens->issue($user), 'user' => $user, 'phone_verified' => (bool) $user->phone_verified_at]);
     }

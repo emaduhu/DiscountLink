@@ -12,7 +12,20 @@
           "package_name": "net.vigourtech.dl"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "100226634982-aogpnipk2vhl1888lbdaebpuq2f27dr6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "net.vigourtech.dl",
+            "certificate_hash": "75175ff0c975f100c5aea1ed67076c16e0364ae6"
+          }
+        },
+        {
+          "client_id": "100226634982-hiihr773k96r2h63551k9go6eq1sfm5q.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyB_Eh9ZPXkMjBVPEEYKX4vM4fUZAt0NQhE"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "100226634982-hiihr773k96r2h63551k9go6eq1sfm5q.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

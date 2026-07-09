@@ -6,12 +6,15 @@ import 'dart:ui' as ui;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'firebase_options.dart';
 
@@ -19,6 +22,7 @@ const apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
   defaultValue: 'https://dl.vigourtech.net/api',
 );
+const kAppName = 'Discount Link';
 const googleServerClientId = String.fromEnvironment(
   'GOOGLE_SERVER_CLIENT_ID',
   defaultValue: '',
@@ -28,7 +32,7 @@ const kPrimaryColor2 = Color(0xffffa53e);
 const kPrimaryLightColor = Color(0xffffecdf);
 const kTextColor = Color(0xff757575);
 const kSurfaceColor = Color(0xfff6f7fb);
-const kDefaultPadding = 20.0;
+const kDefaultPadding = 16.0;
 final appLanguage = ValueNotifier<AppLanguage>(AppLanguage.en);
 
 enum AppLanguage { en, sw }
@@ -38,19 +42,103 @@ String tx(String english, String swahili) =>
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeFirebase();
+  runApp(const DiscountLinkApp());
+}
+
+Future<void> initializeFirebase() async {
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-  } catch (_) {}
+  } catch (_) {
+    try {
+      await Firebase.initializeApp();
+    } catch (_) {}
+  }
+}
+
+Future<UserCredential> signInWithGoogleFirebase() async {
+  if (kIsWeb) {
+    return FirebaseAuth.instance.signInWithPopup(GoogleAuthProvider());
+  }
+
   try {
-    if (googleServerClientId.isNotEmpty) {
-      await GoogleSignIn.instance.initialize(
-        serverClientId: googleServerClientId,
-      );
+    return await FirebaseAuth.instance.signInWithProvider(GoogleAuthProvider());
+  } on UnimplementedError {
+    return signInWithGooglePlugin();
+  } on FirebaseAuthException catch (error) {
+    if (error.code == 'operation-not-supported-in-this-environment' ||
+        error.code == 'web-context-cancelled') {
+      return signInWithGooglePlugin();
     }
-  } catch (_) {}
-  runApp(const DiscountLinkApp());
+    rethrow;
+  }
+}
+
+Future<UserCredential> signInWithGooglePlugin() async {
+  try {
+    final googleUser = await authenticateGoogleAccount();
+    final authorization = await googleAuthorization(googleUser);
+    final credential = GoogleAuthProvider.credential(
+      idToken: googleUser.authentication.idToken,
+      accessToken: authorization.accessToken,
+    );
+    return FirebaseAuth.instance.signInWithCredential(credential);
+  } on GoogleSignInException catch (error) {
+    throw Exception(googleSignInErrorMessage(error));
+  }
+}
+
+Future<GoogleSignInAccount> authenticateGoogleAccount() async {
+  await GoogleSignIn.instance.initialize(
+    serverClientId: googleServerClientId.isEmpty ? null : googleServerClientId,
+  );
+  return GoogleSignIn.instance.authenticate(
+    scopeHint: const ['email', 'profile'],
+  );
+}
+
+Future<GoogleSignInClientAuthorization> googleAuthorization(
+  GoogleSignInAccount googleUser,
+) async {
+  return await googleUser.authorizationClient.authorizationForScopes(const [
+        'email',
+        'profile',
+      ]) ??
+      await googleUser.authorizationClient.authorizeScopes(const [
+        'email',
+        'profile',
+      ]);
+}
+
+Future<Map<String, dynamic>> googleBackendAuthPayload() async {
+  try {
+    final googleUser = await authenticateGoogleAccount();
+    final authorization = await googleAuthorization(googleUser);
+    return {
+      'google_access_token': authorization.accessToken,
+      '_display_name': googleUser.displayName,
+      '_phone': null,
+    };
+  } on GoogleSignInException catch (error) {
+    throw Exception(googleSignInErrorMessage(error));
+  }
+}
+
+Future<UserCredential> signInWithAppleFirebase() async {
+  return FirebaseAuth.instance.signInWithProvider(AppleAuthProvider());
+}
+
+String googleSignInErrorMessage(GoogleSignInException error) {
+  if (error.code == GoogleSignInExceptionCode.canceled) {
+    return 'Google sign-in was cancelled.';
+  }
+  if (error.code == GoogleSignInExceptionCode.clientConfigurationError ||
+      error.code == GoogleSignInExceptionCode.providerConfigurationError) {
+    return 'Google sign-in is not configured correctly in Firebase. Enable Google sign-in, add the Android SHA keys, and download the updated google-services.json.';
+  }
+  return error.description ?? 'Google sign-in failed. Please try again.';
 }
 
 class DiscountLinkApp extends StatefulWidget {
@@ -101,7 +189,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
     return ValueListenableBuilder<AppLanguage>(
       valueListenable: appLanguage,
       builder: (context, _, _) => MaterialApp(
-        title: 'DiscountLink',
+        title: kAppName,
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
@@ -120,21 +208,21 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
             filled: true,
             fillColor: Colors.white,
             contentPadding: const EdgeInsets.symmetric(
-              horizontal: 18,
-              vertical: 16,
+              horizontal: 14,
+              vertical: 13,
             ),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(14),
               borderSide: BorderSide.none,
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(14),
               borderSide: BorderSide(
                 color: Colors.black.withValues(alpha: 0.06),
               ),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(14),
               borderSide: const BorderSide(color: kPrimaryColor, width: 1.4),
             ),
           ),
@@ -142,16 +230,16 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
             style: FilledButton.styleFrom(
               backgroundColor: kPrimaryColor,
               foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(52),
+              minimumSize: const Size.fromHeight(48),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(14),
               ),
             ),
           ),
           cardTheme: const CardThemeData(
             margin: EdgeInsets.zero,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.all(Radius.circular(18)),
+              borderRadius: BorderRadius.all(Radius.circular(14)),
             ),
           ),
         ),
@@ -190,7 +278,7 @@ class SplashPage extends StatelessWidget {
               ),
               const SizedBox(height: 28),
               Text(
-                'DiscountLink',
+                kAppName,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                   fontWeight: FontWeight.w800,
@@ -261,6 +349,27 @@ class ApiClient {
     });
   }
 
+  Future<Map<String, dynamic>> postMultipartFiles(
+    String path, {
+    required Map<String, String> fields,
+    required List<File> files,
+    String fileField = 'product_images[]',
+  }) async {
+    final uri = Uri.parse('$baseUrl$path');
+    return _request(() async {
+      final request = http.MultipartRequest('POST', uri);
+      request.headers.addAll(_headers(includeContentType: false));
+      request.fields.addAll(fields);
+      for (final file in files) {
+        request.files.add(
+          await http.MultipartFile.fromPath(fileField, file.path),
+        );
+      }
+      final streamed = await request.send();
+      return http.Response.fromStream(streamed);
+    });
+  }
+
   Future<Map<String, dynamic>> get(
     String path, [
     Map<String, String>? query,
@@ -316,9 +425,6 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final name = TextEditingController(text: 'Demo Buyer');
-  final phone = TextEditingController(text: '255700000001');
-  final address = TextEditingController(text: 'Dar es Salaam');
   final email = TextEditingController(text: 'buyer@discountlink.local');
   final password = TextEditingController(text: 'password');
   String role = 'buyer';
@@ -335,20 +441,16 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> googleSignIn() async {
     setState(() => loading = true);
     try {
-      if (googleServerClientId.isEmpty) {
-        throw Exception(
-          'Google Sign-In needs GOOGLE_SERVER_CLIENT_ID. Build the app with the Firebase OAuth Web client ID.',
-        );
-      }
-      final account = await GoogleSignIn.instance.authenticate();
-      final token = account.authentication.idToken;
-      if (token == null) throw Exception('Google did not return an ID token.');
+      final auth = await googleBackendAuthPayload();
       final response = await widget.client.post('/auth/google', {
-        'google_id_token': token,
+        if (auth['firebase_id_token'] != null)
+          'firebase_id_token': auth['firebase_id_token'],
+        if (auth['google_access_token'] != null)
+          'google_access_token': auth['google_access_token'],
         'role': role,
-        'full_name': name.text.trim(),
-        'phone': phone.text.trim(),
-        'address': address.text.trim(),
+        'full_name': auth['_display_name'] ?? 'Google user',
+        'phone': auth['_phone'] ?? '',
+        'address': '',
         'fcm_token': await fcmToken(),
       });
       widget.onSignedIn(
@@ -362,16 +464,21 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  Future<void> register() async {
+  Future<void> appleSignIn() async {
     setState(() => loading = true);
     try {
-      final response = await widget.client.post('/auth/register', {
+      final credential = await signInWithAppleFirebase();
+      final firebaseUser = credential.user;
+      final token = await firebaseUser?.getIdToken();
+      if (token == null) {
+        throw Exception('Firebase did not return an ID token.');
+      }
+      final response = await widget.client.post('/auth/google', {
+        'firebase_id_token': token,
         'role': role,
-        'full_name': name.text.trim(),
-        'email': email.text.trim(),
-        'phone': phone.text.trim(),
-        'password': password.text,
-        'address': address.text.trim(),
+        'full_name': firebaseUser?.displayName ?? 'Apple user',
+        'phone': firebaseUser?.phoneNumber ?? '',
+        'address': '',
         'fcm_token': await fcmToken(),
       });
       widget.onSignedIn(
@@ -383,6 +490,22 @@ class _LoginPageState extends State<LoginPage> {
     } finally {
       if (mounted) setState(() => loading = false);
     }
+  }
+
+  Future<void> openRegisterPage() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            RegisterPage(client: widget.client, onSignedIn: widget.onSignedIn),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    email.dispose();
+    password.dispose();
+    super.dispose();
   }
 
   Future<void> passwordLogin() async {
@@ -486,68 +609,381 @@ class _LoginPageState extends State<LoginPage> {
                       tx('Continue with Google', 'Endelea na Google'),
                     ),
                     style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52),
+                      minimumSize: const Size.fromHeight(48),
                       foregroundColor: Colors.black,
                       side: BorderSide(
                         color: Colors.black.withValues(alpha: 0.12),
                       ),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
+                        borderRadius: BorderRadius.circular(14),
                       ),
+                    ),
+                  ),
+                  if (!kIsWeb &&
+                      (defaultTargetPlatform == TargetPlatform.iOS ||
+                          defaultTargetPlatform == TargetPlatform.macOS)) ...[
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: loading ? null : appleSignIn,
+                      icon: const Icon(Icons.apple),
+                      label: Text(
+                        tx('Continue with Apple', 'Endelea na Apple'),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                        foregroundColor: Colors.black,
+                        side: BorderSide(
+                          color: Colors.black.withValues(alpha: 0.12),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: loading ? null : openRegisterPage,
+                    child: Text(
+                      tx('No account? Register', 'Huna akaunti? Jisajili'),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 14),
-            ExpansionTile(
-              tilePadding: const EdgeInsets.symmetric(horizontal: 4),
-              title: Text(
-                tx('Create account with form', 'Fungua akaunti kwa fomu'),
-              ),
-              subtitle: Text(
-                tx(
-                  'Buyer, seller, or deliverer registration',
-                  'Usajili wa mnunuzi, muuzaji, au msafirishaji',
-                ),
-              ),
-              childrenPadding: EdgeInsets.zero,
-              children: [
-                SurfacePanel(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Field(
-                        controller: name,
-                        label: tx('Full name', 'Jina kamili'),
-                        icon: Icons.person_outline,
-                      ),
-                      Field(
-                        controller: phone,
-                        label: tx(
-                          'Phone for OTP and payments',
-                          'Simu ya OTP na malipo',
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class RegisterPage extends StatefulWidget {
+  const RegisterPage({
+    super.key,
+    required this.client,
+    required this.onSignedIn,
+  });
+  final ApiClient client;
+  final void Function(String token, Map<String, dynamic> user) onSignedIn;
+
+  @override
+  State<RegisterPage> createState() => _RegisterPageState();
+}
+
+class _RegisterPageState extends State<RegisterPage> {
+  final name = TextEditingController(text: 'Demo Buyer');
+  final phone = TextEditingController(text: '255700000001');
+  final address = TextEditingController(text: 'Dar es Salaam');
+  final email = TextEditingController(text: 'buyer@discountlink.local');
+  final password = TextEditingController(text: 'password');
+  String role = 'buyer';
+  bool loading = false;
+
+  Future<String?> fcmToken() async {
+    try {
+      return FirebaseMessaging.instance.getToken();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void completeSignIn(Map<String, dynamic> response) {
+    widget.onSignedIn(
+      response['token'] as String,
+      response['user'] as Map<String, dynamic>,
+    );
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> register() async {
+    setState(() => loading = true);
+    try {
+      final response = await widget.client.post('/auth/register', {
+        'role': role,
+        'full_name': name.text.trim(),
+        'email': email.text.trim(),
+        'phone': phone.text.trim(),
+        'password': password.text,
+        'address': address.text.trim(),
+        'fcm_token': await fcmToken(),
+      });
+      completeSignIn(response);
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> googleRegister() async {
+    setState(() => loading = true);
+    try {
+      final auth = await googleBackendAuthPayload();
+      final response = await widget.client.post('/auth/google', {
+        if (auth['firebase_id_token'] != null)
+          'firebase_id_token': auth['firebase_id_token'],
+        if (auth['google_access_token'] != null)
+          'google_access_token': auth['google_access_token'],
+        'role': role,
+        'full_name': name.text.trim().isEmpty
+            ? (auth['_display_name'] ?? 'Google user')
+            : name.text.trim(),
+        'phone': phone.text.trim().isEmpty
+            ? (auth['_phone'] ?? '')
+            : phone.text.trim(),
+        'address': address.text.trim(),
+        'fcm_token': await fcmToken(),
+      });
+      completeSignIn(response);
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> appleRegister() async {
+    setState(() => loading = true);
+    try {
+      final credential = await signInWithAppleFirebase();
+      final firebaseUser = credential.user;
+      final token = await firebaseUser?.getIdToken();
+      if (token == null) {
+        throw Exception('Firebase did not return an ID token.');
+      }
+      final response = await widget.client.post('/auth/google', {
+        'firebase_id_token': token,
+        'role': role,
+        'full_name': name.text.trim().isEmpty
+            ? (firebaseUser?.displayName ?? 'Apple user')
+            : name.text.trim(),
+        'phone': phone.text.trim().isEmpty
+            ? (firebaseUser?.phoneNumber ?? '')
+            : phone.text.trim(),
+        'address': address.text.trim(),
+        'fcm_token': await fcmToken(),
+      });
+      completeSignIn(response);
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    name.dispose();
+    phone.dispose();
+    address.dispose();
+    email.dispose();
+    password.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final showApple =
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+    return Scaffold(
+      appBar: AppBar(title: Text(tx('Create account', 'Fungua akaunti'))),
+      body: SafeArea(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            const RegisterVisualHeader(),
+            Padding(
+              padding: const EdgeInsets.all(kDefaultPadding),
+              child: Column(
+                children: [
+                  SurfacePanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          tx(
+                            'Choose your account type',
+                            'Chagua aina ya akaunti',
+                          ),
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
                         ),
-                        icon: Icons.phone_outlined,
-                        keyboard: TextInputType.phone,
+                        const SizedBox(height: 10),
+                        RoleSelector(
+                          value: role,
+                          onChanged: (value) => setState(() => role = value),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SurfacePanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SectionTitle(title: tx('Your details', 'Taarifa zako')),
+                        const SizedBox(height: 8),
+                        Field(
+                          controller: name,
+                          label: tx('Full name', 'Jina kamili'),
+                          icon: Icons.person_outline,
+                        ),
+                        Field(
+                          controller: email,
+                          label: tx('Email', 'Barua pepe'),
+                          icon: Icons.alternate_email,
+                          keyboard: TextInputType.emailAddress,
+                        ),
+                        Field(
+                          controller: phone,
+                          label: tx(
+                            'Phone for OTP and payments',
+                            'Simu ya OTP na malipo',
+                          ),
+                          icon: Icons.phone_outlined,
+                          keyboard: TextInputType.phone,
+                        ),
+                        Field(
+                          controller: address,
+                          label: tx('Default address', 'Anwani ya msingi'),
+                          icon: Icons.place_outlined,
+                        ),
+                        Field(
+                          controller: password,
+                          label: tx('Password', 'Nenosiri'),
+                          icon: Icons.lock_outline,
+                          obscure: true,
+                        ),
+                        FilledButton.icon(
+                          onPressed: loading ? null : register,
+                          icon: loading
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.person_add_alt_1),
+                          label: Text(
+                            loading
+                                ? tx('Registering...', 'Inasajili...')
+                                : tx('Register', 'Jisajili'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SurfacePanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SectionTitle(
+                          title: tx('Fast registration', 'Usajili wa haraka'),
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: loading ? null : googleRegister,
+                          icon: const Icon(Icons.login),
+                          label: Text(
+                            tx('Register with Google', 'Jisajili na Google'),
+                          ),
+                          style: socialButtonStyle(),
+                        ),
+                        if (showApple) ...[
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: loading ? null : appleRegister,
+                            icon: const Icon(Icons.apple),
+                            label: Text(
+                              tx('Register with Apple', 'Jisajili na Apple'),
+                            ),
+                            style: socialButtonStyle(),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class RegisterVisualHeader extends StatelessWidget {
+  const RegisterVisualHeader({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 230,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset('assets/images/deals_banner.png', fit: BoxFit.cover),
+          Container(color: Colors.black.withValues(alpha: 0.42)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  width: 84,
+                  height: 84,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
                       ),
-                      Field(
-                        controller: address,
-                        label: tx('Default address', 'Anwani ya msingi'),
-                        icon: Icons.place_outlined,
+                    ],
+                  ),
+                  padding: const EdgeInsets.all(10),
+                  child: Image.asset('assets/images/app_icon.png'),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        kAppName,
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
                       ),
-                      FilledButton.icon(
-                        onPressed: loading ? null : register,
-                        icon: const Icon(Icons.person_add_alt_1),
-                        label: Text(tx('Register', 'Jisajili')),
+                      const SizedBox(height: 6),
+                      Text(
+                        tx(
+                          'Join buyers, sellers, and deliverers in one discount marketplace.',
+                          'Jiunge na wanunuzi, wauzaji, na wasafirishaji kwenye soko moja la punguzo.',
+                        ),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          height: 1.35,
+                        ),
                       ),
                     ],
                   ),
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -636,7 +1072,7 @@ class _HomePageState extends State<HomePage> {
           children: [
             Text(
               role == 'buyer'
-                  ? 'DiscountLink'
+                  ? kAppName
                   : '${role[0].toUpperCase()}${role.substring(1)} Hub',
             ),
           ],
@@ -919,10 +1355,10 @@ class _ProfilePageState extends State<ProfilePage> {
           label: Text(tx('Sign out', 'Toka')),
           style: OutlinedButton.styleFrom(
             foregroundColor: Colors.red,
-            minimumSize: const Size.fromHeight(52),
+            minimumSize: const Size.fromHeight(48),
             side: BorderSide(color: Colors.red.withValues(alpha: 0.35)),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(14),
             ),
           ),
         ),
@@ -945,62 +1381,45 @@ class BuyerPage extends StatefulWidget {
   State<BuyerPage> createState() => _BuyerPageState();
 }
 
-class _BuyerPageState extends State<BuyerPage> {
-  final search = TextEditingController();
+class CartPage extends StatefulWidget {
+  const CartPage({
+    super.key,
+    required this.client,
+    required this.user,
+    required this.onUserChanged,
+  });
+  final ApiClient client;
+  final Map<String, dynamic> user;
+  final ValueChanged<Map<String, dynamic>> onUserChanged;
+
+  @override
+  State<CartPage> createState() => _CartPageState();
+}
+
+class _CartPageState extends State<CartPage> {
   final addressLine = TextEditingController();
   final city = TextEditingController(text: 'Dar es Salaam');
   final landmark = TextEditingController();
   final checkoutPhone = TextEditingController();
-  List products = [];
   List cart = [];
-  XFile? pickedImage;
-  String? selectedCategory;
-  final money = NumberFormat('#,##0.00');
+  bool loading = true;
+  bool checkingOut = false;
 
   @override
   void initState() {
     super.initState();
-    load();
     addressLine.text = widget.user['address'] ?? '';
     checkoutPhone.text = widget.user['phone'] ?? '';
+    load();
   }
 
-  Future<void> load() async {
-    final query = <String, String>{};
-    if (search.text.trim().isNotEmpty) query['q'] = search.text.trim();
-    if (selectedCategory != null) query['category'] = selectedCategory!;
-    final r = await widget.client.get('/products', query);
-    final c = await widget.client.get('/cart');
-    if (!mounted) return;
-    setState(() {
-      products = r['products']['data'] as List;
-      cart = c['items'] as List;
-    });
-  }
-
-  Future<void> imageSearchRun() async {
-    final image = pickedImage;
-    if (image == null) {
-      throw Exception(tx('Upload an image first.', 'Pakia picha kwanza.'));
-    }
-    final r = await widget.client.postMultipart(
-      '/products/image-search',
-      fields: const {},
-      file: File(image.path),
-    );
-    if (!mounted) return;
-    setState(() => products = r['products'] as List);
-  }
-
-  Future<void> pickSearchImage() async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 70,
-    );
-    if (image == null) return;
-    if (!mounted) return;
-    setState(() => pickedImage = image);
+  @override
+  void dispose() {
+    addressLine.dispose();
+    city.dispose();
+    landmark.dispose();
+    checkoutPhone.dispose();
+    super.dispose();
   }
 
   String checkoutAddress() => [
@@ -1009,8 +1428,329 @@ class _BuyerPageState extends State<BuyerPage> {
     landmark.text.trim(),
   ].where((part) => part.isNotEmpty).join(', ');
 
+  Future<void> load() async {
+    setState(() => loading = true);
+    try {
+      final r = await widget.client.get('/cart');
+      if (!mounted) return;
+      setState(() => cart = r['items'] as List);
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
   Future<void> removeCartItem(Map<String, dynamic> item) async {
     await widget.client.delete('/cart/${item['product']['id']}');
+    await load();
+  }
+
+  Future<void> saveAddress() async {
+    final r = await widget.client.put('/me', {'address': checkoutAddress()});
+    widget.onUserChanged(r['user'] as Map<String, dynamic>);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(tx('Address saved.', 'Anwani imehifadhiwa.'))),
+    );
+  }
+
+  Future<void> checkout() async {
+    setState(() => checkingOut = true);
+    try {
+      final r = await widget.client.post('/checkout', {
+        'delivery_address': checkoutAddress(),
+        'phone': checkoutPhone.text.trim(),
+      });
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('USSD push requested'),
+          content: Text(
+            'Order ${r['order']['reference']}\nBuyer delivery code: ${r['delivery_code'] ?? r['delivery_code_demo']}\n\nKeep this code. Share it only after the order arrives to release seller and delivery payments.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      await load();
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => checkingOut = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(tx('Cart', 'Kikapu'))),
+      body: RefreshIndicator(
+        onRefresh: load,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            SurfacePanel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SectionTitle(
+                    title: '${tx('Cart', 'Kikapu')} (${cart.length})',
+                  ),
+                  const SizedBox(height: 8),
+                  if (loading)
+                    const ListLoadingIndicator()
+                  else if (cart.isEmpty)
+                    Text(
+                      tx(
+                        'Add products to start checkout.',
+                        'Ongeza bidhaa ili kuanza malipo.',
+                      ),
+                      style: const TextStyle(color: kTextColor),
+                    )
+                  else
+                    for (final i in cart)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const CircleAvatar(
+                          backgroundColor: kPrimaryLightColor,
+                          child: Icon(Icons.shopping_bag_outlined),
+                        ),
+                        title: Text(i['product']['name']),
+                        subtitle: Text('Qty ${i['quantity']}'),
+                        trailing: IconButton(
+                          tooltip: 'Remove item',
+                          onPressed: () =>
+                              removeCartItem(i as Map<String, dynamic>),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            SurfacePanel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SectionTitle(
+                    title: tx('Delivery details', 'Taarifa za usafiri'),
+                  ),
+                  const SizedBox(height: 8),
+                  Field(
+                    controller: addressLine,
+                    label: tx('Street or area', 'Mtaa au eneo'),
+                    icon: Icons.place_outlined,
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Field(
+                          controller: city,
+                          label: tx('City', 'Jiji'),
+                          icon: Icons.location_city_outlined,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Field(
+                          controller: landmark,
+                          label: tx('Landmark', 'Alama ya eneo'),
+                          icon: Icons.flag_outlined,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Field(
+                    controller: checkoutPhone,
+                    label: tx('Payment phone', 'Simu ya malipo'),
+                    icon: Icons.phone_outlined,
+                    keyboard: TextInputType.phone,
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: saveAddress,
+                    icon: const Icon(Icons.save_outlined),
+                    label: Text(tx('Save address', 'Hifadhi anwani')),
+                  ),
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                    onPressed: cart.isEmpty || loading || checkingOut
+                        ? null
+                        : checkout,
+                    icon: checkingOut
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.payments_outlined),
+                    label: Text(
+                      checkingOut
+                          ? tx('Requesting payment...', 'Inaomba malipo...')
+                          : tx(
+                              'Pay with ClickPesa USSD',
+                              'Lipa kwa ClickPesa USSD',
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BuyerPageState extends State<BuyerPage> {
+  final search = TextEditingController();
+  List products = [];
+  List cart = [];
+  XFile? pickedImage;
+  String? selectedCategory;
+  String? imageSearchMessage;
+  List<String> shopCategories = defaultShopCategories;
+  final money = NumberFormat('#,##0.00');
+  bool loadingProducts = true;
+  bool loadingCart = true;
+  bool imageSearchActive = false;
+  bool searchingImage = false;
+
+  @override
+  void initState() {
+    super.initState();
+    loadCategories();
+    load();
+  }
+
+  Future<void> loadCategories() async {
+    try {
+      final r = await widget.client.get('/shop-categories');
+      final next = ((r['categories'] as List?) ?? [])
+          .map((category) => '$category'.trim())
+          .where((category) => category.isNotEmpty)
+          .toList();
+      if (next.isNotEmpty && mounted) setState(() => shopCategories = next);
+    } catch (_) {}
+  }
+
+  Future<void> load() async {
+    setState(() {
+      loadingProducts = true;
+      loadingCart = true;
+    });
+    final query = <String, String>{};
+    if (search.text.trim().isNotEmpty) query['q'] = search.text.trim();
+    if (selectedCategory != null) query['category'] = selectedCategory!;
+    try {
+      final r = await widget.client.get('/products', query);
+      final c = await widget.client.get('/cart');
+      if (!mounted) return;
+      setState(() {
+        products = r['products']['data'] as List;
+        cart = c['items'] as List;
+      });
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          loadingProducts = false;
+          loadingCart = false;
+        });
+      }
+    }
+  }
+
+  Future<void> loadCartCount() async {
+    setState(() => loadingCart = true);
+    try {
+      final c = await widget.client.get('/cart');
+      if (!mounted) return;
+      setState(() => cart = c['items'] as List);
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loadingCart = false);
+    }
+  }
+
+  Future<void> imageSearchRun() async {
+    final image = pickedImage;
+    if (image == null) {
+      throw Exception(tx('Upload an image first.', 'Pakia picha kwanza.'));
+    }
+    setState(() {
+      loadingProducts = true;
+      searchingImage = true;
+      imageSearchMessage = tx(
+        'Matching product images...',
+        'Inalinganisha picha za bidhaa...',
+      );
+    });
+    try {
+      final r = await widget.client.postMultipart(
+        '/products/image-search',
+        fields: const {},
+        file: File(image.path),
+      );
+      if (!mounted) return;
+      setState(() {
+        products = r['products'] as List;
+        imageSearchActive = true;
+        imageSearchMessage = '${r['message'] ?? 'Image search complete.'}';
+        selectedCategory = null;
+        search.clear();
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(imageSearchMessage!)));
+    } catch (error) {
+      if (mounted) {
+        setState(() => imageSearchMessage = '$error');
+        showError(context, error);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          loadingProducts = false;
+          searchingImage = false;
+        });
+      }
+    }
+  }
+
+  Future<void> pickSearchImage() async {
+    final picker = ImagePicker();
+    final image = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 82,
+      maxWidth: 1600,
+      maxHeight: 1600,
+    );
+    if (image == null) return;
+    if (!mounted) return;
+    setState(() {
+      pickedImage = image;
+      imageSearchMessage = tx(
+        'Image ready. Tap Find matches to compare product photos.',
+        'Picha iko tayari. Bonyeza Tafuta zinazofanana kulinganisha picha za bidhaa.',
+      );
+    });
+  }
+
+  Future<void> clearImageSearch() async {
+    setState(() {
+      pickedImage = null;
+      imageSearchActive = false;
+      imageSearchMessage = null;
+    });
     await load();
   }
 
@@ -1026,13 +1766,23 @@ class _BuyerPageState extends State<BuyerPage> {
     );
   }
 
-  Future<void> saveAddress() async {
-    final r = await widget.client.put('/me', {'address': checkoutAddress()});
-    widget.onUserChanged(r['user'] as Map<String, dynamic>);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(tx('Address saved.', 'Anwani imehifadhiwa.'))),
+  Future<void> openCartPage() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CartPage(
+          client: widget.client,
+          user: widget.user,
+          onUserChanged: widget.onUserChanged,
+        ),
+      ),
     );
+    await loadCartCount();
+  }
+
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
   }
 
   @override
@@ -1046,63 +1796,32 @@ class _BuyerPageState extends State<BuyerPage> {
             search: search,
             onSearch: load,
             cartCount: cart.length,
+            cartLoading: loadingCart,
+            onCart: openCartPage,
           ),
           const SizedBox(height: 18),
           const DealsBanner(),
           const SizedBox(height: 18),
           SectionTitle(
-            title: tx('Categories', 'Makundi'),
-            action: tx('Image search', 'Tafuta kwa picha'),
-            onAction: () => showModalBottomSheet<void>(
-              context: context,
-              showDragHandle: true,
-              builder: (_) => Padding(
-                padding: const EdgeInsets.all(kDefaultPadding),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      tx('Search by image', 'Tafuta kwa picha'),
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: pickSearchImage,
-                      icon: const Icon(Icons.upload_file),
-                      label: Text(
-                        pickedImage == null
-                            ? tx('Upload image', 'Pakia picha')
-                            : tx('Image selected', 'Picha imechaguliwa'),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    FilledButton.icon(
-                      onPressed: () async {
-                        try {
-                          Navigator.pop(context);
-                          await imageSearchRun();
-                        } catch (error) {
-                          if (mounted) showError(this.context, error);
-                        }
-                      },
-                      icon: const Icon(Icons.image),
-                      label: Text(tx('Search', 'Tafuta')),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            title: tx('Search by image', 'Tafuta kwa picha'),
+            action: imageSearchActive ? tx('Clear', 'Futa') : null,
+            onAction: imageSearchActive ? clearImageSearch : null,
           ),
           const SizedBox(height: 10),
+          ImageSearchPreview(
+            image: pickedImage,
+            active: imageSearchActive,
+            searching: searchingImage,
+            message: imageSearchMessage,
+            onPick: pickSearchImage,
+            onSearch: imageSearchRun,
+            onClear: clearImageSearch,
+          ),
+          const SizedBox(height: 18),
+          SectionTitle(title: tx('Categories', 'Makundi')),
+          const SizedBox(height: 10),
           CategoryStrip(
-            categories: const [
-              CategoryView('Electronics', Icons.devices_other),
-              CategoryView('Fashion', Icons.checkroom_outlined),
-              CategoryView('Groceries', Icons.local_grocery_store_outlined),
-              CategoryView('Books', Icons.menu_book_outlined),
-              CategoryView('Other', Icons.category_outlined),
-            ],
+            categories: categoryViewsFromNames(shopCategories),
             onSelected: (name) {
               selectedCategory = name;
               search.clear();
@@ -1111,12 +1830,18 @@ class _BuyerPageState extends State<BuyerPage> {
           ),
           const SizedBox(height: 18),
           SectionTitle(
-            title: tx('Popular products', 'Bidhaa maarufu'),
-            action: tx('Refresh', 'Onyesha upya'),
-            onAction: load,
+            title: imageSearchActive
+                ? tx('Visual matches', 'Bidhaa zinazofanana')
+                : tx('Popular products', 'Bidhaa maarufu'),
+            action: imageSearchActive
+                ? tx('Clear', 'Futa')
+                : tx('Refresh', 'Onyesha upya'),
+            onAction: imageSearchActive ? clearImageSearch : load,
           ),
           const SizedBox(height: 10),
-          if (products.isEmpty)
+          if (loadingProducts)
+            const ListLoadingIndicator()
+          else if (products.isEmpty)
             EmptyState(
               icon: Icons.inventory_2_outlined,
               title: tx('No products found', 'Hakuna bidhaa zilizopatikana'),
@@ -1151,117 +1876,19 @@ class _BuyerPageState extends State<BuyerPage> {
                     await widget.client.post('/cart/${product['id']}', {
                       'quantity': 1,
                     });
-                    await load();
+                    await loadCartCount();
                   },
                   onStartChat: () => startChat(product),
+                  onRate: (rating) async {
+                    await widget.client.post(
+                      '/products/${product['id']}/rating',
+                      {'rating': rating},
+                    );
+                    await load();
+                  },
                 );
               },
             ),
-          const SizedBox(height: 16),
-          SurfacePanel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SectionTitle(title: '${tx('Cart', 'Kikapu')} (${cart.length})'),
-                const SizedBox(height: 8),
-                if (cart.isEmpty)
-                  Text(
-                    tx(
-                      'Add products to start checkout.',
-                      'Ongeza bidhaa ili kuanza malipo.',
-                    ),
-                    style: const TextStyle(color: kTextColor),
-                  )
-                else
-                  for (final i in cart.take(4))
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const CircleAvatar(
-                        backgroundColor: kPrimaryLightColor,
-                        child: Icon(Icons.shopping_bag_outlined),
-                      ),
-                      title: Text(i['product']['name']),
-                      subtitle: Text('Qty ${i['quantity']}'),
-                      trailing: IconButton(
-                        tooltip: 'Remove item',
-                        onPressed: () =>
-                            removeCartItem(i as Map<String, dynamic>),
-                        icon: const Icon(Icons.delete_outline),
-                      ),
-                    ),
-                const SizedBox(height: 8),
-                Field(
-                  controller: addressLine,
-                  label: tx('Street or area', 'Mtaa au eneo'),
-                  icon: Icons.place_outlined,
-                ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Field(
-                        controller: city,
-                        label: tx('City', 'Jiji'),
-                        icon: Icons.location_city_outlined,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Field(
-                        controller: landmark,
-                        label: tx('Landmark', 'Alama ya eneo'),
-                        icon: Icons.flag_outlined,
-                      ),
-                    ),
-                  ],
-                ),
-                Field(
-                  controller: checkoutPhone,
-                  label: tx('Payment phone', 'Simu ya malipo'),
-                  icon: Icons.phone_outlined,
-                  keyboard: TextInputType.phone,
-                ),
-                OutlinedButton.icon(
-                  onPressed: saveAddress,
-                  icon: const Icon(Icons.save_outlined),
-                  label: Text(tx('Save address', 'Hifadhi anwani')),
-                ),
-                const SizedBox(height: 8),
-                FilledButton.icon(
-                  onPressed: cart.isEmpty
-                      ? null
-                      : () async {
-                          final r = await widget.client.post('/checkout', {
-                            'delivery_address': checkoutAddress(),
-                            'phone': checkoutPhone.text.trim(),
-                          });
-                          if (!context.mounted) {
-                            return;
-                          }
-                          showDialog(
-                            context: context,
-                            builder: (_) => AlertDialog(
-                              title: const Text('USSD push requested'),
-                              content: Text(
-                                'Order ${r['order']['reference']}\nDemo delivery code: ${r['delivery_code_demo']}',
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: const Text('OK'),
-                                ),
-                              ],
-                            ),
-                          );
-                          await load();
-                        },
-                  icon: const Icon(Icons.payments_outlined),
-                  label: Text(
-                    tx('Pay with ClickPesa USSD', 'Lipa kwa ClickPesa USSD'),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );
@@ -1278,6 +1905,7 @@ class OrdersPage extends StatefulWidget {
 class _OrdersPageState extends State<OrdersPage> {
   List orders = [];
   Timer? refreshTimer;
+  bool loading = true;
 
   @override
   void initState() {
@@ -1293,8 +1921,15 @@ class _OrdersPageState extends State<OrdersPage> {
   }
 
   Future<void> load() async {
-    final r = await widget.client.get('/orders/active');
-    if (mounted) setState(() => orders = r['orders'] as List);
+    setState(() => loading = true);
+    try {
+      final r = await widget.client.get('/orders/active');
+      if (mounted) setState(() => orders = r['orders'] as List);
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
   }
 
   @override
@@ -1305,7 +1940,9 @@ class _OrdersPageState extends State<OrdersPage> {
       children: [
         SectionTitle(title: 'My orders', action: 'Refresh', onAction: load),
         const SizedBox(height: 8),
-        if (orders.isEmpty)
+        if (loading)
+          const ListLoadingIndicator()
+        else if (orders.isEmpty)
           const EmptyState(
             icon: Icons.receipt_long_outlined,
             title: 'No active orders',
@@ -1339,25 +1976,56 @@ class _SellerPageState extends State<SellerPage> {
   final delivery = TextEditingController();
   final stock = TextEditingController(text: '10');
   final selectedCategories = <String>{'Electronics'};
+  List<String> shopCategories = defaultShopCategories;
   final picker = ImagePicker();
   List<XFile> selectedProductImages = [];
   List shops = [];
   int? selectedShopId;
+  int? editingShopId;
+  int? editingProductId;
+  _ShopEditDraft? shopDraft;
+  _ProductEditDraft? productDraft;
+  List<XFile> replacementProductImages = [];
+  bool loadingShops = true;
 
   @override
   void initState() {
     super.initState();
     address.text = widget.user['address'] ?? '';
+    loadCategories();
     load();
   }
 
+  Future<void> loadCategories() async {
+    try {
+      final r = await widget.client.get('/shop-categories');
+      final next = ((r['categories'] as List?) ?? [])
+          .map((category) => '$category'.trim())
+          .where((category) => category.isNotEmpty)
+          .toList();
+      if (next.isEmpty || !mounted) return;
+      setState(() {
+        shopCategories = next;
+        selectedCategories.removeWhere((category) => !next.contains(category));
+        if (selectedCategories.isEmpty) selectedCategories.add(next.first);
+      });
+    } catch (_) {}
+  }
+
   Future<void> load() async {
-    final r = await widget.client.get('/seller/shops');
-    if (!mounted) return;
-    setState(() {
-      shops = r['shops'] as List;
-      if (shops.isNotEmpty) selectedShopId ??= shops.first['id'] as int;
-    });
+    setState(() => loadingShops = true);
+    try {
+      final r = await widget.client.get('/seller/shops');
+      if (!mounted) return;
+      setState(() {
+        shops = r['shops'] as List;
+        if (shops.isNotEmpty) selectedShopId ??= shops.first['id'] as int;
+      });
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loadingShops = false);
+    }
   }
 
   Future<void> pickProductImages() async {
@@ -1370,206 +2038,164 @@ class _SellerPageState extends State<SellerPage> {
     return selectedProductImages.map((image) => image.path).toList();
   }
 
-  Future<void> editShop(Map<String, dynamic> shop) async {
-    final name = TextEditingController(text: shop['name'] ?? '');
-    final shopAddress = TextEditingController(text: shop['address'] ?? '');
+  void startEditShop(Map<String, dynamic> shop) {
+    shopDraft?.dispose();
     final categories = <String>{
       ...(((shop['categories'] as List?) ?? [shop['category']])
           .whereType<String>()),
     };
     if (categories.isEmpty) categories.add('Electronics');
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Edit shop'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Field(controller: name, label: 'Shop name', icon: Icons.store),
-                CategoryMultiSelect(
-                  selected: categories,
-                  onChanged: (next) => setDialogState(() {
-                    categories
-                      ..clear()
-                      ..addAll(next);
-                  }),
-                ),
-                Field(
-                  controller: shopAddress,
-                  label: 'Address',
-                  icon: Icons.place_outlined,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                try {
-                  await widget.client.put('/shops/${shop['id']}', {
-                    'name': name.text.trim(),
-                    'category': categories.first,
-                    'categories': categories.toList(),
-                    'address': shopAddress.text.trim(),
-                  });
-                  if (!dialogContext.mounted) return;
-                  Navigator.pop(dialogContext);
-                  await load();
-                } catch (error) {
-                  if (dialogContext.mounted) showError(dialogContext, error);
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
+    setState(() {
+      editingShopId = shop['id'] as int?;
+      shopDraft = _ShopEditDraft(
+        name: shop['name'] ?? '',
+        address: shop['address'] ?? '',
+        categories: categories,
+      );
+    });
   }
 
-  Future<void> editProduct(Map<String, dynamic> product) async {
-    final name = TextEditingController(text: product['name'] ?? '');
-    final productDescription = TextEditingController(
-      text: product['description'] ?? '',
-    );
-    final productPrice = TextEditingController(
-      text: '${product['price'] ?? ''}',
-    );
-    final productDiscount = TextEditingController(
-      text: '${product['discount_percent'] ?? '0'}',
-    );
-    final productDelivery = TextEditingController(
-      text: '${product['delivery_price'] ?? ''}',
-    );
-    final productStock = TextEditingController(
-      text: '${product['stock'] ?? '0'}',
-    );
-    var replacementImages = <XFile>[];
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Edit product'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Field(
-                  controller: name,
-                  label: 'Product name',
-                  icon: Icons.inventory_2_outlined,
-                ),
-                Field(
-                  controller: productDescription,
-                  label: 'Description',
-                  icon: Icons.notes,
-                ),
-                Field(
-                  controller: productPrice,
-                  label: 'Price',
-                  icon: Icons.sell_outlined,
-                  keyboard: TextInputType.number,
-                ),
-                Field(
-                  controller: productDiscount,
-                  label: 'Discount percent',
-                  icon: Icons.percent,
-                  keyboard: TextInputType.number,
-                ),
-                Field(
-                  controller: productDelivery,
-                  label: 'Delivery price',
-                  icon: Icons.delivery_dining,
-                  keyboard: TextInputType.number,
-                ),
-                Field(
-                  controller: productStock,
-                  label: 'Stock',
-                  icon: Icons.numbers,
-                  keyboard: TextInputType.number,
-                ),
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final images = await picker.pickMultiImage(
-                      imageQuality: 75,
-                    );
-                    if (images.isNotEmpty) {
-                      setDialogState(() => replacementImages = images);
-                    }
-                  },
-                  icon: const Icon(Icons.photo_library_outlined),
-                  label: Text(
-                    replacementImages.isEmpty
-                        ? 'Replace images'
-                        : '${replacementImages.length} images chosen',
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                try {
-                  final body = <String, dynamic>{
-                    'name': name.text.trim(),
-                    'description': productDescription.text.trim(),
-                    'price': double.parse(productPrice.text),
-                    'discount_percent':
-                        double.tryParse(productDiscount.text) ?? 0,
-                    'delivery_price': double.parse(productDelivery.text),
-                    'stock': int.parse(productStock.text),
-                  };
-                  if (replacementImages.isNotEmpty) {
-                    if (replacementImages.length < 3) {
-                      throw Exception('Choose at least 3 product images.');
-                    }
-                    body['images'] = replacementImages
-                        .map((image) => image.path)
-                        .toList();
-                  }
-                  await widget.client.put('/products/${product['id']}', body);
-                  if (!dialogContext.mounted) return;
-                  Navigator.pop(dialogContext);
-                  await load();
-                } catch (error) {
-                  if (dialogContext.mounted) showError(dialogContext, error);
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
+  void startEditProduct(Map<String, dynamic> product) {
+    productDraft?.dispose();
+    setState(() {
+      editingProductId = product['id'] as int?;
+      replacementProductImages = [];
+      productDraft = _ProductEditDraft(product);
+    });
+  }
+
+  void cancelShopEdit() {
+    shopDraft?.dispose();
+    setState(() {
+      editingShopId = null;
+      shopDraft = null;
+    });
+  }
+
+  void cancelProductEdit() {
+    productDraft?.dispose();
+    setState(() {
+      editingProductId = null;
+      productDraft = null;
+      replacementProductImages = [];
+    });
+  }
+
+  Future<void> saveShopEdit(Map<String, dynamic> shop) async {
+    final draft = shopDraft;
+    if (draft == null) return;
+    try {
+      await widget.client.put('/shops/${shop['id']}', {
+        'name': draft.name.text.trim(),
+        'category': draft.categories.first,
+        'categories': draft.categories.toList(),
+        'address': draft.address.text.trim(),
+      });
+      cancelShopEdit();
+      await load();
+    } catch (error) {
+      if (mounted) showError(context, error);
+    }
+  }
+
+  Future<void> pickReplacementProductImages() async {
+    final images = await picker.pickMultiImage(imageQuality: 75);
+    if (images.isEmpty) return;
+    setState(() => replacementProductImages = images);
+  }
+
+  Future<void> saveProductEdit(Map<String, dynamic> product) async {
+    final draft = productDraft;
+    if (draft == null) return;
+    try {
+      if (replacementProductImages.isNotEmpty) {
+        if (replacementProductImages.length < 3) {
+          throw Exception('Choose at least 3 product images.');
+        }
+        await widget.client.postMultipartFiles(
+          '/products/${product['id']}',
+          fields: {
+            'name': draft.name.text.trim(),
+            'description': draft.description.text.trim(),
+            'price': draft.price.text,
+            'discount_percent': draft.discount.text,
+            'delivery_price': draft.delivery.text,
+            'stock': draft.stock.text,
+          },
+          files: replacementProductImages
+              .map((image) => File(image.path))
+              .toList(),
+        );
+      } else {
+        await widget.client.put('/products/${product['id']}', {
+          'name': draft.name.text.trim(),
+          'description': draft.description.text.trim(),
+          'price': double.parse(draft.price.text),
+          'discount_percent': double.tryParse(draft.discount.text) ?? 0,
+          'delivery_price': double.parse(draft.delivery.text),
+          'stock': int.parse(draft.stock.text),
+        });
+      }
+      cancelProductEdit();
+      await load();
+    } catch (error) {
+      if (mounted) showError(context, error);
+    }
+  }
+
+  Future<void> removeProduct(Map<String, dynamic> product) async {
+    try {
+      await widget.client.delete('/products/${product['id']}');
+      if (editingProductId == product['id']) cancelProductEdit();
+      await load();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Product removed.')));
+      }
+    } catch (error) {
+      if (mounted) showError(context, error);
+    }
+  }
+
+  @override
+  void dispose() {
+    shopName.dispose();
+    address.dispose();
+    productName.dispose();
+    description.dispose();
+    price.dispose();
+    discount.dispose();
+    delivery.dispose();
+    stock.dispose();
+    shopDraft?.dispose();
+    productDraft?.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        12,
+        16,
+        MediaQuery.paddingOf(context).bottom + 120,
+      ),
       children: [
         SurfacePanel(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               SectionTitle(title: 'Open shop'),
+              const SizedBox(height: 12),
               Field(
                 controller: shopName,
                 label: 'Shop name',
                 icon: Icons.store_outlined,
               ),
               CategoryMultiSelect(
+                categories: shopCategories,
                 selected: selectedCategories,
                 onChanged: (categories) => setState(() {
                   selectedCategories
@@ -1604,6 +2230,7 @@ class _SellerPageState extends State<SellerPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               SectionTitle(title: 'List product'),
+              const SizedBox(height: 12),
               if (shops.isNotEmpty)
                 DropdownButtonFormField<int>(
                   initialValue: selectedShopId,
@@ -1693,17 +2320,20 @@ class _SellerPageState extends State<SellerPage> {
                               'Choose at least 3 product images from phone.',
                             );
                           }
-                          await widget.client
-                              .post('/shops/$selectedShopId/products', {
-                                'name': productName.text,
-                                'description': description.text,
-                                'price': double.parse(price.text),
-                                'discount_percent':
-                                    double.tryParse(discount.text) ?? 0,
-                                'delivery_price': double.parse(delivery.text),
-                                'stock': int.parse(stock.text),
-                                'images': images,
-                              });
+                          await widget.client.postMultipartFiles(
+                            '/shops/$selectedShopId/products',
+                            fields: {
+                              'name': productName.text,
+                              'description': description.text,
+                              'price': price.text,
+                              'discount_percent': discount.text,
+                              'delivery_price': delivery.text,
+                              'stock': stock.text,
+                            },
+                            files: selectedProductImages
+                                .map((image) => File(image.path))
+                                .toList(),
+                          );
                           setState(() => selectedProductImages = []);
                           await load();
                         } catch (error) {
@@ -1716,7 +2346,10 @@ class _SellerPageState extends State<SellerPage> {
             ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 18),
+        SectionTitle(title: 'Seller products'),
+        const SizedBox(height: 8),
+        if (loadingShops) const ListLoadingIndicator(),
         for (final s in shops)
           SurfacePanel(
             child: Column(
@@ -1743,25 +2376,252 @@ class _SellerPageState extends State<SellerPage> {
                     ),
                     IconButton(
                       tooltip: 'Edit shop',
-                      onPressed: () => editShop(s as Map<String, dynamic>),
+                      onPressed: () => startEditShop(s as Map<String, dynamic>),
                       icon: const Icon(Icons.edit_outlined),
                     ),
                   ],
                 ),
-                for (final product in ((s['products'] as List?) ?? []))
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const CircleAvatar(
-                      backgroundColor: kPrimaryLightColor,
-                      child: Icon(Icons.inventory_2_outlined),
+                if (editingShopId == s['id'] && shopDraft != null) ...[
+                  const SizedBox(height: 12),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: kSurfaceColor,
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                    title: Text(product['name'] ?? ''),
-                    subtitle: Text('TZS ${product['auto_total']}'),
-                    trailing: IconButton(
-                      tooltip: 'Edit product',
-                      onPressed: () =>
-                          editProduct(product as Map<String, dynamic>),
-                      icon: const Icon(Icons.edit_outlined),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Field(
+                            controller: shopDraft!.name,
+                            label: 'Shop name',
+                            icon: Icons.store,
+                          ),
+                          CategoryMultiSelect(
+                            categories: shopCategories,
+                            selected: shopDraft!.categories,
+                            onChanged: (next) => setState(() {
+                              shopDraft!.categories
+                                ..clear()
+                                ..addAll(next);
+                            }),
+                          ),
+                          Field(
+                            controller: shopDraft!.address,
+                            label: 'Address',
+                            icon: Icons.place_outlined,
+                          ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: cancelShopEdit,
+                                  child: const Text('Cancel'),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: FilledButton(
+                                  onPressed: () =>
+                                      saveShopEdit(s as Map<String, dynamic>),
+                                  child: const Text('Save shop'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                for (final product in ((s['products'] as List?) ?? []))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: kSurfaceColor,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.black.withValues(alpha: 0.05),
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: SizedBox(
+                                    width: 64,
+                                    height: 64,
+                                    child: DecoratedBox(
+                                      decoration: const BoxDecoration(
+                                        color: Colors.white,
+                                      ),
+                                      child: ProductImage(
+                                        source: productImageSource(
+                                          product as Map<String, dynamic>,
+                                          fallback:
+                                              'assets/images/product_popular_1.png',
+                                        ),
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        product['name'] ?? '',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'TZS ${product['auto_total']} total',
+                                        style: const TextStyle(
+                                          color: kPrimaryColor,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      Text(
+                                        '${product['stock'] ?? 0} in stock',
+                                        style: const TextStyle(
+                                          color: kTextColor,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                      RatingSummary(
+                                        product: product,
+                                        compact: true,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Edit product',
+                                  onPressed: () => startEditProduct(product),
+                                  icon: const Icon(Icons.edit_outlined),
+                                ),
+                                IconButton(
+                                  tooltip: 'Remove product',
+                                  onPressed: () => removeProduct(product),
+                                  color: Colors.red.shade700,
+                                  icon: const Icon(Icons.delete_outline),
+                                ),
+                              ],
+                            ),
+                            if (editingProductId == product['id'] &&
+                                productDraft != null) ...[
+                              const SizedBox(height: 12),
+                              Field(
+                                controller: productDraft!.name,
+                                label: 'Product name',
+                                icon: Icons.inventory_2_outlined,
+                              ),
+                              Field(
+                                controller: productDraft!.description,
+                                label: 'Description',
+                                icon: Icons.notes,
+                              ),
+                              Field(
+                                controller: productDraft!.price,
+                                label: 'Price',
+                                icon: Icons.sell_outlined,
+                                keyboard: TextInputType.number,
+                              ),
+                              Field(
+                                controller: productDraft!.discount,
+                                label: 'Discount percent',
+                                icon: Icons.percent,
+                                keyboard: TextInputType.number,
+                              ),
+                              Field(
+                                controller: productDraft!.delivery,
+                                label: 'Delivery price',
+                                icon: Icons.delivery_dining,
+                                keyboard: TextInputType.number,
+                              ),
+                              Field(
+                                controller: productDraft!.stock,
+                                label: 'Stock',
+                                icon: Icons.numbers,
+                                keyboard: TextInputType.number,
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: pickReplacementProductImages,
+                                icon: const Icon(Icons.photo_library_outlined),
+                                label: Text(
+                                  replacementProductImages.isEmpty
+                                      ? 'Replace images'
+                                      : '${replacementProductImages.length} images chosen',
+                                ),
+                              ),
+                              if (replacementProductImages.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                SizedBox(
+                                  height: 64,
+                                  child: ListView.separated(
+                                    scrollDirection: Axis.horizontal,
+                                    itemBuilder: (context, index) => ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.file(
+                                        File(
+                                          replacementProductImages[index].path,
+                                        ),
+                                        width: 64,
+                                        height: 64,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                    separatorBuilder: (_, _) =>
+                                        const SizedBox(width: 8),
+                                    itemCount: replacementProductImages.length,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                              ],
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      onPressed: cancelProductEdit,
+                                      child: const Text('Cancel'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: FilledButton(
+                                      onPressed: () => saveProductEdit(product),
+                                      child: const Text('Save product'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                if (((s['products'] as List?) ?? []).isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      'No products in this shop yet.',
+                      style: TextStyle(color: kTextColor),
                     ),
                   ),
               ],
@@ -1769,6 +2629,55 @@ class _SellerPageState extends State<SellerPage> {
           ),
       ],
     );
+  }
+}
+
+class _ShopEditDraft {
+  _ShopEditDraft({
+    required String name,
+    required String address,
+    required Set<String> categories,
+  }) : name = TextEditingController(text: name),
+       address = TextEditingController(text: address),
+       categories = {...categories};
+
+  final TextEditingController name;
+  final TextEditingController address;
+  final Set<String> categories;
+
+  void dispose() {
+    name.dispose();
+    address.dispose();
+  }
+}
+
+class _ProductEditDraft {
+  _ProductEditDraft(Map<String, dynamic> product)
+    : name = TextEditingController(text: product['name'] ?? ''),
+      description = TextEditingController(text: product['description'] ?? ''),
+      price = TextEditingController(text: '${product['price'] ?? ''}'),
+      discount = TextEditingController(
+        text: '${product['discount_percent'] ?? '0'}',
+      ),
+      delivery = TextEditingController(
+        text: '${product['delivery_price'] ?? ''}',
+      ),
+      stock = TextEditingController(text: '${product['stock'] ?? '0'}');
+
+  final TextEditingController name;
+  final TextEditingController description;
+  final TextEditingController price;
+  final TextEditingController discount;
+  final TextEditingController delivery;
+  final TextEditingController stock;
+
+  void dispose() {
+    name.dispose();
+    description.dispose();
+    price.dispose();
+    discount.dispose();
+    delivery.dispose();
+    stock.dispose();
   }
 }
 
@@ -1784,6 +2693,7 @@ class _DeliveryPageState extends State<DeliveryPage> {
   final code = TextEditingController();
   Timer? locationTimer;
   bool sharingLocation = false;
+  bool loading = true;
 
   @override
   void initState() {
@@ -1803,8 +2713,15 @@ class _DeliveryPageState extends State<DeliveryPage> {
   }
 
   Future<void> load() async {
-    final r = await widget.client.get('/deliveries');
-    if (mounted) setState(() => jobs = r['jobs'] as List);
+    setState(() => loading = true);
+    try {
+      final r = await widget.client.get('/deliveries');
+      if (mounted) setState(() => jobs = r['jobs'] as List);
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
   }
 
   Future<Position> currentPosition() async {
@@ -1856,6 +2773,16 @@ class _DeliveryPageState extends State<DeliveryPage> {
     }
   }
 
+  Future<void> callBuyer(String phone) async {
+    final normalized = phone.trim().replaceAll(RegExp(r'[\s-]'), '');
+    if (normalized.isEmpty) return;
+    final dial = normalized.startsWith('+') ? normalized : '+$normalized';
+    final uri = Uri(scheme: 'tel', path: dial);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      throw Exception('Could not open phone dialer.');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
@@ -1863,6 +2790,14 @@ class _DeliveryPageState extends State<DeliveryPage> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (loading)
+            const ListLoadingIndicator()
+          else if (jobs.isEmpty)
+            const EmptyState(
+              icon: Icons.delivery_dining_outlined,
+              title: 'No delivery jobs',
+              subtitle: 'Available delivery requests will appear here.',
+            ),
           for (final j in jobs)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
@@ -1906,6 +2841,39 @@ class _DeliveryPageState extends State<DeliveryPage> {
                           ),
                         ),
                         const SizedBox(height: 8),
+                        if ('${j['order']?['buyer']?['call_phone'] ?? ''}'
+                            .trim()
+                            .isNotEmpty) ...[
+                          Row(
+                            children: [
+                              const Icon(Icons.phone_outlined, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '${j['order']?['buyer']?['call_phone']}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              IconButton.filled(
+                                tooltip: 'Call buyer',
+                                onPressed: () async {
+                                  try {
+                                    await callBuyer(
+                                      '${j['order']?['buyer']?['call_phone']}',
+                                    );
+                                  } catch (error) {
+                                    if (!context.mounted) return;
+                                    showError(context, error);
+                                  }
+                                },
+                                icon: const Icon(Icons.call),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                         OutlinedButton.icon(
                           onPressed: sharingLocation
                               ? null
@@ -1919,21 +2887,35 @@ class _DeliveryPageState extends State<DeliveryPage> {
                         ),
                         Field(
                           controller: code,
-                          label: 'Buyer delivery code',
+                          label: 'Buyer delivery code (4 unique digits)',
                           icon: Icons.pin,
                           keyboard: TextInputType.number,
+                          maxLength: 4,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                            LengthLimitingTextInputFormatter(4),
+                          ],
                         ),
                         FilledButton.icon(
                           onPressed: () async {
+                            final deliveryCode = code.text.trim();
+                            if (deliveryCode.length != 4 ||
+                                deliveryCode.split('').toSet().length != 4) {
+                              showError(
+                                context,
+                                'Enter exactly 4 different digits from the buyer.',
+                              );
+                              return;
+                            }
                             await widget.client.post(
                               '/deliveries/${j['id']}/complete',
-                              {'delivery_code': code.text},
+                              {'delivery_code': deliveryCode},
                             );
                             await load();
                           },
                           icon: const Icon(Icons.payments),
                           label: const Text(
-                            'Complete and trigger disbursement',
+                            'Confirm code and release payments',
                           ),
                         ),
                       ],
@@ -1960,6 +2942,7 @@ class _ChatPageState extends State<ChatPage> {
   List conversations = [];
   Timer? refreshTimer;
   bool refreshing = false;
+  bool loading = true;
 
   @override
   void initState() {
@@ -1979,7 +2962,17 @@ class _ChatPageState extends State<ChatPage> {
     refreshing = true;
     try {
       final r = await widget.client.get('/conversations');
-      if (mounted) setState(() => conversations = r['conversations'] as List);
+      if (mounted) {
+        setState(() {
+          conversations = r['conversations'] as List;
+          loading = false;
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => loading = false);
+        showError(context, error);
+      }
     } finally {
       refreshing = false;
     }
@@ -2024,7 +3017,9 @@ class _ChatPageState extends State<ChatPage> {
               child: SectionTitle(title: tx('Chats', 'Mazungumzo')),
             ),
             const SizedBox(height: 8),
-            if (conversations.isEmpty)
+            if (loading)
+              const ListLoadingIndicator()
+            else if (conversations.isEmpty)
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: EmptyState(
@@ -2422,17 +3417,17 @@ class SurfacePanel extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Padding(
-        padding: padding ?? const EdgeInsets.all(16),
+        padding: padding ?? const EdgeInsets.all(14),
         child: child,
       ),
     );
@@ -2469,16 +3464,27 @@ class RoleSelector extends StatelessWidget {
   }
 }
 
+ButtonStyle socialButtonStyle() => OutlinedButton.styleFrom(
+  minimumSize: const Size.fromHeight(48),
+  foregroundColor: Colors.black,
+  side: BorderSide(color: Colors.black.withValues(alpha: 0.12)),
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+);
+
 class MarketplaceHeader extends StatelessWidget {
   const MarketplaceHeader({
     super.key,
     required this.search,
     required this.onSearch,
     required this.cartCount,
+    required this.cartLoading,
+    required this.onCart,
   });
   final TextEditingController search;
   final VoidCallback onSearch;
   final int cartCount;
+  final bool cartLoading;
+  final VoidCallback onCart;
 
   @override
   Widget build(BuildContext context) {
@@ -2506,14 +3512,20 @@ class MarketplaceHeader extends StatelessWidget {
         const SizedBox(width: 10),
         Badge(
           label: Text('$cartCount'),
-          isLabelVisible: cartCount > 0,
+          isLabelVisible: cartCount > 0 && !cartLoading,
           child: IconButton(
-            onPressed: () {},
+            onPressed: onCart,
             style: IconButton.styleFrom(
               backgroundColor: Colors.white,
               fixedSize: const Size(52, 52),
             ),
-            icon: const Icon(Icons.shopping_cart_outlined),
+            icon: cartLoading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.shopping_cart_outlined),
           ),
         ),
       ],
@@ -2527,7 +3539,7 @@ class DealsBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(16),
       child: SizedBox(
         height: 150,
         child: Stack(
@@ -2646,10 +3658,186 @@ class CategoryStrip extends StatelessWidget {
   }
 }
 
+class ImageSearchPreview extends StatelessWidget {
+  const ImageSearchPreview({
+    super.key,
+    required this.image,
+    required this.active,
+    required this.searching,
+    required this.onPick,
+    required this.onSearch,
+    required this.onClear,
+    this.message,
+  });
+
+  final XFile? image;
+  final bool active;
+  final bool searching;
+  final String? message;
+  final Future<void> Function() onPick;
+  final Future<void> Function() onSearch;
+  final Future<void> Function() onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedImage = image;
+    return SurfacePanel(
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: selectedImage == null
+                ? Container(
+                    width: 82,
+                    height: 82,
+                    color: kPrimaryLightColor,
+                    child: const Icon(
+                      Icons.add_photo_alternate_outlined,
+                      color: kPrimaryColor,
+                      size: 32,
+                    ),
+                  )
+                : Image.file(
+                    File(selectedImage.path),
+                    width: 82,
+                    height: 82,
+                    fit: BoxFit.cover,
+                  ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  searching
+                      ? tx('Matching uploaded image', 'Inalinganisha picha')
+                      : selectedImage == null
+                      ? tx('Upload product photo', 'Pakia picha ya bidhaa')
+                      : active
+                      ? tx('Visual results ready', 'Matokeo ya picha tayari')
+                      : tx('Ready to match image', 'Tayari kulinganisha picha'),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  message ??
+                      tx(
+                        'Choose a clear product photo. Matching compares images, not product names.',
+                        'Chagua picha iliyo wazi. Ulinganishaji hutumia picha, si majina ya bidhaa.',
+                      ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: kTextColor, fontSize: 12),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: searching ? null : onPick,
+                      icon: Icon(
+                        selectedImage == null
+                            ? Icons.upload_file
+                            : Icons.swap_horiz,
+                      ),
+                      label: Text(
+                        selectedImage == null
+                            ? tx('Upload', 'Pakia')
+                            : tx('Replace', 'Badilisha'),
+                      ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: selectedImage == null || searching
+                          ? null
+                          : onSearch,
+                      icon: searching
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.auto_awesome),
+                      label: Text(
+                        searching
+                            ? tx('Matching...', 'Inatafuta...')
+                            : tx('Find matches', 'Tafuta zinazofanana'),
+                      ),
+                    ),
+                    if (selectedImage != null || active)
+                      TextButton(
+                        onPressed: searching ? null : onClear,
+                        child: Text(tx('Clear', 'Futa')),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class CategoryView {
   const CategoryView(this.title, this.icon);
   final String title;
   final IconData icon;
+}
+
+const defaultShopCategories = [
+  'Electronics',
+  'Fashion',
+  'Groceries',
+  'Books',
+  'Art',
+  'Home',
+  'Other',
+];
+
+List<CategoryView> categoryViewsFromNames(List<String> categories) => [
+  for (final category in categories)
+    CategoryView(category, categoryIcon(category)),
+];
+
+IconData categoryIcon(String category) {
+  final normalized = category.toLowerCase();
+  if (normalized.contains('elect')) return Icons.devices_other;
+  if (normalized.contains('fashion') || normalized.contains('cloth')) {
+    return Icons.checkroom_outlined;
+  }
+  if (normalized.contains('grocery') || normalized.contains('food')) {
+    return Icons.local_grocery_store_outlined;
+  }
+  if (normalized.contains('book')) return Icons.menu_book_outlined;
+  if (normalized.contains('art')) return Icons.palette_outlined;
+  if (normalized.contains('home')) return Icons.home_outlined;
+  if (normalized.contains('beauty')) return Icons.spa_outlined;
+  if (normalized.contains('sport')) return Icons.sports_soccer_outlined;
+  return Icons.category_outlined;
+}
+
+double? productRating(Map<String, dynamic> product) {
+  final value = product['ratings_avg_rating'];
+  if (value == null) return null;
+  return double.tryParse('$value');
+}
+
+int productRatingCount(Map<String, dynamic> product) {
+  final value = product['ratings_count'];
+  if (value is int) return value;
+  return int.tryParse('$value') ?? 0;
+}
+
+int? productImageMatchPercent(Map<String, dynamic> product) {
+  final value = product['image_match_percent'];
+  if (value == null) return null;
+  if (value is int) return value;
+  return int.tryParse('$value');
 }
 
 String productImageSource(
@@ -2712,18 +3900,21 @@ class ProductDealCard extends StatelessWidget {
     required this.imageAsset,
     required this.onAdd,
     required this.onStartChat,
+    required this.onRate,
   });
   final Map<String, dynamic> product;
   final NumberFormat money;
   final String imageAsset;
   final Future<void> Function() onAdd;
   final Future<void> Function() onStartChat;
+  final Future<void> Function(int rating) onRate;
 
   @override
   Widget build(BuildContext context) {
     final original = num.tryParse('${product['price']}') ?? 0;
     final total = num.tryParse('${product['auto_total']}') ?? original;
     final discount = num.tryParse('${product['discount_percent']}') ?? 0;
+    final matchPercent = productImageMatchPercent(product);
     return InkWell(
       borderRadius: BorderRadius.circular(18),
       onTap: () => showModalBottomSheet<void>(
@@ -2736,6 +3927,7 @@ class ProductDealCard extends StatelessWidget {
           imageAsset: imageAsset,
           onAdd: onAdd,
           onStartChat: onStartChat,
+          onRate: onRate,
         ),
       ),
       child: Container(
@@ -2753,6 +3945,28 @@ class ProductDealCard extends StatelessWidget {
                 child: Stack(
                   children: [
                     Center(child: ProductImage(source: imageAsset)),
+                    if (matchPercent != null)
+                      Align(
+                        alignment: Alignment.topLeft,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.72),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '$matchPercent% match',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
                     if (discount > 0)
                       Align(
                         alignment: Alignment.topRight,
@@ -2792,6 +4006,8 @@ class ProductDealCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: kTextColor, fontSize: 12),
               ),
+              const SizedBox(height: 4),
+              RatingSummary(product: product, compact: true),
               const SizedBox(height: 6),
               Row(
                 children: [
@@ -2842,18 +4058,21 @@ class ProductQuickView extends StatelessWidget {
     required this.imageAsset,
     required this.onAdd,
     required this.onStartChat,
+    required this.onRate,
   });
   final Map<String, dynamic> product;
   final NumberFormat money;
   final String imageAsset;
   final Future<void> Function() onAdd;
   final Future<void> Function() onStartChat;
+  final Future<void> Function(int rating) onRate;
 
   @override
   Widget build(BuildContext context) {
     final total = num.tryParse('${product['auto_total']}') ?? 0;
     final maxHeight = MediaQuery.sizeOf(context).height * 0.86;
     final images = productImageSources(product, fallback: imageAsset);
+    final matchPercent = productImageMatchPercent(product);
     return SafeArea(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxHeight),
@@ -2898,6 +4117,17 @@ class ProductQuickView extends StatelessWidget {
                 product['description'] ?? '',
                 style: const TextStyle(color: kTextColor),
               ),
+              if (matchPercent != null) ...[
+                const SizedBox(height: 8),
+                StatusPill(
+                  label: '$matchPercent% visual match',
+                  color: Colors.black87,
+                ),
+              ],
+              const SizedBox(height: 10),
+              RatingSummary(product: product),
+              const SizedBox(height: 8),
+              RatingPicker(onRate: onRate),
               const SizedBox(height: 12),
               Text(
                 'TZS ${money.format(total)} total',
@@ -2964,6 +4194,112 @@ class EmptyState extends StatelessWidget {
   }
 }
 
+class ListLoadingIndicator extends StatelessWidget {
+  const ListLoadingIndicator({super.key});
+
+  @override
+  Widget build(BuildContext context) => const Padding(
+    padding: EdgeInsets.symmetric(vertical: 28),
+    child: Center(child: CircularProgressIndicator()),
+  );
+}
+
+class RatingSummary extends StatelessWidget {
+  const RatingSummary({super.key, required this.product, this.compact = false});
+  final Map<String, dynamic> product;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final rating = productRating(product);
+    final count = productRatingCount(product);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.star_rounded,
+          color: Colors.amber.shade700,
+          size: compact ? 16 : 20,
+        ),
+        const SizedBox(width: 3),
+        Text(
+          rating == null ? 'New' : rating.toStringAsFixed(1),
+          style: TextStyle(
+            color: rating == null ? kTextColor : Colors.black,
+            fontWeight: FontWeight.w800,
+            fontSize: compact ? 12 : 14,
+          ),
+        ),
+        if (count > 0) ...[
+          const SizedBox(width: 3),
+          Text(
+            '($count)',
+            style: TextStyle(color: kTextColor, fontSize: compact ? 11 : 13),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class RatingPicker extends StatefulWidget {
+  const RatingPicker({super.key, required this.onRate});
+  final Future<void> Function(int rating) onRate;
+
+  @override
+  State<RatingPicker> createState() => _RatingPickerState();
+}
+
+class _RatingPickerState extends State<RatingPicker> {
+  int selected = 0;
+  bool saving = false;
+
+  Future<void> rate(int value) async {
+    setState(() {
+      selected = value;
+      saving = true;
+    });
+    try {
+      await widget.onRate(value);
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Rating saved.')));
+      }
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Text('Rate: ', style: TextStyle(fontWeight: FontWeight.w700)),
+        for (var value = 1; value <= 5; value++)
+          IconButton(
+            tooltip: '$value stars',
+            onPressed: saving ? null : () => rate(value),
+            icon: Icon(
+              value <= selected
+                  ? Icons.star_rounded
+                  : Icons.star_border_rounded,
+              color: Colors.amber.shade700,
+            ),
+          ),
+        if (saving)
+          const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+      ],
+    );
+  }
+}
+
 class CategoryDropdown extends StatelessWidget {
   const CategoryDropdown({
     super.key,
@@ -2973,20 +4309,12 @@ class CategoryDropdown extends StatelessWidget {
   final String value;
   final ValueChanged<String> onChanged;
 
-  static const values = [
-    'Electronics',
-    'Fashion',
-    'Groceries',
-    'Books',
-    'Art',
-    'Home',
-    'Other',
-  ];
+  static const values = defaultShopCategories;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 10),
       child: DropdownButtonFormField<String>(
         initialValue: value,
         decoration: const InputDecoration(
@@ -3008,16 +4336,18 @@ class CategoryDropdown extends StatelessWidget {
 class CategoryMultiSelect extends StatelessWidget {
   const CategoryMultiSelect({
     super.key,
+    required this.categories,
     required this.selected,
     required this.onChanged,
   });
+  final List<String> categories;
   final Set<String> selected;
   final ValueChanged<Set<String>> onChanged;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 10),
       child: InputDecorator(
         decoration: const InputDecoration(
           labelText: 'Shop categories',
@@ -3027,7 +4357,7 @@ class CategoryMultiSelect extends StatelessWidget {
           spacing: 8,
           runSpacing: 4,
           children: [
-            for (final category in CategoryDropdown.values)
+            for (final category in categories)
               FilterChip(
                 label: Text(category),
                 selected: selected.contains(category),
@@ -3171,19 +4501,25 @@ class Field extends StatelessWidget {
     required this.icon,
     this.keyboard,
     this.obscure = false,
+    this.maxLength,
+    this.inputFormatters,
   });
   final TextEditingController controller;
   final String label;
   final IconData icon;
   final TextInputType? keyboard;
   final bool obscure;
+  final int? maxLength;
+  final List<TextInputFormatter>? inputFormatters;
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.only(bottom: 10),
     child: TextField(
       controller: controller,
       keyboardType: keyboard,
       obscureText: obscure,
+      maxLength: maxLength,
+      inputFormatters: inputFormatters,
       decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
     ),
   );
@@ -3225,7 +4561,10 @@ class TrackingCard extends StatelessWidget {
     final delivererLongitude = toDouble(assignment?['deliverer_longitude']);
     final items = (order['items'] as List?) ?? [];
     final money = NumberFormat('#,##0.00');
-    final deliveryCode = '${order['delivery_code_demo'] ?? ''}'.trim();
+    final deliveryCode =
+        '${order['delivery_code'] ?? order['delivery_code_demo'] ?? ''}'.trim();
+    final deliveryCodeNotice =
+        '${order['delivery_code_notice'] ?? 'Share this code only after the order arrives. It releases seller and delivery payments.'}';
 
     return SurfacePanel(
       child: Column(
@@ -3284,11 +4623,23 @@ class TrackingCard extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Delivery code $deliveryCode',
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                      'Buyer delivery code\n$deliveryCode',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        height: 1.25,
+                      ),
                     ),
                   ),
                 ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              deliveryCodeNotice,
+              style: const TextStyle(
+                color: kTextColor,
+                fontSize: 12,
+                height: 1.3,
               ),
             ),
           ],

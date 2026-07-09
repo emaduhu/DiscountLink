@@ -27,4 +27,17 @@ class GoogleAuthService
 
         return $payload;
     }
+
+    public function verifyAccessToken(string $accessToken): array
+    {
+        $response = Http::withToken($accessToken)
+            ->timeout(10)
+            ->get('https://www.googleapis.com/oauth2/v3/userinfo');
+
+        if (! $response->ok()) {
+            throw ValidationException::withMessages(['google_access_token' => 'Google account could not be verified.']);
+        }
+
+        return $response->json();
+    }
 }
