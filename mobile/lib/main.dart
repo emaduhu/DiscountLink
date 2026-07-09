@@ -402,6 +402,14 @@ class ApiClient {
         ? <String, dynamic>{}
         : jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode >= 400) {
+      final errors = data['errors'];
+      if (errors is Map && errors.isNotEmpty) {
+        final first = errors.values.first;
+        if (first is List && first.isNotEmpty) {
+          throw Exception(first.first.toString());
+        }
+        throw Exception(first.toString());
+      }
       throw Exception(
         data['message'] ?? 'Request failed (${response.statusCode})',
       );
