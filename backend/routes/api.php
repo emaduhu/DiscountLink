@@ -24,14 +24,19 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
     Route::get('/otp/provider', [AuthController::class, 'otpProvider']);
     Route::post('/otp/verify', [AuthController::class, 'verifyOtp']);
 
+    Route::get('/shop-categories', [ShopController::class, 'categories']);
+
     Route::get('/products', [ProductController::class, 'index']);
     Route::post('/products/image-search', [ProductController::class, 'imageSearch']);
+    Route::post('/products/{product}/rating', [ProductController::class, 'rate']);
 
     Route::post('/shops', [ShopController::class, 'store']);
     Route::get('/seller/shops', [ShopController::class, 'mine']);
     Route::put('/shops/{shop}', [ShopController::class, 'update']);
     Route::post('/shops/{shop}/products', [ShopController::class, 'product']);
+    Route::post('/products/{product}', [ShopController::class, 'updateProduct']);
     Route::put('/products/{product}', [ShopController::class, 'updateProduct']);
+    Route::delete('/products/{product}', [ShopController::class, 'destroyProduct']);
 
     Route::get('/cart', [CartController::class, 'index']);
     Route::post('/cart/{product}', [CartController::class, 'add']);

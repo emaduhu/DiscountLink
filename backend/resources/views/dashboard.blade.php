@@ -72,6 +72,8 @@
                 <input name="infobip_base_url" value="{{ $settings['infobip_base_url'] }}">
                 <label class="label">Firebase project ID</label>
                 <input name="firebase_project_id" value="{{ $settings['firebase_project_id'] }}">
+                <label class="label">Shop categories</label>
+                <textarea name="shop_categories" placeholder="One category per line">{{ $settings['shop_categories'] }}</textarea>
                 <button class="primary" type="submit">Save OTP settings</button>
             </form>
         </div>

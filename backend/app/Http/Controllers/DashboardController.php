@@ -136,6 +136,7 @@ class DashboardController extends Controller
             'infobip_sender_id' => ['nullable', 'string', 'max:80'],
             'infobip_base_url' => ['nullable', 'url', 'max:255'],
             'firebase_project_id' => ['nullable', 'string', 'max:120'],
+            'shop_categories' => ['nullable', 'string', 'max:2000'],
         ]);
 
         foreach ($data as $key => $value) {
@@ -174,6 +175,7 @@ class DashboardController extends Controller
                 'infobip_sender_id' => AppSetting::get('infobip_sender_id', config('services.infobip.sender_id')),
                 'infobip_base_url' => AppSetting::get('infobip_base_url', config('services.infobip.base_url')),
                 'firebase_project_id' => AppSetting::get('firebase_project_id', config('services.firebase.project_id')),
+                'shop_categories' => AppSetting::get('shop_categories', "Electronics\nFashion\nGroceries\nBooks\nArt\nHome\nOther"),
             ],
         ]);
     }

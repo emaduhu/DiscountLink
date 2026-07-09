@@ -8,6 +8,7 @@ use App\Models\Payment;
 use App\Services\ClickPesaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class DeliveryController extends Controller
@@ -20,6 +21,22 @@ class DeliveryController extends Controller
             ->where(fn ($query) => $query->whereNull('deliverer_id')->orWhere('deliverer_id', $request->user()->id))
             ->latest()
             ->get();
+
+        $jobs->each(function (DeliveryAssignment $assignment) use ($request) {
+            $buyer = $assignment->order?->buyer;
+            if (! $buyer) {
+                return;
+            }
+
+            $buyer->setAttribute(
+                'call_phone',
+                $assignment->status === 'accepted' && $assignment->deliverer_id === $request->user()->id
+                    ? $buyer->phone
+                    : null
+            );
+            $buyer->makeHidden(['phone', 'email']);
+        });
+
         return response()->json(['jobs' => $jobs]);
     }
 
@@ -30,7 +47,11 @@ class DeliveryController extends Controller
         abort_unless($request->user()->phone_verified_at, 422, 'Verify your phone before accepting delivery jobs.');
         $assignment->update(['deliverer_id' => $request->user()->id, 'status' => 'accepted', 'accepted_at' => now()]);
         $assignment->order->update(['status' => 'out_for_delivery']);
-        return response()->json(['assignment' => $assignment->load('order.items', 'deliverer')]);
+        $assignment->load('order.items', 'order.buyer', 'deliverer');
+        $assignment->order->buyer?->setAttribute('call_phone', $assignment->order->buyer?->phone);
+        $assignment->order->buyer?->makeHidden(['phone', 'email']);
+
+        return response()->json(['assignment' => $assignment]);
     }
 
     public function updateLocation(Request $request, DeliveryAssignment $assignment): JsonResponse
@@ -60,19 +81,52 @@ class DeliveryController extends Controller
     public function complete(Request $request, DeliveryAssignment $assignment, ClickPesaService $clickPesa): JsonResponse
     {
         abort_unless($assignment->deliverer_id === $request->user()->id, 403);
-        $data = $request->validate(['delivery_code' => ['required', 'string', 'size:6']]);
-        abort_unless(Hash::check($data['delivery_code'], $assignment->order->delivery_code_hash), 422, 'Invalid delivery code.');
-
-        $assignment->update(['status' => 'completed', 'completed_at' => now()]);
-        $assignment->order->update(['status' => 'delivered', 'delivered_at' => now()]);
-        $payment = Payment::create([
-            'order_id' => $assignment->order_id,
-            'user_id' => $request->user()->id,
-            'type' => 'deliverer_disbursement',
-            'amount' => $assignment->order->delivery_total,
-            'phone' => $request->user()->phone,
+        $data = $request->validate([
+            'delivery_code' => ['required', 'string', 'regex:/^(?!.*(.).*\\1)\\d{4}$/'],
+        ], [
+            'delivery_code.regex' => 'Enter the 4 unique digits shown to the buyer.',
         ]);
-        $disbursement = $clickPesa->disburse($payment);
-        return response()->json(['assignment' => $assignment->fresh('order'), 'payment' => $payment->fresh(), 'disbursement' => $disbursement]);
+        $assignment->loadMissing('order.seller');
+        $order = $assignment->order;
+
+        abort_if($assignment->status === 'completed' || $order->status === 'delivered', 409, 'Delivery is already completed.');
+        abort_unless(Hash::check($data['delivery_code'], $order->delivery_code_hash), 422, 'Invalid delivery code.');
+        abort_unless($request->user()->phone && $request->user()->phone_verified_at, 422, 'Verify the deliverer payout phone before completing delivery.');
+        abort_unless($order->seller?->phone && $order->seller?->phone_verified_at, 422, 'Seller payout phone is not verified.');
+
+        [$sellerPayment, $deliveryPayment] = DB::transaction(function () use ($assignment, $order, $request) {
+            $assignment->update(['status' => 'completed', 'completed_at' => now()]);
+            $order->update(['status' => 'delivered', 'delivered_at' => now()]);
+
+            $sellerPayment = Payment::create([
+                'order_id' => $order->id,
+                'user_id' => $order->seller_id,
+                'type' => 'seller_disbursement',
+                'amount' => $order->subtotal,
+                'phone' => $order->seller->phone,
+            ]);
+
+            $deliveryPayment = Payment::create([
+                'order_id' => $order->id,
+                'user_id' => $request->user()->id,
+                'type' => 'deliverer_disbursement',
+                'amount' => $order->delivery_total,
+                'phone' => $request->user()->phone,
+            ]);
+
+            return [$sellerPayment, $deliveryPayment];
+        });
+
+        $sellerDisbursement = $clickPesa->disburse($sellerPayment);
+        $deliveryDisbursement = $clickPesa->disburse($deliveryPayment);
+
+        return response()->json([
+            'assignment' => $assignment->fresh('order'),
+            'seller_payment' => $sellerPayment->fresh(),
+            'delivery_payment' => $deliveryPayment->fresh(),
+            'seller_disbursement' => $sellerDisbursement,
+            'delivery_disbursement' => $deliveryDisbursement,
+            'message' => 'Delivery code confirmed. Seller and delivery payments have been triggered.',
+        ]);
     }
 }

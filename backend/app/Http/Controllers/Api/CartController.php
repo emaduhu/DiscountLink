@@ -20,6 +20,18 @@ use Illuminate\Support\Str;
 
 class CartController extends Controller
 {
+    private function deliveryCode(): string
+    {
+        $digits = range(0, 9);
+
+        for ($i = count($digits) - 1; $i > 0; $i--) {
+            $j = random_int(0, $i);
+            [$digits[$i], $digits[$j]] = [$digits[$j], $digits[$i]];
+        }
+
+        return implode('', array_slice($digits, 0, 4));
+    }
+
     public function index(Request $request): JsonResponse
     {
         $items = Cart::with('product.shop')->where('buyer_id', $request->user()->id)->get();
@@ -53,7 +65,7 @@ class CartController extends Controller
             $first = $items->first()->product;
             $subtotal = $items->sum(fn ($item) => ($item->product->discount_price ?? $item->product->price) * $item->quantity);
             $delivery = $items->sum(fn ($item) => $item->product->delivery_price * $item->quantity);
-            $code = (string) random_int(100000, 999999);
+            $code = $this->deliveryCode();
             $order = Order::create([
                 'reference' => 'DL-'.now()->format('YmdHis').'-'.Str::upper(Str::random(5)),
                 'buyer_id' => $request->user()->id,
@@ -105,6 +117,17 @@ class CartController extends Controller
                 'reference' => $order->reference,
             ]));
 
-        return response()->json(['order' => $order->load('items'), 'payment' => $payment->fresh(), 'ussd_push' => $push, 'delivery_code_demo' => $order->plain_delivery_code], 201);
+        $deliveryCode = $order->plain_delivery_code;
+        $loadedOrder = $order->load('items');
+        $loadedOrder->setAttribute('delivery_code', $deliveryCode);
+
+        return response()->json([
+            'order' => $loadedOrder,
+            'payment' => $payment->fresh(),
+            'ussd_push' => $push,
+            'delivery_code' => $deliveryCode,
+            'delivery_code_demo' => $deliveryCode,
+            'message' => 'Keep this buyer delivery code. Share it only after receiving the order to release seller and delivery payments.',
+        ], 201);
     }
 }
