@@ -49,16 +49,20 @@ class AuthController extends Controller
             'is_active' => true,
         ]);
 
-        $emailOtpSent = $this->sendEmailOtp($user);
-        $phoneOtpSent = $this->sendPhoneOtp($user, $otp);
+        $emailOtp = $this->sendEmailOtp($user);
+        $phoneOtp = $this->sendPhoneOtp($user, $otp);
 
         return response()->json([
             'token' => $tokens->issue($user),
             'user' => $user->fresh(),
             'email_verified' => false,
             'phone_verified' => false,
-            'email_otp_sent' => $emailOtpSent,
-            'phone_otp_sent' => $phoneOtpSent,
+            'email_otp_sent' => $emailOtp['sent'],
+            'phone_otp_sent' => $phoneOtp['sent'],
+            'verification_codes' => [
+                'email' => $emailOtp['code'],
+                'phone' => $phoneOtp['code'],
+            ],
             'otp_provider' => $otp->activeProvider(),
         ], 201);
     }
@@ -149,25 +153,30 @@ class AuthController extends Controller
         }
 
         $user = User::updateOrCreate(['email' => $email], $attributes);
-        $phoneOtpSent = $isNewUser ? $this->sendPhoneOtp($user, $otp) : false;
+        $phoneOtp = $isNewUser ? $this->sendPhoneOtp($user, $otp) : ['sent' => false, 'code' => null];
 
         return response()->json([
             'token' => $tokens->issue($user),
             'user' => $user,
             'email_verified' => (bool) $user->email_verified_at,
             'phone_verified' => (bool) $user->phone_verified_at,
-            'phone_otp_sent' => $phoneOtpSent,
+            'phone_otp_sent' => $phoneOtp['sent'],
+            'verification_codes' => [
+                'email' => null,
+                'phone' => $phoneOtp['code'],
+            ],
             'otp_provider' => $otp->activeProvider(),
         ]);
     }
 
     public function requestEmailOtp(Request $request): JsonResponse
     {
-        $sent = $this->sendEmailOtp($request->user());
+        $otp = $this->sendEmailOtp($request->user());
 
         return response()->json([
-            'message' => $sent ? 'Email verification code sent.' : 'Email verification code could not be sent.',
-            'email_otp_sent' => $sent,
+            'message' => $otp['sent'] ? 'Email verification code sent.' : 'Email verification code could not be sent.',
+            'email_otp_sent' => $otp['sent'],
+            'email_code' => $otp['code'],
         ]);
     }
 
@@ -210,7 +219,11 @@ class AuthController extends Controller
             'expires_at' => now()->addMinutes(10),
         ]);
 
-        return response()->json(['message' => 'OTP sent.', 'provider' => $otp->activeProvider()]);
+        return response()->json([
+            'message' => 'OTP sent.',
+            'provider' => $otp->activeProvider(),
+            'phone_code' => $this->exposedVerificationCode($code),
+        ]);
     }
 
     public function verifyOtp(Request $request, OtpProviderService $otp, FirebasePhoneAuthService $firebase): JsonResponse
@@ -265,13 +278,17 @@ class AuthController extends Controller
         return response()->json(['message' => 'FCM token updated.']);
     }
 
-    private function sendEmailOtp(User $user): bool
+    /**
+     * @return array{sent: bool, code: string|null}
+     */
+    private function sendEmailOtp(User $user): array
     {
         if ($user->email_verified_at) {
-            return true;
+            return ['sent' => true, 'code' => null];
         }
 
         $code = (string) random_int(100000, 999999);
+        $exposedCode = $this->exposedVerificationCode($code);
         EmailOtp::create([
             'user_id' => $user->id,
             'email' => $user->email,
@@ -284,7 +301,7 @@ class AuthController extends Controller
                 $message->to($user->email, $user->name)->subject('DiscountLink email verification code');
             });
 
-            return true;
+            return ['sent' => true, 'code' => $exposedCode];
         } catch (\Throwable $error) {
             Log::warning('DiscountLink email OTP could not be sent.', [
                 'user_id' => $user->id,
@@ -292,17 +309,21 @@ class AuthController extends Controller
                 'error' => $error->getMessage(),
             ]);
 
-            return false;
+            return ['sent' => false, 'code' => $exposedCode];
         }
     }
 
-    private function sendPhoneOtp(User $user, OtpProviderService $otp): bool
+    /**
+     * @return array{sent: bool, code: string|null}
+     */
+    private function sendPhoneOtp(User $user, OtpProviderService $otp): array
     {
         if ($user->phone_verified_at || $otp->activeProvider() === 'firebase') {
-            return false;
+            return ['sent' => false, 'code' => null];
         }
 
         $code = (string) random_int(100000, 999999);
+        $exposedCode = $this->exposedVerificationCode($code);
 
         try {
             $reference = $otp->send($user->phone, $code);
@@ -314,7 +335,7 @@ class AuthController extends Controller
                 'expires_at' => now()->addMinutes(10),
             ]);
 
-            return true;
+            return ['sent' => true, 'code' => $exposedCode];
         } catch (\Throwable $error) {
             Log::warning('DiscountLink phone OTP could not be sent.', [
                 'user_id' => $user->id,
@@ -323,7 +344,12 @@ class AuthController extends Controller
                 'error' => $error->getMessage(),
             ]);
 
-            return false;
+            return ['sent' => false, 'code' => $exposedCode];
         }
+    }
+
+    private function exposedVerificationCode(string $code): ?string
+    {
+        return (bool) config('services.discountlink.show_verification_codes') ? $code : null;
     }
 }

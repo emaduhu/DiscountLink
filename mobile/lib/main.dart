@@ -690,16 +690,41 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   void completeSignIn(Map<String, dynamic> response) {
-    widget.onSignedIn(
-      response['token'] as String,
-      response['user'] as Map<String, dynamic>,
-    );
+    final user = response['user'] as Map<String, dynamic>;
+    final codes = response['verification_codes'];
+    if (codes is Map<String, dynamic>) {
+      user['_verification_codes'] = codes;
+    }
+    widget.onSignedIn(response['token'] as String, user);
     if (mounted) Navigator.of(context).pop();
+  }
+
+  void requireRegistrationDetails({required bool includeEmailPassword}) {
+    final missing = <String>[];
+    if (role.trim().isEmpty) missing.add(tx('account type', 'aina ya akaunti'));
+    if (name.text.trim().isEmpty) missing.add(tx('full name', 'jina kamili'));
+    if (includeEmailPassword && email.text.trim().isEmpty) {
+      missing.add(tx('email', 'barua pepe'));
+    }
+    if (phone.text.trim().isEmpty) missing.add(tx('phone', 'simu'));
+    if (nida.text.trim().isEmpty) {
+      missing.add(tx('NIDA number', 'namba ya NIDA'));
+    }
+    if (address.text.trim().isEmpty) missing.add(tx('address', 'anwani'));
+    if (includeEmailPassword && password.text.isEmpty) {
+      missing.add(tx('password', 'nenosiri'));
+    }
+    if (missing.isNotEmpty) {
+      throw Exception(
+        '${tx('Complete these fields first:', 'Kamilisha taarifa hizi kwanza:')} ${missing.join(', ')}.',
+      );
+    }
   }
 
   Future<void> register() async {
     setState(() => loading = true);
     try {
+      requireRegistrationDetails(includeEmailPassword: true);
       final response = await widget.client.post('/auth/register', {
         'role': role,
         'full_name': name.text.trim(),
@@ -721,6 +746,7 @@ class _RegisterPageState extends State<RegisterPage> {
   Future<void> googleRegister() async {
     setState(() => loading = true);
     try {
+      requireRegistrationDetails(includeEmailPassword: false);
       final auth = await googleBackendAuthPayload();
       final response = await widget.client.post('/auth/google', {
         if (auth['firebase_id_token'] != null)
@@ -749,6 +775,7 @@ class _RegisterPageState extends State<RegisterPage> {
   Future<void> appleRegister() async {
     setState(() => loading = true);
     try {
+      requireRegistrationDetails(includeEmailPassword: false);
       final credential = await signInWithAppleFirebase();
       final firebaseUser = credential.user;
       final token = await firebaseUser?.getIdToken();
@@ -1152,10 +1179,25 @@ class _ProfilePageState extends State<ProfilePage> {
   bool emailLoading = false;
   String otpProvider = 'beem';
   String? firebaseVerificationId;
+  String? visibleEmailCode;
+  String? visiblePhoneCode;
 
   @override
   void initState() {
     super.initState();
+    final codes = widget.user['_verification_codes'];
+    if (codes is Map) {
+      visibleEmailCode = codes['email']?.toString();
+      visiblePhoneCode = codes['phone']?.toString();
+      if (visibleEmailCode != null && visibleEmailCode!.isNotEmpty) {
+        emailCode.text = visibleEmailCode!;
+        emailSent = true;
+      }
+      if (visiblePhoneCode != null && visiblePhoneCode!.isNotEmpty) {
+        code.text = visiblePhoneCode!;
+        sent = true;
+      }
+    }
     loadProvider();
   }
 
@@ -1204,8 +1246,16 @@ class _ProfilePageState extends State<ProfilePage> {
           },
         );
       } else {
-        await widget.client.post('/otp/request', {'phone': phone});
-        if (mounted) setState(() => sent = true);
+        final r = await widget.client.post('/otp/request', {'phone': phone});
+        if (mounted) {
+          setState(() {
+            visiblePhoneCode = r['phone_code']?.toString();
+            if (visiblePhoneCode != null && visiblePhoneCode!.isNotEmpty) {
+              code.text = visiblePhoneCode!;
+            }
+            sent = true;
+          });
+        }
       }
     } catch (error) {
       if (mounted) showError(context, error);
@@ -1257,8 +1307,16 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> sendEmailOtp() async {
     setState(() => emailLoading = true);
     try {
-      await widget.client.post('/email/otp/request', {});
-      if (mounted) setState(() => emailSent = true);
+      final r = await widget.client.post('/email/otp/request', {});
+      if (mounted) {
+        setState(() {
+          visibleEmailCode = r['email_code']?.toString();
+          if (visibleEmailCode != null && visibleEmailCode!.isNotEmpty) {
+            emailCode.text = visibleEmailCode!;
+          }
+          emailSent = true;
+        });
+      }
     } catch (error) {
       if (mounted) showError(context, error);
     } finally {
@@ -1394,6 +1452,16 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               const SizedBox(height: 10),
               if (!emailVerified) ...[
+                VerificationStatusLine(
+                  sent: emailSent,
+                  visibleCode: visibleEmailCode,
+                  destination: widget.user['email'] ?? '',
+                  pendingText: tx(
+                    'Email is pending. Send a code to verify this account.',
+                    'Barua pepe haijathibitishwa. Tuma kodi kuthibitisha akaunti.',
+                  ),
+                ),
+                const SizedBox(height: 8),
                 FilledButton.icon(
                   onPressed: emailLoading ? null : sendEmailOtp,
                   icon: const Icon(Icons.mark_email_unread_outlined),
@@ -1409,6 +1477,17 @@ class _ProfilePageState extends State<ProfilePage> {
                   icon: Icons.password,
                   keyboard: TextInputType.number,
                 ),
+              ] else
+                VerificationStatusLine(
+                  sent: true,
+                  visibleCode: null,
+                  destination: widget.user['email'] ?? '',
+                  pendingText: tx(
+                    'Email verification is complete.',
+                    'Uthibitishaji wa barua pepe umekamilika.',
+                  ),
+                ),
+              if (!emailVerified) ...[
                 FilledButton(
                   onPressed: emailLoading ? null : verifyEmailOtp,
                   child: Text(
@@ -1434,6 +1513,16 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               const SizedBox(height: 10),
               if (!phoneVerified) ...[
+                VerificationStatusLine(
+                  sent: sent,
+                  visibleCode: visiblePhoneCode,
+                  destination: widget.user['phone'] ?? '',
+                  pendingText: tx(
+                    'Phone is pending. Send an OTP to verify this account.',
+                    'Simu haijathibitishwa. Tuma OTP kuthibitisha akaunti.',
+                  ),
+                ),
+                const SizedBox(height: 8),
                 FilledButton.icon(
                   onPressed: loading ? null : sendOtp,
                   icon: const Icon(Icons.sms_outlined),
@@ -1449,6 +1538,17 @@ class _ProfilePageState extends State<ProfilePage> {
                   icon: Icons.password,
                   keyboard: TextInputType.number,
                 ),
+              ] else
+                VerificationStatusLine(
+                  sent: true,
+                  visibleCode: null,
+                  destination: widget.user['phone'] ?? '',
+                  pendingText: tx(
+                    'Phone verification is complete.',
+                    'Uthibitishaji wa simu umekamilika.',
+                  ),
+                ),
+              if (!phoneVerified) ...[
                 FilledButton(
                   onPressed: loading ? null : verifyOtp,
                   child: Text(
@@ -1476,6 +1576,65 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class VerificationStatusLine extends StatelessWidget {
+  const VerificationStatusLine({
+    super.key,
+    required this.sent,
+    required this.destination,
+    required this.pendingText,
+    this.visibleCode,
+  });
+
+  final bool sent;
+  final String destination;
+  final String pendingText;
+  final String? visibleCode;
+
+  @override
+  Widget build(BuildContext context) {
+    final code = visibleCode;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: kSurfaceColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              sent ? 'Code sent to $destination' : pendingText,
+              style: const TextStyle(color: kTextColor, fontSize: 12),
+            ),
+            if (code != null && code.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.key_outlined,
+                    size: 16,
+                    color: kPrimaryColor,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Code: $code',
+                    style: const TextStyle(
+                      color: kPrimaryColor,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
