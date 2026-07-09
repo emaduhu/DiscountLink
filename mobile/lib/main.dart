@@ -824,6 +824,37 @@ class _RegisterPageState extends State<RegisterPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        SectionTitle(
+                          title: tx('Fast registration', 'Usajili wa haraka'),
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: loading ? null : googleRegister,
+                          icon: const Icon(Icons.login),
+                          label: Text(
+                            tx('Register with Google', 'Jisajili na Google'),
+                          ),
+                          style: socialButtonStyle(),
+                        ),
+                        if (showApple) ...[
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: loading ? null : appleRegister,
+                            icon: const Icon(Icons.apple),
+                            label: Text(
+                              tx('Register with Apple', 'Jisajili na Apple'),
+                            ),
+                            style: socialButtonStyle(),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SurfacePanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                         SectionTitle(title: tx('Your details', 'Taarifa zako')),
                         const SizedBox(height: 8),
                         Field(
@@ -874,37 +905,6 @@ class _RegisterPageState extends State<RegisterPage> {
                                 : tx('Register', 'Jisajili'),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  SurfacePanel(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SectionTitle(
-                          title: tx('Fast registration', 'Usajili wa haraka'),
-                        ),
-                        const SizedBox(height: 8),
-                        OutlinedButton.icon(
-                          onPressed: loading ? null : googleRegister,
-                          icon: const Icon(Icons.login),
-                          label: Text(
-                            tx('Register with Google', 'Jisajili na Google'),
-                          ),
-                          style: socialButtonStyle(),
-                        ),
-                        if (showApple) ...[
-                          const SizedBox(height: 8),
-                          OutlinedButton.icon(
-                            onPressed: loading ? null : appleRegister,
-                            icon: const Icon(Icons.apple),
-                            label: Text(
-                              tx('Register with Apple', 'Jisajili na Apple'),
-                            ),
-                            style: socialButtonStyle(),
-                          ),
-                        ],
                       ],
                     ),
                   ),
