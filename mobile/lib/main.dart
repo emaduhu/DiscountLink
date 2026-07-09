@@ -674,6 +674,7 @@ class RegisterPage extends StatefulWidget {
 class _RegisterPageState extends State<RegisterPage> {
   final name = TextEditingController(text: 'Demo Buyer');
   final phone = TextEditingController(text: '255700000001');
+  final nida = TextEditingController();
   final address = TextEditingController(text: 'Dar es Salaam');
   final email = TextEditingController(text: 'buyer@discountlink.local');
   final password = TextEditingController(text: 'password');
@@ -704,6 +705,7 @@ class _RegisterPageState extends State<RegisterPage> {
         'full_name': name.text.trim(),
         'email': email.text.trim(),
         'phone': phone.text.trim(),
+        'nida_number': nida.text.trim(),
         'password': password.text,
         'address': address.text.trim(),
         'fcm_token': await fcmToken(),
@@ -732,6 +734,7 @@ class _RegisterPageState extends State<RegisterPage> {
         'phone': phone.text.trim().isEmpty
             ? (auth['_phone'] ?? '')
             : phone.text.trim(),
+        'nida_number': nida.text.trim(),
         'address': address.text.trim(),
         'fcm_token': await fcmToken(),
       });
@@ -761,6 +764,7 @@ class _RegisterPageState extends State<RegisterPage> {
         'phone': phone.text.trim().isEmpty
             ? (firebaseUser?.phoneNumber ?? '')
             : phone.text.trim(),
+        'nida_number': nida.text.trim(),
         'address': address.text.trim(),
         'fcm_token': await fcmToken(),
       });
@@ -776,6 +780,7 @@ class _RegisterPageState extends State<RegisterPage> {
   void dispose() {
     name.dispose();
     phone.dispose();
+    nida.dispose();
     address.dispose();
     email.dispose();
     password.dispose();
@@ -871,6 +876,12 @@ class _RegisterPageState extends State<RegisterPage> {
                           ),
                           icon: Icons.phone_outlined,
                           keyboard: TextInputType.phone,
+                        ),
+                        Field(
+                          controller: nida,
+                          label: tx('NIDA number', 'Namba ya NIDA'),
+                          icon: Icons.badge_outlined,
+                          keyboard: TextInputType.number,
                         ),
                         Field(
                           controller: address,
@@ -1004,6 +1015,16 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.user['email_verified_at'] == null ||
+        widget.user['phone_verified_at'] == null) {
+      index = profileIndexForRole(widget.user['role'] as String);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final role = widget.user['role'] as String;
@@ -1100,6 +1121,12 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
+int profileIndexForRole(String role) => switch (role) {
+  'buyer' => 3,
+  'seller' || 'deliverer' => 2,
+  _ => 1,
+};
+
 class ProfilePage extends StatefulWidget {
   const ProfilePage({
     super.key,
@@ -1118,8 +1145,11 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   final code = TextEditingController();
+  final emailCode = TextEditingController();
   bool sent = false;
+  bool emailSent = false;
   bool loading = false;
+  bool emailLoading = false;
   String otpProvider = 'beem';
   String? firebaseVerificationId;
 
@@ -1132,6 +1162,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void dispose() {
     code.dispose();
+    emailCode.dispose();
     super.dispose();
   }
 
@@ -1223,9 +1254,36 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  Future<void> sendEmailOtp() async {
+    setState(() => emailLoading = true);
+    try {
+      await widget.client.post('/email/otp/request', {});
+      if (mounted) setState(() => emailSent = true);
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => emailLoading = false);
+    }
+  }
+
+  Future<void> verifyEmailOtp() async {
+    setState(() => emailLoading = true);
+    try {
+      final r = await widget.client.post('/email/otp/verify', {
+        'code': emailCode.text,
+      });
+      widget.onUserChanged(r['user'] as Map<String, dynamic>);
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => emailLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final verified = widget.user['phone_verified_at'] != null;
+    final phoneVerified = widget.user['phone_verified_at'] != null;
+    final emailVerified = widget.user['email_verified_at'] != null;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
@@ -1266,8 +1324,16 @@ class _ProfilePageState extends State<ProfilePage> {
                       runSpacing: 8,
                       children: [
                         StatusPill(
-                          label: verified ? 'Phone verified' : 'Phone pending',
-                          color: verified ? Colors.green : kPrimaryColor,
+                          label: emailVerified
+                              ? 'Email verified'
+                              : 'Email pending',
+                          color: emailVerified ? Colors.green : kPrimaryColor,
+                        ),
+                        StatusPill(
+                          label: phoneVerified
+                              ? 'Phone verified'
+                              : 'Phone pending',
+                          color: phoneVerified ? Colors.green : kPrimaryColor,
                         ),
                         StatusPill(
                           label: widget.user['is_active'] == true
@@ -1293,9 +1359,19 @@ class _ProfilePageState extends State<ProfilePage> {
               LanguageSwitch(),
               const Divider(height: 24),
               ProfileLine(
+                icon: Icons.email_outlined,
+                title: tx('Email', 'Barua pepe'),
+                value: widget.user['email'] ?? '',
+              ),
+              ProfileLine(
                 icon: Icons.phone_outlined,
                 title: tx('Phone', 'Simu'),
                 value: widget.user['phone'] ?? '',
+              ),
+              ProfileLine(
+                icon: Icons.badge_outlined,
+                title: tx('NIDA number', 'Namba ya NIDA'),
+                value: widget.user['nida_number'] ?? '',
               ),
               ProfileLine(
                 icon: Icons.place_outlined,
@@ -1311,13 +1387,53 @@ class _ProfilePageState extends State<ProfilePage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                verified
+                emailVerified
+                    ? tx('Email verified', 'Barua pepe imethibitishwa')
+                    : tx('Verify email', 'Thibitisha barua pepe'),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 10),
+              if (!emailVerified) ...[
+                FilledButton.icon(
+                  onPressed: emailLoading ? null : sendEmailOtp,
+                  icon: const Icon(Icons.mark_email_unread_outlined),
+                  label: Text(
+                    emailSent
+                        ? tx('Email code sent again', 'Kodi imetumwa tena')
+                        : tx('Send email code', 'Tuma kodi ya barua pepe'),
+                  ),
+                ),
+                Field(
+                  controller: emailCode,
+                  label: tx('Six digit email code', 'Kodi ya barua pepe'),
+                  icon: Icons.password,
+                  keyboard: TextInputType.number,
+                ),
+                FilledButton(
+                  onPressed: emailLoading ? null : verifyEmailOtp,
+                  child: Text(
+                    emailLoading
+                        ? tx('Checking...', 'Inakagua...')
+                        : tx('Verify email', 'Thibitisha barua pepe'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        SurfacePanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                phoneVerified
                     ? tx('Phone verified', 'Simu imethibitishwa')
                     : '${tx('Verify phone with', 'Thibitisha simu kwa')} ${otpProviderLabel(otpProvider)}',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 10),
-              if (!verified) ...[
+              if (!phoneVerified) ...[
                 FilledButton.icon(
                   onPressed: loading ? null : sendOtp,
                   icon: const Icon(Icons.sms_outlined),

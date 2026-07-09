@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\EmailOtp;
 use App\Models\PhoneOtp;
 use App\Models\User;
 use App\Services\ApiTokenService;
@@ -12,17 +13,20 @@ use App\Services\OtpProviderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
 {
-    public function register(Request $request, ApiTokenService $tokens): JsonResponse
+    public function register(Request $request, ApiTokenService $tokens, OtpProviderService $otp): JsonResponse
     {
         $data = $request->validate([
             'role' => ['required', Rule::in(['seller', 'deliverer', 'buyer'])],
             'full_name' => ['required', 'string', 'max:160'],
             'email' => ['required', 'email', 'max:190', Rule::unique('users', 'email')],
             'phone' => ['required', 'string', 'max:30', Rule::unique('users', 'phone')],
+            'nida_number' => ['required', 'string', 'min:8', 'max:40', Rule::unique('users', 'nida_number')],
             'password' => ['required', 'string', 'min:6', 'max:120'],
             'address' => ['required', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric'],
@@ -34,9 +38,10 @@ class AuthController extends Controller
             'role' => $data['role'],
             'name' => $data['full_name'],
             'email' => $data['email'],
-            'email_verified_at' => now(),
+            'email_verified_at' => null,
             'password' => $data['password'],
             'phone' => $data['phone'],
+            'nida_number' => $data['nida_number'],
             'address' => $data['address'],
             'latitude' => $data['latitude'] ?? null,
             'longitude' => $data['longitude'] ?? null,
@@ -44,7 +49,18 @@ class AuthController extends Controller
             'is_active' => true,
         ]);
 
-        return response()->json(['token' => $tokens->issue($user), 'user' => $user, 'phone_verified' => false], 201);
+        $emailOtpSent = $this->sendEmailOtp($user);
+        $phoneOtpSent = $this->sendPhoneOtp($user, $otp);
+
+        return response()->json([
+            'token' => $tokens->issue($user),
+            'user' => $user->fresh(),
+            'email_verified' => false,
+            'phone_verified' => false,
+            'email_otp_sent' => $emailOtpSent,
+            'phone_otp_sent' => $phoneOtpSent,
+            'otp_provider' => $otp->activeProvider(),
+        ], 201);
     }
 
     public function login(Request $request, ApiTokenService $tokens): JsonResponse
@@ -67,10 +83,15 @@ class AuthController extends Controller
             $user->update(['fcm_token' => $data['fcm_token']]);
         }
 
-        return response()->json(['token' => $tokens->issue($user), 'user' => $user->fresh(), 'phone_verified' => (bool) $user->phone_verified_at]);
+        return response()->json([
+            'token' => $tokens->issue($user),
+            'user' => $user->fresh(),
+            'email_verified' => (bool) $user->email_verified_at,
+            'phone_verified' => (bool) $user->phone_verified_at,
+        ]);
     }
 
-    public function google(Request $request, GoogleAuthService $google, FirebasePhoneAuthService $firebase, ApiTokenService $tokens): JsonResponse
+    public function google(Request $request, GoogleAuthService $google, FirebasePhoneAuthService $firebase, ApiTokenService $tokens, OtpProviderService $otp): JsonResponse
     {
         $data = $request->validate([
             'google_id_token' => ['required_without_all:firebase_id_token,google_access_token', 'string'],
@@ -79,6 +100,7 @@ class AuthController extends Controller
             'role' => ['required', Rule::in(['seller', 'deliverer', 'buyer'])],
             'full_name' => ['nullable', 'string', 'max:160'],
             'phone' => ['nullable', 'string', 'max:30'],
+            'nida_number' => ['nullable', 'string', 'min:8', 'max:40'],
             'address' => ['nullable', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
@@ -94,10 +116,11 @@ class AuthController extends Controller
         abort_unless($email, 422, 'The selected account must expose an email address.');
 
         $user = User::where('email', $email)->first();
+        $isNewUser = ! $user;
         abort_if(
-            !$user && (empty($data['full_name']) || empty($data['phone']) || empty($data['address'])),
+            !$user && (empty($data['full_name']) || empty($data['phone']) || empty($data['nida_number']) || empty($data['address'])),
             422,
-            'Complete registration with your name, phone, and address before using social sign-in.'
+            'Complete registration with your name, phone, NIDA number, and address before using social sign-in.'
         );
 
         $attributes = [
@@ -116,13 +139,49 @@ class AuthController extends Controller
         if (!empty($data['phone'])) {
             $attributes['phone'] = $data['phone'];
         }
+        if (!empty($data['nida_number'])) {
+            $existingNida = User::where('nida_number', $data['nida_number'])->where('email', '!=', $email)->exists();
+            abort_if($existingNida, 422, 'The NIDA number has already been registered.');
+            $attributes['nida_number'] = $data['nida_number'];
+        }
         if (!empty($data['address'])) {
             $attributes['address'] = $data['address'];
         }
 
         $user = User::updateOrCreate(['email' => $email], $attributes);
+        $phoneOtpSent = $isNewUser ? $this->sendPhoneOtp($user, $otp) : false;
 
-        return response()->json(['token' => $tokens->issue($user), 'user' => $user, 'phone_verified' => (bool) $user->phone_verified_at]);
+        return response()->json([
+            'token' => $tokens->issue($user),
+            'user' => $user,
+            'email_verified' => (bool) $user->email_verified_at,
+            'phone_verified' => (bool) $user->phone_verified_at,
+            'phone_otp_sent' => $phoneOtpSent,
+            'otp_provider' => $otp->activeProvider(),
+        ]);
+    }
+
+    public function requestEmailOtp(Request $request): JsonResponse
+    {
+        $sent = $this->sendEmailOtp($request->user());
+
+        return response()->json([
+            'message' => $sent ? 'Email verification code sent.' : 'Email verification code could not be sent.',
+            'email_otp_sent' => $sent,
+        ]);
+    }
+
+    public function verifyEmailOtp(Request $request): JsonResponse
+    {
+        $data = $request->validate(['code' => ['required', 'string', 'size:6']]);
+        $user = $request->user();
+        $otp = EmailOtp::where('user_id', $user->id)->where('email', $user->email)->latest()->first();
+        abort_if(!$otp || $otp->expires_at->isPast() || !Hash::check($data['code'], $otp->code_hash), 422, 'Invalid or expired email code.');
+
+        $otp->update(['verified_at' => now()]);
+        $user->update(['email_verified_at' => now()]);
+
+        return response()->json(['message' => 'Email verified.', 'user' => $user->fresh()]);
     }
 
     public function otpProvider(OtpProviderService $otp): JsonResponse
@@ -204,5 +263,67 @@ class AuthController extends Controller
         $data = $request->validate(['fcm_token' => ['required', 'string', 'max:255']]);
         $request->user()->update($data);
         return response()->json(['message' => 'FCM token updated.']);
+    }
+
+    private function sendEmailOtp(User $user): bool
+    {
+        if ($user->email_verified_at) {
+            return true;
+        }
+
+        $code = (string) random_int(100000, 999999);
+        EmailOtp::create([
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'code_hash' => Hash::make($code),
+            'expires_at' => now()->addMinutes(15),
+        ]);
+
+        try {
+            Mail::raw("Your DiscountLink email verification code is {$code}. It expires in 15 minutes.", function ($message) use ($user) {
+                $message->to($user->email, $user->name)->subject('DiscountLink email verification code');
+            });
+
+            return true;
+        } catch (\Throwable $error) {
+            Log::warning('DiscountLink email OTP could not be sent.', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'error' => $error->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    private function sendPhoneOtp(User $user, OtpProviderService $otp): bool
+    {
+        if ($user->phone_verified_at || $otp->activeProvider() === 'firebase') {
+            return false;
+        }
+
+        $code = (string) random_int(100000, 999999);
+
+        try {
+            $reference = $otp->send($user->phone, $code);
+            PhoneOtp::create([
+                'user_id' => $user->id,
+                'phone' => $user->phone,
+                'code_hash' => $otp->hashCode($code),
+                'provider_reference' => $reference,
+                'expires_at' => now()->addMinutes(10),
+            ]);
+
+            return true;
+        } catch (\Throwable $error) {
+            Log::warning('DiscountLink phone OTP could not be sent.', [
+                'user_id' => $user->id,
+                'phone' => $user->phone,
+                'provider' => $otp->activeProvider(),
+                'error' => $error->getMessage(),
+            ]);
+
+            return false;
+        }
     }
 }
