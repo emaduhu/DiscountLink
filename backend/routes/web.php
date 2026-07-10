@@ -10,6 +10,8 @@ Route::post('/admin/logout', [DashboardController::class, 'logout'])->name('admi
 Route::post('/dashboard/notifications', [DashboardController::class, 'sendNotification'])->name('dashboard.notifications');
 Route::post('/dashboard/users/{user}/toggle', [DashboardController::class, 'toggleUser'])->name('dashboard.users.toggle');
 Route::post('/dashboard/products/{product}/toggle', [DashboardController::class, 'toggleProduct'])->name('dashboard.products.toggle');
+Route::post('/dashboard/conversations/{conversation}/toggle', [DashboardController::class, 'toggleConversation'])->name('dashboard.conversations.toggle');
+Route::post('/dashboard/conversation-reports/{report}/close', [DashboardController::class, 'closeConversationReport'])->name('dashboard.conversation-reports.close');
 Route::post('/dashboard/otp-settings', [DashboardController::class, 'updateOtpSettings'])->name('dashboard.otp-settings');
 Route::post('/dashboard/categories', [DashboardController::class, 'updateCategories'])->name('dashboard.categories');
 Route::get('/dashboard', DashboardController::class)->name('dashboard');

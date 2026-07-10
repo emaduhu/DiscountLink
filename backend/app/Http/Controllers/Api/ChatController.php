@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
+use App\Models\ConversationReport;
 use App\Models\DiscountLink;
 use App\Models\Message;
 use App\Models\Product;
@@ -17,7 +18,7 @@ class ChatController extends Controller
 {
     public function conversations(Request $request): JsonResponse
     {
-        $conversations = Conversation::with(['messages', 'product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone'])
+        $conversations = Conversation::with(['messages', 'product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role'])
             ->where('user_one_id', $request->user()->id)
             ->orWhere('user_two_id', $request->user()->id)
             ->latest('updated_at')
@@ -58,18 +59,22 @@ class ChatController extends Controller
             'order_id' => $data['order_id'] ?? null,
             'product_id' => $data['product_id'] ?? null,
         ]);
-        return response()->json(['conversation' => $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone'])], 201);
+        return response()->json(['conversation' => $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role'])], 201);
     }
 
     public function messages(Request $request, Conversation $conversation): JsonResponse
     {
         abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
-        return response()->json(['messages' => $conversation->messages()->latest()->paginate(50)]);
+        return response()->json([
+            'conversation' => $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role']),
+            'messages' => $conversation->messages()->latest()->paginate(50),
+        ]);
     }
 
     public function createDiscountLink(Request $request, Conversation $conversation, FcmService $fcm): JsonResponse
     {
         abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
+        abort_if($conversation->blocked_at, 423, 'This chat has been blocked.');
         abort_unless($request->user()->role === 'seller', 403, 'Only sellers can generate discount links.');
         abort_unless($conversation->product_id, 422, 'Start the chat from a product before generating a discount link.');
 
@@ -122,6 +127,7 @@ class ChatController extends Controller
     public function send(Request $request, Conversation $conversation, FcmService $fcm): JsonResponse
     {
         abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
+        abort_if($conversation->blocked_at, 423, 'This chat has been blocked.');
         $data = $request->validate(['body' => ['required', 'string', 'max:4000']]);
         $message = Message::create(['conversation_id' => $conversation->id, 'sender_id' => $request->user()->id, 'body' => $data['body']]);
         $conversation->touch();
@@ -136,5 +142,69 @@ class ChatController extends Controller
             ]);
         }
         return response()->json(['message' => $message], 201);
+    }
+
+    public function report(Request $request, Conversation $conversation): JsonResponse
+    {
+        abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
+
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:120'],
+            'details' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $reportedUserId = $conversation->user_one_id === $request->user()->id
+            ? $conversation->user_two_id
+            : $conversation->user_one_id;
+
+        $report = ConversationReport::create([
+            'conversation_id' => $conversation->id,
+            'reporter_id' => $request->user()->id,
+            'reported_user_id' => $reportedUserId,
+            'reason' => $data['reason'],
+            'details' => $data['details'] ?? null,
+        ]);
+
+        return response()->json([
+            'report' => $report,
+            'message' => 'Chat report submitted.',
+        ], 201);
+    }
+
+    public function block(Request $request, Conversation $conversation): JsonResponse
+    {
+        abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
+
+        $data = $request->validate([
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $conversation->update([
+            'blocked_by_id' => $request->user()->id,
+            'blocked_at' => now(),
+            'block_reason' => $data['reason'] ?? 'Blocked by chat participant.',
+        ]);
+
+        return response()->json([
+            'conversation' => $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role']),
+            'message' => 'Chat blocked.',
+        ]);
+    }
+
+    public function unblock(Request $request, Conversation $conversation): JsonResponse
+    {
+        abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
+        abort_unless($conversation->blocked_by_id === $request->user()->id, 403, 'Only the user who blocked this chat can unblock it.');
+
+        $conversation->update([
+            'blocked_by_id' => null,
+            'blocked_at' => null,
+            'block_reason' => null,
+        ]);
+
+        return response()->json([
+            'conversation' => $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role']),
+            'message' => 'Chat unblocked.',
+        ]);
     }
 }

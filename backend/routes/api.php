@@ -60,4 +60,7 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
     Route::get('/conversations/{conversation}/messages', [ChatController::class, 'messages']);
     Route::post('/conversations/{conversation}/messages', [ChatController::class, 'send']);
     Route::post('/conversations/{conversation}/discount-links', [ChatController::class, 'createDiscountLink']);
+    Route::post('/conversations/{conversation}/report', [ChatController::class, 'report']);
+    Route::post('/conversations/{conversation}/block', [ChatController::class, 'block']);
+    Route::post('/conversations/{conversation}/unblock', [ChatController::class, 'unblock']);
 });

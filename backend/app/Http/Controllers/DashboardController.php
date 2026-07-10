@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\AppSetting;
+use App\Models\Conversation;
+use App\Models\ConversationReport;
 use App\Models\DeliveryAssignment;
 use App\Models\NotificationBroadcast;
 use App\Models\Order;
@@ -134,6 +136,41 @@ class DashboardController extends Controller
         return redirect()->route('dashboard')->with('status', $product->is_active ? 'Product unblocked.' : 'Product blocked.');
     }
 
+    public function toggleConversation(Conversation $conversation): RedirectResponse
+    {
+        $this->authorizeAdmin();
+
+        if ($conversation->blocked_at) {
+            $conversation->update([
+                'blocked_by_id' => null,
+                'blocked_at' => null,
+                'block_reason' => null,
+            ]);
+
+            return redirect()->route('dashboard')->with('status', 'Chat unblocked.');
+        }
+
+        $conversation->update([
+            'blocked_by_id' => Auth::id(),
+            'blocked_at' => now(),
+            'block_reason' => 'Blocked by admin.',
+        ]);
+
+        return redirect()->route('dashboard')->with('status', 'Chat blocked.');
+    }
+
+    public function closeConversationReport(ConversationReport $report): RedirectResponse
+    {
+        $this->authorizeAdmin();
+
+        $report->update([
+            'status' => 'closed',
+            'reviewed_at' => now(),
+        ]);
+
+        return redirect()->route('dashboard')->with('status', 'Chat report closed.');
+    }
+
     public function updateCategories(Request $request): RedirectResponse
     {
         $this->authorizeAdmin();
@@ -197,6 +234,8 @@ class DashboardController extends Controller
             'payments' => Payment::with('order')->latest()->limit(25)->get(),
             'users' => User::whereIn('role', ['buyer', 'seller', 'deliverer'])->latest()->limit(50)->get(),
             'products' => Product::with(['shop', 'seller'])->latest()->limit(100)->get(),
+            'conversations' => Conversation::with(['userOne', 'userTwo', 'product', 'blocker'])->latest()->limit(50)->get(),
+            'conversationReports' => ConversationReport::with(['conversation.userOne', 'conversation.userTwo', 'reporter', 'reportedUser'])->latest()->limit(50)->get(),
             'notifications' => NotificationBroadcast::latest()->limit(10)->get(),
             'settings' => [
                 'otp_provider' => AppSetting::get('otp_provider', config('services.otp.provider', 'beem')),

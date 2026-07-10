@@ -3680,14 +3680,18 @@ class ChatConversationPage extends StatefulWidget {
 class _ChatConversationPageState extends State<ChatConversationPage> {
   final message = TextEditingController();
   final offerPrice = TextEditingController();
+  final reportDetails = TextEditingController();
+  late Map<String, dynamic> conversation;
   List messages = [];
   bool loading = true;
   bool sendingOffer = false;
+  bool moderating = false;
   Timer? refreshTimer;
 
   @override
   void initState() {
     super.initState();
+    conversation = Map<String, dynamic>.from(widget.conversation);
     load();
     refreshTimer = Timer.periodic(const Duration(seconds: 8), (_) => load());
   }
@@ -3697,15 +3701,17 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
     refreshTimer?.cancel();
     message.dispose();
     offerPrice.dispose();
+    reportDetails.dispose();
     super.dispose();
   }
 
   Future<void> load() async {
     final r = await widget.client.get(
-      '/conversations/${widget.conversation['id']}/messages',
+      '/conversations/${conversation['id']}/messages',
     );
     if (!mounted) return;
     setState(() {
+      conversation = Map<String, dynamic>.from(r['conversation'] as Map);
       messages = (r['messages']['data'] as List?) ?? [];
       loading = false;
     });
@@ -3715,11 +3721,165 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
     final body = message.text.trim();
     if (body.isEmpty) return;
     message.clear();
-    await widget.client.post(
-      '/conversations/${widget.conversation['id']}/messages',
-      {'body': body},
-    );
+    await widget.client.post('/conversations/${conversation['id']}/messages', {
+      'body': body,
+    });
     await load();
+  }
+
+  bool get isBlocked => conversation['blocked_at'] != null;
+
+  bool get blockedByMe => conversation['blocked_by_id'] == widget.user['id'];
+
+  Future<void> blockChat() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Block chat?'),
+        content: const Text(
+          'You will stop new messages and discount offers in this chat until you unblock it.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Block'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    setState(() => moderating = true);
+    try {
+      final r = await widget.client.post(
+        '/conversations/${conversation['id']}/block',
+        {'reason': 'Blocked from app chat.'},
+      );
+      if (!mounted) return;
+      setState(() {
+        conversation = Map<String, dynamic>.from(r['conversation'] as Map);
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Chat blocked.')));
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => moderating = false);
+    }
+  }
+
+  Future<void> unblockChat() async {
+    setState(() => moderating = true);
+    try {
+      final r = await widget.client.post(
+        '/conversations/${conversation['id']}/unblock',
+        {},
+      );
+      if (!mounted) return;
+      setState(() {
+        conversation = Map<String, dynamic>.from(r['conversation'] as Map);
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Chat unblocked.')));
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => moderating = false);
+    }
+  }
+
+  Future<void> reportChat() async {
+    reportDetails.clear();
+    String reason = 'Harassment or abuse';
+    final submitted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              16,
+              4,
+              16,
+              MediaQuery.viewInsetsOf(context).bottom + 16,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Report chat',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: reason,
+                  decoration: const InputDecoration(labelText: 'Reason'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'Harassment or abuse',
+                      child: Text('Harassment or abuse'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Fraud or scam',
+                      child: Text('Fraud or scam'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Unsafe product or request',
+                      child: Text('Unsafe product or request'),
+                    ),
+                    DropdownMenuItem(value: 'Spam', child: Text('Spam')),
+                    DropdownMenuItem(value: 'Other', child: Text('Other')),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setSheetState(() => reason = value);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reportDetails,
+                  maxLines: 4,
+                  maxLength: 1000,
+                  decoration: const InputDecoration(
+                    labelText: 'Details',
+                    hintText: 'Add context for the admin team',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: () => Navigator.pop(context, true),
+                  icon: const Icon(Icons.flag_outlined),
+                  label: const Text('Submit report'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (submitted != true) return;
+    setState(() => moderating = true);
+    try {
+      await widget.client.post('/conversations/${conversation['id']}/report', {
+        'reason': reason,
+        'details': reportDetails.text.trim(),
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Report submitted.')));
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => moderating = false);
+    }
   }
 
   Future<void> openDiscountOffer(String token) async {
@@ -3846,7 +4006,7 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
 
   Future<void> showCreateOfferDialog() async {
     offerPrice.clear();
-    final product = widget.conversation['product'] as Map<String, dynamic>?;
+    final product = conversation['product'] as Map<String, dynamic>?;
     if (product == null) return;
     final money = NumberFormat('#,##0.00');
     final productName = product['name'] ?? 'this product';
@@ -3979,7 +4139,7 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
                                 setState(() => sendingOffer = true);
                                 try {
                                   await widget.client.post(
-                                    '/conversations/${widget.conversation['id']}/discount-links',
+                                    '/conversations/${conversation['id']}/discount-links',
                                     {'discount_price': price},
                                   );
                                   if (!context.mounted) return;
@@ -4019,13 +4179,14 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
 
   @override
   Widget build(BuildContext context) {
-    final other = conversationOther(widget.conversation, widget.user['id']);
+    final other = conversationOther(conversation, widget.user['id']);
     final title =
         other?['name'] ??
-        '${tx('Conversation', 'Mazungumzo')} #${widget.conversation['id']}';
+        '${tx('Conversation', 'Mazungumzo')} #${conversation['id']}';
     final role = other?['role'];
-    final product = widget.conversation['product'] as Map<String, dynamic>?;
-    final canSendOffer = widget.user['role'] == 'seller' && product != null;
+    final product = conversation['product'] as Map<String, dynamic>?;
+    final canSendOffer =
+        widget.user['role'] == 'seller' && product != null && !isBlocked;
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -4059,9 +4220,73 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
             ),
           ],
         ),
+        actions: [
+          PopupMenuButton<String>(
+            enabled: !moderating,
+            onSelected: (value) {
+              if (value == 'report') reportChat();
+              if (value == 'block') blockChat();
+              if (value == 'unblock') unblockChat();
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'report',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.flag_outlined),
+                  title: Text('Report chat'),
+                ),
+              ),
+              if (isBlocked && blockedByMe)
+                const PopupMenuItem(
+                  value: 'unblock',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.lock_open_outlined),
+                    title: Text('Unblock chat'),
+                  ),
+                )
+              else if (!isBlocked)
+                const PopupMenuItem(
+                  value: 'block',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.block),
+                    title: Text('Block chat'),
+                  ),
+                ),
+            ],
+          ),
+        ],
       ),
       body: Column(
         children: [
+          if (isBlocked)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+              color: const Color(0xfffff1f2),
+              child: Row(
+                children: [
+                  const Icon(Icons.block, color: Color(0xffb91c1c)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      blockedByMe
+                          ? 'You blocked this chat. Unblock it to send messages.'
+                          : 'This chat is blocked. New messages are disabled.',
+                      style: const TextStyle(
+                        color: Color(0xff7f1d1d),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (product != null)
             Container(
               width: double.infinity,
@@ -4118,41 +4343,61 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
             child: Container(
               padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
               color: Colors.white,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: message,
-                      minLines: 1,
-                      maxLines: 4,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => send(),
-                      decoration: InputDecoration(
-                        hintText: tx('Message', 'Ujumbe'),
-                        filled: true,
-                        fillColor: kSurfaceColor,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
+              child: isBlocked
+                  ? Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Messaging is disabled for this chat.',
+                            style: TextStyle(
+                              color: kTextColor,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
+                        if (blockedByMe)
+                          TextButton.icon(
+                            onPressed: moderating ? null : unblockChat,
+                            icon: const Icon(Icons.lock_open_outlined),
+                            label: const Text('Unblock'),
+                          ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: message,
+                            minLines: 1,
+                            maxLines: 4,
+                            textInputAction: TextInputAction.send,
+                            onSubmitted: (_) => send(),
+                            decoration: InputDecoration(
+                              hintText: tx('Message', 'Ujumbe'),
+                              filled: true,
+                              fillColor: kSurfaceColor,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(24),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        IconButton.filled(
+                          onPressed: send,
+                          icon: const Icon(Icons.send),
+                          style: IconButton.styleFrom(
+                            backgroundColor: kPrimaryColor,
+                            fixedSize: const Size(48, 48),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    onPressed: send,
-                    icon: const Icon(Icons.send),
-                    style: IconButton.styleFrom(
-                      backgroundColor: kPrimaryColor,
-                      fixedSize: const Size(48, 48),
-                    ),
-                  ),
-                ],
-              ),
             ),
           ),
         ],
