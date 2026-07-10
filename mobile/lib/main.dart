@@ -1192,7 +1192,6 @@ class _ProfilePageState extends State<ProfilePage> {
   bool emailLoading = false;
   String otpProvider = 'beem';
   String? firebaseVerificationId;
-  String? visibleEmailCode;
   String? visiblePhoneCode;
 
   @override
@@ -1200,12 +1199,7 @@ class _ProfilePageState extends State<ProfilePage> {
     super.initState();
     final codes = widget.user['_verification_codes'];
     if (codes is Map) {
-      visibleEmailCode = codes['email']?.toString();
       visiblePhoneCode = codes['phone']?.toString();
-      if (visibleEmailCode != null && visibleEmailCode!.isNotEmpty) {
-        emailCode.text = visibleEmailCode!;
-        emailSent = true;
-      }
       if (visiblePhoneCode != null && visiblePhoneCode!.isNotEmpty) {
         code.text = visiblePhoneCode!;
         sent = true;
@@ -1321,11 +1315,8 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() => emailLoading = true);
     try {
       final r = await widget.client.post('/email/otp/request', {});
-      final emailCodeValue = r['email_code']?.toString();
-      final emailCodeVisible =
-          emailCodeValue != null && emailCodeValue.isNotEmpty;
       final emailWasSent = r['email_otp_sent'] == true;
-      if (!emailWasSent && !emailCodeVisible) {
+      if (!emailWasSent) {
         throw Exception(
           r['message'] ??
               tx(
@@ -1336,11 +1327,7 @@ class _ProfilePageState extends State<ProfilePage> {
       }
       if (mounted) {
         setState(() {
-          visibleEmailCode = emailCodeValue;
-          if (emailCodeVisible) {
-            emailCode.text = visibleEmailCode!;
-          }
-          emailSent = emailWasSent || emailCodeVisible;
+          emailSent = true;
         });
       }
     } catch (error) {
@@ -1480,7 +1467,7 @@ class _ProfilePageState extends State<ProfilePage> {
               if (!emailVerified) ...[
                 VerificationStatusLine(
                   sent: emailSent,
-                  visibleCode: visibleEmailCode,
+                  visibleCode: null,
                   destination: widget.user['email'] ?? '',
                   pendingText: tx(
                     'Email is pending. Send a code to verify this account.',
