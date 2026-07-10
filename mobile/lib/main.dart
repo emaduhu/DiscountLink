@@ -13,9 +13,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:in_app_update/in_app_update.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:upgrader/upgrader.dart';
 
 import 'firebase_options.dart';
 
@@ -152,13 +152,6 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   final client = ApiClient(apiBaseUrl);
   Map<String, dynamic>? user;
   bool showSplash = true;
-  bool updateChecked = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => checkForAppUpdate());
-  }
 
   void signedIn(String token, Map<String, dynamic> signedUser) {
     setState(() {
@@ -190,33 +183,6 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
       user = null;
       showSplash = false;
     });
-  }
-
-  Future<void> checkForAppUpdate() async {
-    if (updateChecked || !mounted) return;
-    updateChecked = true;
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
-
-    try {
-      final updateInfo = await InAppUpdate.checkForUpdate();
-      final updateAvailable =
-          updateInfo.updateAvailability == UpdateAvailability.updateAvailable ||
-          updateInfo.updateAvailability ==
-              UpdateAvailability.developerTriggeredUpdateInProgress;
-      if (!updateAvailable) return;
-
-      if (updateInfo.immediateUpdateAllowed) {
-        await InAppUpdate.performImmediateUpdate();
-        return;
-      }
-
-      if (updateInfo.flexibleUpdateAllowed) {
-        final result = await InAppUpdate.startFlexibleUpdate();
-        if (result == AppUpdateResult.success) {
-          await InAppUpdate.completeFlexibleUpdate();
-        }
-      }
-    } catch (_) {}
   }
 
   @override
@@ -278,16 +244,20 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
             ),
           ),
         ),
-        home: showSplash
-            ? SplashPage(onContinue: () => setState(() => showSplash = false))
-            : user == null
-            ? LoginPage(client: client, onSignedIn: signedIn)
-            : HomePage(
-                client: client,
-                user: user!,
-                onUserChanged: (u) => setState(() => user = u),
-                onSignOut: signedOut,
-              ),
+        home: UpgradeAlert(
+          upgrader: Upgrader(durationUntilAlertAgain: const Duration(days: 1)),
+          showReleaseNotes: false,
+          child: showSplash
+              ? SplashPage(onContinue: () => setState(() => showSplash = false))
+              : user == null
+              ? LoginPage(client: client, onSignedIn: signedIn)
+              : HomePage(
+                  client: client,
+                  user: user!,
+                  onUserChanged: (u) => setState(() => user = u),
+                  onSignOut: signedOut,
+                ),
+        ),
       ),
     );
   }
@@ -2253,12 +2223,17 @@ class _OrdersPageState extends State<OrdersPage> {
   List orders = [];
   Timer? refreshTimer;
   bool loading = true;
+  bool refreshing = false;
+  DateTime? lastUpdated;
 
   @override
   void initState() {
     super.initState();
-    load();
-    refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) => load());
+    load(showLoading: true);
+    refreshTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => load(silent: true),
+    );
   }
 
   @override
@@ -2267,25 +2242,50 @@ class _OrdersPageState extends State<OrdersPage> {
     super.dispose();
   }
 
-  Future<void> load() async {
-    setState(() => loading = true);
+  Future<void> load({bool showLoading = false, bool silent = false}) async {
+    if (refreshing) return;
+    refreshing = true;
+    if (showLoading && mounted) {
+      setState(() => loading = true);
+    }
     try {
       final r = await widget.client.get('/orders/active');
-      if (mounted) setState(() => orders = r['orders'] as List);
+      if (mounted) {
+        setState(() {
+          orders = r['orders'] as List;
+          lastUpdated = DateTime.now();
+          loading = false;
+        });
+      }
     } catch (error) {
-      if (mounted) showError(context, error);
+      if (mounted) {
+        setState(() => loading = false);
+        if (!silent) showError(context, error);
+      }
     } finally {
-      if (mounted) setState(() => loading = false);
+      refreshing = false;
     }
   }
 
   @override
   Widget build(BuildContext context) => RefreshIndicator(
-    onRefresh: load,
+    onRefresh: () => load(),
     child: ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        SectionTitle(title: 'My orders', action: 'Refresh', onAction: load),
+        SectionTitle(
+          title: 'My orders',
+          action: refreshing ? 'Updating' : 'Refresh',
+          onAction: refreshing ? null : () => load(showLoading: orders.isEmpty),
+        ),
+        if (lastUpdated != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              'Updated ${DateFormat('HH:mm').format(lastUpdated!)}',
+              style: const TextStyle(color: kTextColor, fontSize: 12),
+            ),
+          ),
         const SizedBox(height: 8),
         if (loading)
           const ListLoadingIndicator()
