@@ -85,25 +85,6 @@
                 <button class="primary" type="submit">Save categories</button>
             </form>
         </div>
-        <div class="card">
-            <h2>App Update Detector</h2>
-            <form method="post" action="{{ route('dashboard.app-version') }}">
-                @csrf
-                <label class="label">Latest version</label>
-                <input name="app_latest_version" value="{{ $settings['app_latest_version'] }}">
-                <label class="label">Minimum supported version</label>
-                <input name="app_minimum_version" value="{{ $settings['app_minimum_version'] }}">
-                <label class="label">Latest build</label>
-                <input name="app_latest_build" type="number" min="1" value="{{ $settings['app_latest_build'] }}">
-                <label class="label">Minimum supported build</label>
-                <input name="app_minimum_build" type="number" min="1" value="{{ $settings['app_minimum_build'] }}">
-                <label class="label">Update URL</label>
-                <input name="app_update_url" value="{{ $settings['app_update_url'] }}" placeholder="https://...">
-                <label class="label">Update message</label>
-                <textarea name="app_update_message">{{ $settings['app_update_message'] }}</textarea>
-                <button class="primary" type="submit">Save update settings</button>
-            </form>
-        </div>
     </div>
     <div class="section"><h2>Users</h2><table><tr><th>Name</th><th>Role</th><th>Phone</th><th>Status</th><th>Action</th></tr>@foreach($users as $user)<tr><td>{{ $user->name }}<div class="muted">{{ $user->email }}</div></td><td>{{ $user->role }}</td><td>{{ $user->phone }}</td><td class="{{ $user->is_active ? 'status' : 'blocked' }}">{{ $user->is_active ? 'Active' : 'Blocked' }}</td><td><form method="post" action="{{ route('dashboard.users.toggle', $user) }}">@csrf<button type="submit">{{ $user->is_active ? 'Block' : 'Unblock' }}</button></form></td></tr>@endforeach</table></div>
     <div class="section"><h2>Product Management</h2><div class="table-wrap"><table><tr><th>Product</th><th>Shop</th><th>Seller</th><th>Price</th><th>Stock</th><th>Status</th><th>Action</th></tr>@foreach($products as $product)<tr><td>{{ $product->name }}<div class="muted">{{ \Illuminate\Support\Str::limit($product->description, 80) }}</div></td><td>{{ $product->shop?->name }}<div class="muted">{{ collect($product->shop?->categories ?? [$product->shop?->category])->filter()->join(', ') }}</div></td><td>{{ $product->seller?->name }}<div class="muted">{{ $product->seller?->email }}</div></td><td><span class="badge">TZS {{ number_format($product->auto_total, 2) }}</span><div class="muted">Base {{ number_format($product->price, 2) }}</div></td><td>{{ $product->stock }}</td><td class="{{ $product->is_active ? 'status' : 'blocked' }}">{{ $product->is_active ? 'Active' : 'Blocked' }}</td><td><form method="post" action="{{ route('dashboard.products.toggle', $product) }}">@csrf<button class="{{ $product->is_active ? 'danger' : '' }}" type="submit">{{ $product->is_active ? 'Block product' : 'Unblock product' }}</button></form></td></tr>@endforeach</table></div></div>

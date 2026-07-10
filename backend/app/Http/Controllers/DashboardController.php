@@ -155,26 +155,6 @@ class DashboardController extends Controller
         return redirect()->route('dashboard')->with('status', 'Shop categories updated.');
     }
 
-    public function updateAppVersion(Request $request): RedirectResponse
-    {
-        $this->authorizeAdmin();
-
-        $data = $request->validate([
-            'app_latest_version' => ['required', 'string', 'max:30'],
-            'app_minimum_version' => ['required', 'string', 'max:30'],
-            'app_latest_build' => ['required', 'integer', 'min:1'],
-            'app_minimum_build' => ['required', 'integer', 'min:1'],
-            'app_update_url' => ['nullable', 'url', 'max:500'],
-            'app_update_message' => ['nullable', 'string', 'max:300'],
-        ]);
-
-        foreach ($data as $key => $value) {
-            AppSetting::put($key, (string) $value);
-        }
-
-        return redirect()->route('dashboard')->with('status', 'App update settings saved.');
-    }
-
     public function updateOtpSettings(Request $request): RedirectResponse
     {
         $this->authorizeAdmin();
@@ -225,12 +205,6 @@ class DashboardController extends Controller
                 'infobip_sender_id' => AppSetting::get('infobip_sender_id', config('services.infobip.sender_id')),
                 'infobip_base_url' => AppSetting::get('infobip_base_url', config('services.infobip.base_url')),
                 'firebase_project_id' => AppSetting::get('firebase_project_id', config('services.firebase.project_id')),
-                'app_latest_version' => AppSetting::get('app_latest_version', '1.0.0'),
-                'app_minimum_version' => AppSetting::get('app_minimum_version', '1.0.0'),
-                'app_latest_build' => AppSetting::get('app_latest_build', '1'),
-                'app_minimum_build' => AppSetting::get('app_minimum_build', '1'),
-                'app_update_url' => AppSetting::get('app_update_url', ''),
-                'app_update_message' => AppSetting::get('app_update_message', 'A new DiscountLink update is available.'),
             ],
             'shopCategories' => AppSetting::get('shop_categories', "Electronics\nFashion\nGroceries\nBooks\nArt\nHome\nOther"),
         ]);

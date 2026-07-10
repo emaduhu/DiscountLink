@@ -12,5 +12,4 @@ Route::post('/dashboard/users/{user}/toggle', [DashboardController::class, 'togg
 Route::post('/dashboard/products/{product}/toggle', [DashboardController::class, 'toggleProduct'])->name('dashboard.products.toggle');
 Route::post('/dashboard/otp-settings', [DashboardController::class, 'updateOtpSettings'])->name('dashboard.otp-settings');
 Route::post('/dashboard/categories', [DashboardController::class, 'updateCategories'])->name('dashboard.categories');
-Route::post('/dashboard/app-version', [DashboardController::class, 'updateAppVersion'])->name('dashboard.app-version');
 Route::get('/dashboard', DashboardController::class)->name('dashboard');
