@@ -14,6 +14,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'firebase_options.dart';
@@ -141,6 +142,88 @@ String googleSignInErrorMessage(GoogleSignInException error) {
   return error.description ?? 'Google sign-in failed. Please try again.';
 }
 
+int compareVersions(String left, String right) {
+  final a = left
+      .split('+')
+      .first
+      .split('.')
+      .map((part) => int.tryParse(part) ?? 0)
+      .toList();
+  final b = right
+      .split('+')
+      .first
+      .split('.')
+      .map((part) => int.tryParse(part) ?? 0)
+      .toList();
+  final length = a.length > b.length ? a.length : b.length;
+  for (var i = 0; i < length; i++) {
+    final av = i < a.length ? a[i] : 0;
+    final bv = i < b.length ? b[i] : 0;
+    if (av != bv) return av.compareTo(bv);
+  }
+  return 0;
+}
+
+Future<void> showAppUpdateDialog({
+  required BuildContext context,
+  required bool forceUpdate,
+  required String currentVersion,
+  required String latestVersion,
+  required String message,
+  required String updateUrl,
+}) async {
+  final hasUpdateUrl = updateUrl.trim().isNotEmpty;
+  final blocksApp = forceUpdate && hasUpdateUrl;
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: !blocksApp,
+    builder: (context) => PopScope(
+      canPop: !blocksApp,
+      child: AlertDialog(
+        title: Text(forceUpdate ? 'Update required' : 'Update available'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(message),
+            const SizedBox(height: 12),
+            Text(
+              'Installed: $currentVersion',
+              style: const TextStyle(color: kTextColor, fontSize: 12),
+            ),
+            Text(
+              'Latest: $latestVersion',
+              style: const TextStyle(color: kTextColor, fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          if (!blocksApp)
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(hasUpdateUrl ? 'Later' : 'OK'),
+            ),
+          FilledButton.icon(
+            onPressed: !hasUpdateUrl
+                ? null
+                : () async {
+                    final uri = Uri.parse(updateUrl.trim());
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(
+                        uri,
+                        mode: LaunchMode.externalApplication,
+                      );
+                    }
+                  },
+            icon: const Icon(Icons.system_update_alt),
+            label: const Text('Update'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class DiscountLinkApp extends StatefulWidget {
   const DiscountLinkApp({super.key});
   @override
@@ -151,6 +234,13 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   final client = ApiClient(apiBaseUrl);
   Map<String, dynamic>? user;
   bool showSplash = true;
+  bool updateChecked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => checkForAppUpdate());
+  }
 
   void signedIn(String token, Map<String, dynamic> signedUser) {
     setState(() {
@@ -182,6 +272,40 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
       user = null;
       showSplash = false;
     });
+  }
+
+  Future<void> checkForAppUpdate() async {
+    if (updateChecked || !mounted) return;
+    updateChecked = true;
+
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final platform = defaultTargetPlatform.name.toLowerCase();
+      final r = await client.get('/app-version', {'platform': platform});
+      final currentBuild = int.tryParse(packageInfo.buildNumber) ?? 0;
+      final latestBuild = int.tryParse('${r['latest_build']}') ?? currentBuild;
+      final minimumBuild = int.tryParse('${r['minimum_build']}') ?? 0;
+      final latestVersion = '${r['latest_version'] ?? ''}';
+      final minimumVersion = '${r['minimum_version'] ?? ''}';
+      final forceUpdate =
+          currentBuild < minimumBuild ||
+          compareVersions(packageInfo.version, minimumVersion) < 0;
+      final updateAvailable =
+          forceUpdate ||
+          currentBuild < latestBuild ||
+          compareVersions(packageInfo.version, latestVersion) < 0;
+
+      if (!updateAvailable || !mounted) return;
+
+      await showAppUpdateDialog(
+        context: context,
+        forceUpdate: forceUpdate,
+        currentVersion: '${packageInfo.version}+${packageInfo.buildNumber}',
+        latestVersion: latestVersion.isEmpty ? '$latestBuild' : latestVersion,
+        message: '${r['message'] ?? 'A new DiscountLink update is available.'}',
+        updateUrl: '${r['update_url'] ?? ''}',
+      );
+    } catch (_) {}
   }
 
   @override
@@ -684,7 +808,7 @@ class _RegisterPageState extends State<RegisterPage> {
   final phone = TextEditingController(text: '255700000001');
   final nida = TextEditingController();
   final address = TextEditingController(text: 'Dar es Salaam');
-  final email = TextEditingController(text: 'buyer@discountlink.local');
+  final email = TextEditingController();
   final password = TextEditingController(text: 'password');
   String role = 'buyer';
   bool loading = false;
@@ -1316,13 +1440,26 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() => emailLoading = true);
     try {
       final r = await widget.client.post('/email/otp/request', {});
+      final emailCodeValue = r['email_code']?.toString();
+      final emailCodeVisible =
+          emailCodeValue != null && emailCodeValue.isNotEmpty;
+      final emailWasSent = r['email_otp_sent'] == true;
+      if (!emailWasSent && !emailCodeVisible) {
+        throw Exception(
+          r['message'] ??
+              tx(
+                'Email verification code could not be sent. Check the address and try again.',
+                'Kodi ya uthibitishaji wa barua pepe haikuweza kutumwa. Hakiki anwani kisha jaribu tena.',
+              ),
+        );
+      }
       if (mounted) {
         setState(() {
-          visibleEmailCode = r['email_code']?.toString();
-          if (visibleEmailCode != null && visibleEmailCode!.isNotEmpty) {
+          visibleEmailCode = emailCodeValue;
+          if (emailCodeVisible) {
             emailCode.text = visibleEmailCode!;
           }
-          emailSent = true;
+          emailSent = emailWasSent || emailCodeVisible;
         });
       }
     } catch (error) {
@@ -1336,7 +1473,7 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() => emailLoading = true);
     try {
       final r = await widget.client.post('/email/otp/verify', {
-        'code': emailCode.text,
+        'code': emailCode.text.trim(),
       });
       widget.onUserChanged(r['user'] as Map<String, dynamic>);
     } catch (error) {
@@ -1795,20 +1932,30 @@ class _CartPageState extends State<CartPage> {
                     )
                   else
                     for (final i in cart)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const CircleAvatar(
-                          backgroundColor: kPrimaryLightColor,
-                          child: Icon(Icons.shopping_bag_outlined),
-                        ),
-                        title: Text(i['product']['name']),
-                        subtitle: Text('Qty ${i['quantity']}'),
-                        trailing: IconButton(
-                          tooltip: 'Remove item',
-                          onPressed: () =>
-                              removeCartItem(i as Map<String, dynamic>),
-                          icon: const Icon(Icons.delete_outline),
-                        ),
+                      Builder(
+                        builder: (context) {
+                          final item = i as Map<String, dynamic>;
+                          final override = item['unit_price_override'];
+                          final product = item['product'] as Map;
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const CircleAvatar(
+                              backgroundColor: kPrimaryLightColor,
+                              child: Icon(Icons.shopping_bag_outlined),
+                            ),
+                            title: Text(product['name']),
+                            subtitle: Text(
+                              override == null
+                                  ? 'Qty ${item['quantity']}'
+                                  : 'Qty ${item['quantity']} - negotiated TZS $override',
+                            ),
+                            trailing: IconButton(
+                              tooltip: 'Remove item',
+                              onPressed: () => removeCartItem(item),
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                          );
+                        },
                       ),
                 ],
               ),
@@ -2039,10 +2186,19 @@ class _BuyerPageState extends State<BuyerPage> {
     if (sellerId == null) {
       throw Exception('Seller contact is not available for this product.');
     }
-    await widget.client.post('/conversations', {'user_id': sellerId});
+    final r = await widget.client.post('/conversations', {
+      'user_id': sellerId,
+      'product_id': product['id'],
+    });
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Chat started. Open Chat to continue.')),
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ChatConversationPage(
+          client: widget.client,
+          user: widget.user,
+          conversation: r['conversation'] as Map<String, dynamic>,
+        ),
+      ),
     );
   }
 
@@ -2460,7 +2616,7 @@ class _SellerPageState extends State<SellerPage> {
         16,
         12,
         16,
-        MediaQuery.paddingOf(context).bottom + 120,
+        MediaQuery.paddingOf(context).bottom + 168,
       ),
       children: [
         SurfacePanel(
@@ -2631,282 +2787,295 @@ class _SellerPageState extends State<SellerPage> {
         const SizedBox(height: 8),
         if (loadingShops) const ListLoadingIndicator(),
         for (final s in shops)
-          SurfacePanel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            s['name'] ?? '',
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w800),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${((s['categories'] as List?) ?? [s['category']]).where((category) => category != null).join(', ')} - ${s['products']?.length ?? 0} products',
-                            style: const TextStyle(color: kTextColor),
-                          ),
-                        ],
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: SurfacePanel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              s['name'] ?? '',
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${((s['categories'] as List?) ?? [s['category']]).where((category) => category != null).join(', ')} - ${s['products']?.length ?? 0} products',
+                              style: const TextStyle(color: kTextColor),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    IconButton(
-                      tooltip: 'Edit shop',
-                      onPressed: () => startEditShop(s as Map<String, dynamic>),
-                      icon: const Icon(Icons.edit_outlined),
-                    ),
-                  ],
-                ),
-                if (editingShopId == s['id'] && shopDraft != null) ...[
-                  const SizedBox(height: 12),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: kSurfaceColor,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Field(
-                            controller: shopDraft!.name,
-                            label: 'Shop name',
-                            icon: Icons.store,
-                          ),
-                          CategoryMultiSelect(
-                            categories: shopCategories,
-                            selected: shopDraft!.categories,
-                            onChanged: (next) => setState(() {
-                              shopDraft!.categories
-                                ..clear()
-                                ..addAll(next);
-                            }),
-                          ),
-                          Field(
-                            controller: shopDraft!.address,
-                            label: 'Address',
-                            icon: Icons.place_outlined,
-                          ),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: cancelShopEdit,
-                                  child: const Text('Cancel'),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: FilledButton(
-                                  onPressed: () =>
-                                      saveShopEdit(s as Map<String, dynamic>),
-                                  child: const Text('Save shop'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                      IconButton(
+                        tooltip: 'Edit shop',
+                        onPressed: () =>
+                            startEditShop(s as Map<String, dynamic>),
+                        icon: const Icon(Icons.edit_outlined),
                       ),
-                    ),
+                    ],
                   ),
-                ],
-                const SizedBox(height: 12),
-                for (final product in ((s['products'] as List?) ?? []))
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: DecoratedBox(
+                  if (editingShopId == s['id'] && shopDraft != null) ...[
+                    const SizedBox(height: 12),
+                    DecoratedBox(
                       decoration: BoxDecoration(
                         color: kSurfaceColor,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: Colors.black.withValues(alpha: 0.05),
-                        ),
+                        borderRadius: BorderRadius.circular(14),
                       ),
                       child: Padding(
                         padding: const EdgeInsets.all(12),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            Field(
+                              controller: shopDraft!.name,
+                              label: 'Shop name',
+                              icon: Icons.store,
+                            ),
+                            CategoryMultiSelect(
+                              categories: shopCategories,
+                              selected: shopDraft!.categories,
+                              onChanged: (next) => setState(() {
+                                shopDraft!.categories
+                                  ..clear()
+                                  ..addAll(next);
+                              }),
+                            ),
+                            Field(
+                              controller: shopDraft!.address,
+                              label: 'Address',
+                              icon: Icons.place_outlined,
+                            ),
                             Row(
                               children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: SizedBox(
-                                    width: 64,
-                                    height: 64,
-                                    child: DecoratedBox(
-                                      decoration: const BoxDecoration(
-                                        color: Colors.white,
-                                      ),
-                                      child: ProductImage(
-                                        source: productImageSource(
-                                          product as Map<String, dynamic>,
-                                          fallback:
-                                              'assets/images/product_popular_1.png',
-                                        ),
-                                        fit: BoxFit.cover,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
                                 Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        product['name'] ?? '',
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'TZS ${product['auto_total']} total',
-                                        style: const TextStyle(
-                                          color: kPrimaryColor,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      Text(
-                                        '${product['stock'] ?? 0} in stock',
-                                        style: const TextStyle(
-                                          color: kTextColor,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                      RatingSummary(
-                                        product: product,
-                                        compact: true,
-                                      ),
-                                    ],
+                                  child: OutlinedButton(
+                                    onPressed: cancelShopEdit,
+                                    child: const Text('Cancel'),
                                   ),
                                 ),
-                                IconButton(
-                                  tooltip: 'Edit product',
-                                  onPressed: () => startEditProduct(product),
-                                  icon: const Icon(Icons.edit_outlined),
-                                ),
-                                IconButton(
-                                  tooltip: 'Remove product',
-                                  onPressed: () => removeProduct(product),
-                                  color: Colors.red.shade700,
-                                  icon: const Icon(Icons.delete_outline),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: FilledButton(
+                                    onPressed: () =>
+                                        saveShopEdit(s as Map<String, dynamic>),
+                                    child: const Text('Save shop'),
+                                  ),
                                 ),
                               ],
                             ),
-                            if (editingProductId == product['id'] &&
-                                productDraft != null) ...[
-                              const SizedBox(height: 12),
-                              Field(
-                                controller: productDraft!.name,
-                                label: 'Product name',
-                                icon: Icons.inventory_2_outlined,
-                              ),
-                              Field(
-                                controller: productDraft!.description,
-                                label: 'Description',
-                                icon: Icons.notes,
-                              ),
-                              Field(
-                                controller: productDraft!.price,
-                                label: 'Price',
-                                icon: Icons.sell_outlined,
-                                keyboard: TextInputType.number,
-                              ),
-                              Field(
-                                controller: productDraft!.discount,
-                                label: 'Discount percent',
-                                icon: Icons.percent,
-                                keyboard: TextInputType.number,
-                              ),
-                              Field(
-                                controller: productDraft!.delivery,
-                                label: 'Delivery price',
-                                icon: Icons.delivery_dining,
-                                keyboard: TextInputType.number,
-                              ),
-                              Field(
-                                controller: productDraft!.stock,
-                                label: 'Stock',
-                                icon: Icons.numbers,
-                                keyboard: TextInputType.number,
-                              ),
-                              OutlinedButton.icon(
-                                onPressed: pickReplacementProductImages,
-                                icon: const Icon(Icons.photo_library_outlined),
-                                label: Text(
-                                  replacementProductImages.isEmpty
-                                      ? 'Replace images'
-                                      : '${replacementProductImages.length} images chosen',
-                                ),
-                              ),
-                              if (replacementProductImages.isNotEmpty) ...[
-                                const SizedBox(height: 8),
-                                SizedBox(
-                                  height: 64,
-                                  child: ListView.separated(
-                                    scrollDirection: Axis.horizontal,
-                                    itemBuilder: (context, index) => ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Image.file(
-                                        File(
-                                          replacementProductImages[index].path,
-                                        ),
-                                        width: 64,
-                                        height: 64,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    ),
-                                    separatorBuilder: (_, _) =>
-                                        const SizedBox(width: 8),
-                                    itemCount: replacementProductImages.length,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                              ],
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton(
-                                      onPressed: cancelProductEdit,
-                                      child: const Text('Cancel'),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: FilledButton(
-                                      onPressed: () => saveProductEdit(product),
-                                      child: const Text('Save product'),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
                           ],
                         ),
                       ),
                     ),
-                  ),
-                if (((s['products'] as List?) ?? []).isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      'No products in this shop yet.',
-                      style: TextStyle(color: kTextColor),
+                  ],
+                  const SizedBox(height: 12),
+                  for (final product in ((s['products'] as List?) ?? []))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: kSurfaceColor,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.black.withValues(alpha: 0.05),
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: SizedBox(
+                                      width: 64,
+                                      height: 64,
+                                      child: DecoratedBox(
+                                        decoration: const BoxDecoration(
+                                          color: Colors.white,
+                                        ),
+                                        child: ProductImage(
+                                          source: productImageSource(
+                                            product as Map<String, dynamic>,
+                                            fallback:
+                                                'assets/images/product_popular_1.png',
+                                          ),
+                                          fit: BoxFit.cover,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          product['name'] ?? '',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'TZS ${product['auto_total']} total',
+                                          style: const TextStyle(
+                                            color: kPrimaryColor,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        Text(
+                                          '${product['stock'] ?? 0} in stock',
+                                          style: const TextStyle(
+                                            color: kTextColor,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                        RatingSummary(
+                                          product: product,
+                                          compact: true,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Edit product',
+                                    onPressed: () => startEditProduct(product),
+                                    icon: const Icon(Icons.edit_outlined),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Remove product',
+                                    onPressed: () => removeProduct(product),
+                                    color: Colors.red.shade700,
+                                    icon: const Icon(Icons.delete_outline),
+                                  ),
+                                ],
+                              ),
+                              if (editingProductId == product['id'] &&
+                                  productDraft != null) ...[
+                                const SizedBox(height: 12),
+                                Field(
+                                  controller: productDraft!.name,
+                                  label: 'Product name',
+                                  icon: Icons.inventory_2_outlined,
+                                ),
+                                Field(
+                                  controller: productDraft!.description,
+                                  label: 'Description',
+                                  icon: Icons.notes,
+                                ),
+                                Field(
+                                  controller: productDraft!.price,
+                                  label: 'Price',
+                                  icon: Icons.sell_outlined,
+                                  keyboard: TextInputType.number,
+                                ),
+                                Field(
+                                  controller: productDraft!.discount,
+                                  label: 'Discount percent',
+                                  icon: Icons.percent,
+                                  keyboard: TextInputType.number,
+                                ),
+                                Field(
+                                  controller: productDraft!.delivery,
+                                  label: 'Delivery price',
+                                  icon: Icons.delivery_dining,
+                                  keyboard: TextInputType.number,
+                                ),
+                                Field(
+                                  controller: productDraft!.stock,
+                                  label: 'Stock',
+                                  icon: Icons.numbers,
+                                  keyboard: TextInputType.number,
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: pickReplacementProductImages,
+                                  icon: const Icon(
+                                    Icons.photo_library_outlined,
+                                  ),
+                                  label: Text(
+                                    replacementProductImages.isEmpty
+                                        ? 'Replace images'
+                                        : '${replacementProductImages.length} images chosen',
+                                  ),
+                                ),
+                                if (replacementProductImages.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  SizedBox(
+                                    height: 64,
+                                    child: ListView.separated(
+                                      scrollDirection: Axis.horizontal,
+                                      itemBuilder: (context, index) =>
+                                          ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            child: Image.file(
+                                              File(
+                                                replacementProductImages[index]
+                                                    .path,
+                                              ),
+                                              width: 64,
+                                              height: 64,
+                                              fit: BoxFit.cover,
+                                            ),
+                                          ),
+                                      separatorBuilder: (_, _) =>
+                                          const SizedBox(width: 8),
+                                      itemCount:
+                                          replacementProductImages.length,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                ],
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton(
+                                        onPressed: cancelProductEdit,
+                                        child: const Text('Cancel'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: FilledButton(
+                                        onPressed: () =>
+                                            saveProductEdit(product),
+                                        child: const Text('Save product'),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-              ],
+                  if (((s['products'] as List?) ?? []).isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        'No products in this shop yet.',
+                        style: TextStyle(color: kTextColor),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
+        const SizedBox(height: 48),
       ],
     );
   }
@@ -3491,8 +3660,10 @@ class ChatConversationPage extends StatefulWidget {
 
 class _ChatConversationPageState extends State<ChatConversationPage> {
   final message = TextEditingController();
+  final offerPrice = TextEditingController();
   List messages = [];
   bool loading = true;
+  bool sendingOffer = false;
   Timer? refreshTimer;
 
   @override
@@ -3506,6 +3677,7 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
   void dispose() {
     refreshTimer?.cancel();
     message.dispose();
+    offerPrice.dispose();
     super.dispose();
   }
 
@@ -3531,6 +3703,301 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
     await load();
   }
 
+  Future<void> openDiscountOffer(String token) async {
+    try {
+      final r = await widget.client.get('/discount-links/$token');
+      if (!mounted) return;
+      await showDiscountOfferSheet(
+        r['discount_link'] as Map<String, dynamic>,
+        r['is_valid'] == true,
+      );
+    } catch (error) {
+      if (mounted) showError(context, error);
+    }
+  }
+
+  Future<void> showDiscountOfferSheet(
+    Map<String, dynamic> offer,
+    bool isValid,
+  ) async {
+    final product = offer['product'] as Map<String, dynamic>;
+    final money = NumberFormat('#,##0.00');
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        final price = num.tryParse('${offer['discount_price']}') ?? 0;
+        final original = num.tryParse('${product['price']}') ?? 0;
+        final delivery = num.tryParse('${product['delivery_price']}') ?? 0;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: SizedBox(
+                        width: 72,
+                        height: 72,
+                        child: ProductImage(
+                          source: productImageSource(
+                            product,
+                            fallback: 'assets/images/product_popular_1.png',
+                          ),
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            product['name'] ?? '',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 16,
+                            ),
+                          ),
+                          Text(
+                            product['shop']?['name'] ?? '',
+                            style: const TextStyle(color: kTextColor),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Offer price: TZS ${money.format(price)}',
+                  style: const TextStyle(
+                    color: kPrimaryColor,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                  ),
+                ),
+                if (original > price)
+                  Text(
+                    'Original: TZS ${money.format(original)}',
+                    style: const TextStyle(
+                      color: kTextColor,
+                      decoration: TextDecoration.lineThrough,
+                    ),
+                  ),
+                Text(
+                  'Delivery: TZS ${money.format(delivery)}',
+                  style: const TextStyle(color: kTextColor),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: isValid
+                      ? () async {
+                          await widget.client.post(
+                            '/discount-links/${offer['token']}/cart',
+                            {'quantity': 1},
+                          );
+                          if (!context.mounted) return;
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Discount offer added to cart.'),
+                            ),
+                          );
+                        }
+                      : null,
+                  icon: const Icon(Icons.add_shopping_cart),
+                  label: Text(isValid ? 'Add offer to cart' : 'Offer expired'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> showCreateOfferDialog() async {
+    offerPrice.clear();
+    final product = widget.conversation['product'] as Map<String, dynamic>?;
+    if (product == null) return;
+    final money = NumberFormat('#,##0.00');
+    final productName = product['name'] ?? 'this product';
+    final original = num.tryParse('${product['price']}') ?? 0;
+    final currentDiscount = num.tryParse('${product['discount_price']}');
+    final delivery = num.tryParse('${product['delivery_price']}') ?? 0;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            4,
+            16,
+            MediaQuery.viewInsetsOf(context).bottom + 16,
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: MediaQuery.sizeOf(context).height * 0.42,
+              maxHeight: MediaQuery.sizeOf(context).height * 0.78,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: SizedBox(
+                        width: 76,
+                        height: 76,
+                        child: ProductImage(
+                          source: productImageSource(
+                            product,
+                            fallback: 'assets/images/product_popular_1.png',
+                          ),
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Send discount offer',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            productName,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: kTextColor),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: kSurfaceColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.black.withValues(alpha: 0.05),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      children: [
+                        _OfferPriceRow(
+                          label: 'Original price',
+                          value: 'TZS ${money.format(original)}',
+                          strong: true,
+                        ),
+                        if (currentDiscount != null) ...[
+                          const Divider(height: 18),
+                          _OfferPriceRow(
+                            label: 'Current discount price',
+                            value: 'TZS ${money.format(currentDiscount)}',
+                          ),
+                        ],
+                        const Divider(height: 18),
+                        _OfferPriceRow(
+                          label: 'Delivery price',
+                          value: 'TZS ${money.format(delivery)}',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: offerPrice,
+                  keyboardType: TextInputType.number,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Negotiated product price',
+                    prefixText: 'TZS ',
+                    helperText: 'Enter a price lower than the original price.',
+                  ),
+                ),
+                const Spacer(),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: sendingOffer
+                            ? null
+                            : () async {
+                                final price = offerPrice.text.trim();
+                                if (price.isEmpty) return;
+                                setState(() => sendingOffer = true);
+                                try {
+                                  await widget.client.post(
+                                    '/conversations/${widget.conversation['id']}/discount-links',
+                                    {'discount_price': price},
+                                  );
+                                  if (!context.mounted) return;
+                                  Navigator.pop(context);
+                                  await load();
+                                } catch (error) {
+                                  if (context.mounted) {
+                                    showError(context, error);
+                                  }
+                                } finally {
+                                  if (mounted) {
+                                    setState(() => sendingOffer = false);
+                                  }
+                                }
+                              },
+                        icon: sendingOffer
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.local_offer_outlined),
+                        label: Text(sendingOffer ? 'Sending...' : 'Send offer'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final other = conversationOther(widget.conversation, widget.user['id']);
@@ -3538,6 +4005,8 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
         other?['name'] ??
         '${tx('Conversation', 'Mazungumzo')} #${widget.conversation['id']}';
     final role = other?['role'];
+    final product = widget.conversation['product'] as Map<String, dynamic>?;
+    final canSendOffer = widget.user['role'] == 'seller' && product != null;
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -3574,6 +4043,32 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
       ),
       body: Column(
         children: [
+          if (product != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+              color: kPrimaryLightColor,
+              child: Row(
+                children: [
+                  const Icon(Icons.inventory_2_outlined, color: kPrimaryColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      product['name'] ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  if (canSendOffer)
+                    TextButton.icon(
+                      onPressed: showCreateOfferDialog,
+                      icon: const Icon(Icons.sell_outlined),
+                      label: const Text('Offer'),
+                    ),
+                ],
+              ),
+            ),
           Expanded(
             child: loading
                 ? const Center(child: CircularProgressIndicator())
@@ -3591,7 +4086,11 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
                     itemBuilder: (context, index) {
                       final item = messages[index] as Map<String, dynamic>;
                       final mine = item['sender_id'] == widget.user['id'];
-                      return ChatBubble(message: item, mine: mine);
+                      return ChatBubble(
+                        message: item,
+                        mine: mine,
+                        onOfferTap: openDiscountOffer,
+                      );
                     },
                   ),
           ),
@@ -3643,39 +4142,123 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
   }
 }
 
-class ChatBubble extends StatelessWidget {
-  const ChatBubble({super.key, required this.message, required this.mine});
-  final Map<String, dynamic> message;
-  final bool mine;
+class _OfferPriceRow extends StatelessWidget {
+  const _OfferPriceRow({
+    required this.label,
+    required this.value,
+    this.strong = false,
+  });
+
+  final String label;
+  final String value;
+  final bool strong;
 
   @override
-  Widget build(BuildContext context) => Align(
-    alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-    child: Container(
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * 0.78,
-      ),
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: mine ? const Color(0xffdcf8c6) : Colors.white,
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(16),
-          topRight: const Radius.circular(16),
-          bottomLeft: Radius.circular(mine ? 16 : 4),
-          bottomRight: Radius.circular(mine ? 4 : 16),
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(label, style: const TextStyle(color: kTextColor)),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
+        Text(
+          value,
+          style: TextStyle(
+            color: strong ? Colors.black : kTextColor,
+            fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
           ),
-        ],
+        ),
+      ],
+    );
+  }
+}
+
+class ChatBubble extends StatelessWidget {
+  const ChatBubble({
+    super.key,
+    required this.message,
+    required this.mine,
+    required this.onOfferTap,
+  });
+  final Map<String, dynamic> message;
+  final bool mine;
+  final ValueChanged<String> onOfferTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final body = '${message['body'] ?? ''}';
+    final token = discountOfferToken(body);
+    return Align(
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      child: InkWell(
+        onTap: token == null ? null : () => onOfferTap(token),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.sizeOf(context).width * 0.78,
+          ),
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: mine ? const Color(0xffdcf8c6) : Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(16),
+              topRight: const Radius.circular(16),
+              bottomLeft: Radius.circular(mine ? 16 : 4),
+              bottomRight: Radius.circular(mine ? 4 : 16),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: token == null
+              ? Text(body)
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.local_offer_outlined,
+                          size: 18,
+                          color: kPrimaryColor,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          tx('Discount offer', 'Ofa ya punguzo'),
+                          style: const TextStyle(
+                            color: kPrimaryColor,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(body.split('\n').first),
+                    const SizedBox(height: 6),
+                    Text(
+                      tx('Tap to open in app', 'Bonyeza kufungua kwenye app'),
+                      style: const TextStyle(
+                        color: kTextColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
       ),
-      child: Text(message['body'] ?? ''),
-    ),
-  );
+    );
+  }
+}
+
+String? discountOfferToken(String body) {
+  final match = RegExp(r'discountlink://offer/([A-Za-z0-9]+)').firstMatch(body);
+  return match?.group(1);
 }
 
 Map<String, dynamic>? conversationOther(

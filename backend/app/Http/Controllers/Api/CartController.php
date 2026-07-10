@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Cart;
 use App\Models\DeliveryAssignment;
+use App\Models\DiscountLink;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Payment;
@@ -34,7 +35,7 @@ class CartController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $items = Cart::with('product.shop')->where('buyer_id', $request->user()->id)->get();
+        $items = Cart::with(['product.shop', 'discountLink'])->where('buyer_id', $request->user()->id)->get();
         return response()->json(['items' => $items]);
     }
 
@@ -44,6 +45,44 @@ class CartController extends Controller
         $data = $request->validate(['quantity' => ['required', 'integer', 'min:1']]);
         $item = Cart::updateOrCreate(['buyer_id' => $request->user()->id, 'product_id' => $product->id], ['quantity' => $data['quantity']]);
         return response()->json(['item' => $item->load('product')], 201);
+    }
+
+    public function showDiscountLink(Request $request, string $token): JsonResponse
+    {
+        $discountLink = DiscountLink::with('product.shop')
+            ->where('token', $token)
+            ->firstOrFail();
+
+        abort_unless($discountLink->buyer_id === $request->user()->id || $discountLink->seller_id === $request->user()->id, 403);
+
+        return response()->json([
+            'discount_link' => $discountLink,
+            'is_valid' => $this->discountLinkIsValid($discountLink),
+        ]);
+    }
+
+    public function addDiscountLink(Request $request, string $token): JsonResponse
+    {
+        abort_unless($request->user()->role === 'buyer', 403, 'Only buyers can add discount links to cart.');
+        $data = $request->validate(['quantity' => ['nullable', 'integer', 'min:1']]);
+        $discountLink = DiscountLink::with('product')
+            ->where('token', $token)
+            ->firstOrFail();
+
+        abort_unless($discountLink->buyer_id === $request->user()->id, 403, 'This discount link belongs to another buyer.');
+        abort_unless($this->discountLinkIsValid($discountLink), 422, 'This discount link is expired or already used.');
+        abort_unless($discountLink->product->is_active && $discountLink->product->stock > 0, 422, 'This product is no longer available.');
+
+        $item = Cart::updateOrCreate(
+            ['buyer_id' => $request->user()->id, 'product_id' => $discountLink->product_id],
+            [
+                'discount_link_id' => $discountLink->id,
+                'quantity' => $data['quantity'] ?? 1,
+                'unit_price_override' => $discountLink->discount_price,
+            ],
+        );
+
+        return response()->json(['item' => $item->load(['product.shop', 'discountLink'])], 201);
     }
 
     public function remove(Request $request, Product $product): JsonResponse
@@ -58,12 +97,12 @@ class CartController extends Controller
         abort_unless($request->user()->role === 'buyer', 403);
         abort_unless($request->user()->phone_verified_at, 422, 'Verify your phone before payment.');
         $data = $request->validate(['delivery_address' => ['nullable', 'string', 'max:255'], 'phone' => ['nullable', 'string', 'max:30']]);
-        $items = Cart::with('product.shop')->where('buyer_id', $request->user()->id)->get();
+        $items = Cart::with(['product.shop', 'discountLink'])->where('buyer_id', $request->user()->id)->get();
         abort_if($items->isEmpty(), 422, 'Cart is empty.');
 
         $order = DB::transaction(function () use ($request, $items, $data) {
             $first = $items->first()->product;
-            $subtotal = $items->sum(fn ($item) => ($item->product->discount_price ?? $item->product->price) * $item->quantity);
+            $subtotal = $items->sum(fn ($item) => $this->cartUnitPrice($item) * $item->quantity);
             $delivery = $items->sum(fn ($item) => $item->product->delivery_price * $item->quantity);
             $code = $this->deliveryCode();
             $order = Order::create([
@@ -79,7 +118,7 @@ class CartController extends Controller
                 'delivery_code_demo' => $code,
             ]);
             foreach ($items as $item) {
-                $unit = $item->product->discount_price ?? $item->product->price;
+                $unit = $this->cartUnitPrice($item);
                 OrderItem::create([
                     'order_id' => $order->id,
                     'product_id' => $item->product_id,
@@ -90,6 +129,7 @@ class CartController extends Controller
                     'line_total' => ($unit + $item->product->delivery_price) * $item->quantity,
                 ]);
             }
+            DiscountLink::whereIn('id', $items->pluck('discount_link_id')->filter()->all())->update(['used_at' => now()]);
             $assignment = DeliveryAssignment::create(['order_id' => $order->id]);
             Cart::where('buyer_id', $request->user()->id)->delete();
             $order->setAttribute('plain_delivery_code', $code);
@@ -129,5 +169,20 @@ class CartController extends Controller
             'delivery_code_demo' => $deliveryCode,
             'message' => 'Keep this buyer delivery code. Share it only after receiving the order to release seller and delivery payments.',
         ], 201);
+    }
+
+    private function cartUnitPrice(Cart $item): float
+    {
+        if ($item->unit_price_override !== null && $item->discountLink && $this->discountLinkIsValid($item->discountLink)) {
+            return (float) $item->unit_price_override;
+        }
+
+        return (float) ($item->product->discount_price ?? $item->product->price);
+    }
+
+    private function discountLinkIsValid(DiscountLink $discountLink): bool
+    {
+        return $discountLink->used_at === null
+            && ($discountLink->expires_at === null || $discountLink->expires_at->isFuture());
     }
 }

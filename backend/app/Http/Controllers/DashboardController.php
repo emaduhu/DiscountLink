@@ -125,6 +125,56 @@ class DashboardController extends Controller
         return redirect()->route('dashboard')->with('status', $user->is_active ? 'User unblocked.' : 'User blocked.');
     }
 
+    public function toggleProduct(Product $product): RedirectResponse
+    {
+        $this->authorizeAdmin();
+
+        $product->update(['is_active' => ! $product->is_active]);
+
+        return redirect()->route('dashboard')->with('status', $product->is_active ? 'Product unblocked.' : 'Product blocked.');
+    }
+
+    public function updateCategories(Request $request): RedirectResponse
+    {
+        $this->authorizeAdmin();
+
+        $data = $request->validate([
+            'shop_categories' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $categories = collect(preg_split('/[\r\n,]+/', $data['shop_categories']) ?: [])
+            ->map(fn (string $category) => trim($category))
+            ->filter()
+            ->unique()
+            ->values();
+
+        abort_if($categories->isEmpty(), 422, 'Add at least one category.');
+
+        AppSetting::put('shop_categories', $categories->implode("\n"));
+
+        return redirect()->route('dashboard')->with('status', 'Shop categories updated.');
+    }
+
+    public function updateAppVersion(Request $request): RedirectResponse
+    {
+        $this->authorizeAdmin();
+
+        $data = $request->validate([
+            'app_latest_version' => ['required', 'string', 'max:30'],
+            'app_minimum_version' => ['required', 'string', 'max:30'],
+            'app_latest_build' => ['required', 'integer', 'min:1'],
+            'app_minimum_build' => ['required', 'integer', 'min:1'],
+            'app_update_url' => ['nullable', 'url', 'max:500'],
+            'app_update_message' => ['nullable', 'string', 'max:300'],
+        ]);
+
+        foreach ($data as $key => $value) {
+            AppSetting::put($key, (string) $value);
+        }
+
+        return redirect()->route('dashboard')->with('status', 'App update settings saved.');
+    }
+
     public function updateOtpSettings(Request $request): RedirectResponse
     {
         $this->authorizeAdmin();
@@ -136,7 +186,6 @@ class DashboardController extends Controller
             'infobip_sender_id' => ['nullable', 'string', 'max:80'],
             'infobip_base_url' => ['nullable', 'url', 'max:255'],
             'firebase_project_id' => ['nullable', 'string', 'max:120'],
-            'shop_categories' => ['nullable', 'string', 'max:2000'],
         ]);
 
         foreach ($data as $key => $value) {
@@ -167,6 +216,7 @@ class DashboardController extends Controller
             'deliveries' => DeliveryAssignment::with('order', 'deliverer')->latest()->limit(25)->get(),
             'payments' => Payment::with('order')->latest()->limit(25)->get(),
             'users' => User::whereIn('role', ['buyer', 'seller', 'deliverer'])->latest()->limit(50)->get(),
+            'products' => Product::with(['shop', 'seller'])->latest()->limit(100)->get(),
             'notifications' => NotificationBroadcast::latest()->limit(10)->get(),
             'settings' => [
                 'otp_provider' => AppSetting::get('otp_provider', config('services.otp.provider', 'beem')),
@@ -175,8 +225,14 @@ class DashboardController extends Controller
                 'infobip_sender_id' => AppSetting::get('infobip_sender_id', config('services.infobip.sender_id')),
                 'infobip_base_url' => AppSetting::get('infobip_base_url', config('services.infobip.base_url')),
                 'firebase_project_id' => AppSetting::get('firebase_project_id', config('services.firebase.project_id')),
-                'shop_categories' => AppSetting::get('shop_categories', "Electronics\nFashion\nGroceries\nBooks\nArt\nHome\nOther"),
+                'app_latest_version' => AppSetting::get('app_latest_version', '1.0.0'),
+                'app_minimum_version' => AppSetting::get('app_minimum_version', '1.0.0'),
+                'app_latest_build' => AppSetting::get('app_latest_build', '1'),
+                'app_minimum_build' => AppSetting::get('app_minimum_build', '1'),
+                'app_update_url' => AppSetting::get('app_update_url', ''),
+                'app_update_message' => AppSetting::get('app_update_message', 'A new DiscountLink update is available.'),
             ],
+            'shopCategories' => AppSetting::get('shop_categories', "Electronics\nFashion\nGroceries\nBooks\nArt\nHome\nOther"),
         ]);
     }
 

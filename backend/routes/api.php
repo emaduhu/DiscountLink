@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\AppVersionController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\DeliveryController;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\Route;
 Route::post('/auth/google', [AuthController::class, 'google']);
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
+Route::get('/app-version', AppVersionController::class);
 Route::post('/webhooks/clickpesa', [PaymentWebhookController::class, 'clickpesa'])->name('api.clickpesa.callback');
 
 Route::middleware(AuthenticateApiToken::class)->group(function () {
@@ -25,6 +27,8 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
     Route::post('/otp/request', [AuthController::class, 'requestOtp']);
     Route::get('/otp/provider', [AuthController::class, 'otpProvider']);
     Route::post('/otp/verify', [AuthController::class, 'verifyOtp']);
+    Route::get('/discount-links/{token}', [CartController::class, 'showDiscountLink']);
+    Route::post('/discount-links/{token}/cart', [CartController::class, 'addDiscountLink']);
 
     Route::get('/shop-categories', [ShopController::class, 'categories']);
 
@@ -56,4 +60,5 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
     Route::post('/conversations', [ChatController::class, 'start']);
     Route::get('/conversations/{conversation}/messages', [ChatController::class, 'messages']);
     Route::post('/conversations/{conversation}/messages', [ChatController::class, 'send']);
+    Route::post('/conversations/{conversation}/discount-links', [ChatController::class, 'createDiscountLink']);
 });
