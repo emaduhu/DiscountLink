@@ -4,11 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppSetting;
+use App\Models\DelivererInvitation;
 use App\Models\Product;
 use App\Models\Shop;
+use App\Services\OtpProviderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class ShopController extends Controller
@@ -58,7 +61,57 @@ class ShopController extends Controller
                 ])
                 ->latest()
                 ->get(),
+            'deliverer_invitations' => DelivererInvitation::where('seller_id', $request->user()->id)
+                ->latest()
+                ->limit(20)
+                ->get(),
         ]);
+    }
+
+    public function inviteDeliverer(Request $request, OtpProviderService $otp): JsonResponse
+    {
+        abort_unless($request->user()->role === 'seller', 403, 'Only sellers can invite deliverers.');
+
+        $data = $request->validate([
+            'name' => ['nullable', 'string', 'max:160'],
+            'phone' => ['required', 'string', 'max:30'],
+        ]);
+
+        $phone = preg_replace('/[\s-]+/', '', $data['phone']);
+        abort_if($phone === '', 422, 'Enter the deliverer phone number.');
+        $name = trim($data['name'] ?? '') ?: null;
+        $playStoreUrl = config('services.discountlink.play_store_url');
+        $appStoreUrl = config('services.discountlink.app_store_url');
+        $sellerName = $request->user()->name ?: 'A DiscountLink seller';
+        $message = "{$sellerName} invited you to join Vigour Deals as a deliverer. Download the app: Android {$playStoreUrl} iPhone {$appStoreUrl}. Register as Deliverer and get ready for operations.";
+        $sent = false;
+        $providerReference = null;
+
+        try {
+            $providerReference = $otp->sendMessage($phone, $message);
+            $sent = true;
+        } catch (\Throwable $error) {
+            Log::warning('DiscountLink deliverer invite could not be sent.', [
+                'seller_id' => $request->user()->id,
+                'phone' => $phone,
+                'error' => $error->getMessage(),
+            ]);
+        }
+
+        $invitation = DelivererInvitation::create([
+            'seller_id' => $request->user()->id,
+            'name' => $name,
+            'phone' => $phone,
+            'message' => $message,
+            'provider_reference' => $providerReference,
+            'sent_at' => $sent ? now() : null,
+        ]);
+
+        return response()->json([
+            'message' => $sent ? 'Deliverer invitation sent.' : 'Deliverer saved, but the invite message could not be sent.',
+            'sent' => $sent,
+            'invitation' => $invitation,
+        ], $sent ? 201 : 202);
     }
 
     public function update(Request $request, Shop $shop): JsonResponse

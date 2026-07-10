@@ -2309,11 +2309,14 @@ class _SellerPageState extends State<SellerPage> {
   final discount = TextEditingController();
   final delivery = TextEditingController();
   final stock = TextEditingController(text: '10');
+  final delivererName = TextEditingController();
+  final delivererPhone = TextEditingController();
   final selectedCategories = <String>{'Electronics'};
   List<String> shopCategories = defaultShopCategories;
   final picker = ImagePicker();
   List<XFile> selectedProductImages = [];
   List shops = [];
+  List delivererInvitations = [];
   int? selectedShopId;
   int? editingShopId;
   int? editingProductId;
@@ -2321,6 +2324,7 @@ class _SellerPageState extends State<SellerPage> {
   _ProductEditDraft? productDraft;
   List<XFile> replacementProductImages = [];
   bool loadingShops = true;
+  bool invitingDeliverer = false;
 
   @override
   void initState() {
@@ -2353,6 +2357,7 @@ class _SellerPageState extends State<SellerPage> {
       if (!mounted) return;
       setState(() {
         shops = r['shops'] as List;
+        delivererInvitations = (r['deliverer_invitations'] as List?) ?? [];
         if (shops.isNotEmpty) selectedShopId ??= shops.first['id'] as int;
       });
     } catch (error) {
@@ -2492,6 +2497,32 @@ class _SellerPageState extends State<SellerPage> {
     }
   }
 
+  Future<void> inviteDeliverer() async {
+    if (delivererPhone.text.trim().isEmpty) {
+      showError(context, Exception('Enter the deliverer phone number.'));
+      return;
+    }
+
+    setState(() => invitingDeliverer = true);
+    try {
+      final r = await widget.client.post('/seller/deliverer-invitations', {
+        'name': delivererName.text.trim(),
+        'phone': delivererPhone.text.trim(),
+      });
+      delivererName.clear();
+      delivererPhone.clear();
+      await load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${r['message'] ?? 'Deliverer invited.'}')),
+      );
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => invitingDeliverer = false);
+    }
+  }
+
   @override
   void dispose() {
     shopName.dispose();
@@ -2502,6 +2533,8 @@ class _SellerPageState extends State<SellerPage> {
     discount.dispose();
     delivery.dispose();
     stock.dispose();
+    delivererName.dispose();
+    delivererPhone.dispose();
     shopDraft?.dispose();
     productDraft?.dispose();
     super.dispose();
@@ -2555,6 +2588,94 @@ class _SellerPageState extends State<SellerPage> {
                 icon: const Icon(Icons.add_business),
                 label: const Text('Save shop'),
               ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        SurfacePanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SectionTitle(title: 'Add deliverer'),
+              const SizedBox(height: 12),
+              Field(
+                controller: delivererName,
+                label: 'Deliverer name',
+                icon: Icons.badge_outlined,
+              ),
+              Field(
+                controller: delivererPhone,
+                label: 'Deliverer phone',
+                icon: Icons.phone_outlined,
+                keyboard: TextInputType.phone,
+              ),
+              FilledButton.icon(
+                onPressed: invitingDeliverer ? null : inviteDeliverer,
+                icon: const Icon(Icons.delivery_dining_outlined),
+                label: Text(
+                  invitingDeliverer ? 'Sending invite...' : 'Invite deliverer',
+                ),
+              ),
+              if (delivererInvitations.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Text(
+                  'Recent invites',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                for (final invite in delivererInvitations.take(4))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: kPrimaryLightColor,
+                          child: Icon(
+                            invite['sent_at'] == null
+                                ? Icons.schedule_send_outlined
+                                : Icons.mark_chat_read_outlined,
+                            color: kPrimaryColor,
+                            size: 18,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${invite['name'] ?? 'Deliverer'}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Text(
+                                '${invite['phone']}',
+                                style: const TextStyle(
+                                  color: kTextColor,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          invite['sent_at'] == null ? 'Saved' : 'Sent',
+                          style: TextStyle(
+                            color: invite['sent_at'] == null
+                                ? Colors.orange.shade800
+                                : Colors.green.shade700,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ],
           ),
         ),

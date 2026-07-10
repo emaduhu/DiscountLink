@@ -77,6 +77,8 @@ return [
         'admin_password' => env('DISCOUNTLINK_ADMIN_PASSWORD'),
         'token_days' => env('DISCOUNTLINK_TOKEN_DAYS', 90),
         'show_verification_codes' => env('DISCOUNTLINK_SHOW_VERIFICATION_CODES', false),
+        'play_store_url' => env('DISCOUNTLINK_PLAY_STORE_URL', 'https://play.google.com/store/apps/details?id=net.vigourtech.dl'),
+        'app_store_url' => env('DISCOUNTLINK_APP_STORE_URL', 'https://apps.apple.com/search?term=Vigour%20Deals'),
     ],
 
 ];

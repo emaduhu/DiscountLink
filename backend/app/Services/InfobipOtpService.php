@@ -10,8 +10,13 @@ class InfobipOtpService
 {
     public function send(string $phone, string $code): ?string
     {
+        return $this->sendMessage($phone, "Your DiscountLink verification code is {$code}.");
+    }
+
+    public function sendMessage(string $phone, string $message): ?string
+    {
         if (!config('services.infobip.api_key') || app()->environment('local')) {
-            Log::info('DiscountLink Infobip OTP', ['phone' => $phone, 'code' => $code]);
+            Log::info('DiscountLink Infobip SMS', ['phone' => $phone, 'message' => $message]);
             return 'local-infobip-log';
         }
 
@@ -26,7 +31,7 @@ class InfobipOtpService
                 'messages' => [[
                     'from' => $senderId,
                     'destinations' => [['to' => $phone]],
-                    'text' => "Your DiscountLink verification code is {$code}.",
+                    'text' => $message,
                 ]],
             ]);
 

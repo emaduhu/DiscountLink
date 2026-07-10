@@ -10,8 +10,13 @@ class BeemOtpService
 {
     public function send(string $phone, string $code): ?string
     {
+        return $this->sendMessage($phone, "Your DiscountLink verification code is {$code}.");
+    }
+
+    public function sendMessage(string $phone, string $message): ?string
+    {
         if (!config('services.beem.api_key') || app()->environment('local')) {
-            Log::info('DiscountLink OTP', ['phone' => $phone, 'code' => $code]);
+            Log::info('DiscountLink SMS', ['phone' => $phone, 'message' => $message]);
             return 'local-log';
         }
 
@@ -24,7 +29,7 @@ class BeemOtpService
                 'source_addr' => $senderId,
                 'encoding' => 0,
                 'schedule_time' => '',
-                'message' => "Your DiscountLink verification code is {$code}.",
+                'message' => $message,
                 'recipients' => [['recipient_id' => 1, 'dest_addr' => $phone]],
             ]);
 

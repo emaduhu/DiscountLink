@@ -26,6 +26,14 @@ class OtpProviderService
         };
     }
 
+    public function sendMessage(string $phone, string $message): ?string
+    {
+        return match ($this->activeProvider()) {
+            'infobip' => $this->infobip->sendMessage($phone, $message),
+            default => $this->beem->sendMessage($phone, $message),
+        };
+    }
+
     public function shouldCreateBackendOtp(): bool
     {
         return $this->activeProvider() !== 'firebase';

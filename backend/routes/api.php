@@ -36,6 +36,7 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
 
     Route::post('/shops', [ShopController::class, 'store']);
     Route::get('/seller/shops', [ShopController::class, 'mine']);
+    Route::post('/seller/deliverer-invitations', [ShopController::class, 'inviteDeliverer']);
     Route::put('/shops/{shop}', [ShopController::class, 'update']);
     Route::post('/shops/{shop}/products', [ShopController::class, 'product']);
     Route::post('/products/{product}', [ShopController::class, 'updateProduct']);
