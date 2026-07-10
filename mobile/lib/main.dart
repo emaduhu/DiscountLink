@@ -13,8 +13,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:in_app_update/in_app_update.dart';
 import 'package:intl/intl.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'firebase_options.dart';
@@ -142,88 +142,6 @@ String googleSignInErrorMessage(GoogleSignInException error) {
   return error.description ?? 'Google sign-in failed. Please try again.';
 }
 
-int compareVersions(String left, String right) {
-  final a = left
-      .split('+')
-      .first
-      .split('.')
-      .map((part) => int.tryParse(part) ?? 0)
-      .toList();
-  final b = right
-      .split('+')
-      .first
-      .split('.')
-      .map((part) => int.tryParse(part) ?? 0)
-      .toList();
-  final length = a.length > b.length ? a.length : b.length;
-  for (var i = 0; i < length; i++) {
-    final av = i < a.length ? a[i] : 0;
-    final bv = i < b.length ? b[i] : 0;
-    if (av != bv) return av.compareTo(bv);
-  }
-  return 0;
-}
-
-Future<void> showAppUpdateDialog({
-  required BuildContext context,
-  required bool forceUpdate,
-  required String currentVersion,
-  required String latestVersion,
-  required String message,
-  required String updateUrl,
-}) async {
-  final hasUpdateUrl = updateUrl.trim().isNotEmpty;
-  final blocksApp = forceUpdate && hasUpdateUrl;
-  await showDialog<void>(
-    context: context,
-    barrierDismissible: !blocksApp,
-    builder: (context) => PopScope(
-      canPop: !blocksApp,
-      child: AlertDialog(
-        title: Text(forceUpdate ? 'Update required' : 'Update available'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(message),
-            const SizedBox(height: 12),
-            Text(
-              'Installed: $currentVersion',
-              style: const TextStyle(color: kTextColor, fontSize: 12),
-            ),
-            Text(
-              'Latest: $latestVersion',
-              style: const TextStyle(color: kTextColor, fontSize: 12),
-            ),
-          ],
-        ),
-        actions: [
-          if (!blocksApp)
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(hasUpdateUrl ? 'Later' : 'OK'),
-            ),
-          FilledButton.icon(
-            onPressed: !hasUpdateUrl
-                ? null
-                : () async {
-                    final uri = Uri.parse(updateUrl.trim());
-                    if (await canLaunchUrl(uri)) {
-                      await launchUrl(
-                        uri,
-                        mode: LaunchMode.externalApplication,
-                      );
-                    }
-                  },
-            icon: const Icon(Icons.system_update_alt),
-            label: const Text('Update'),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
 class DiscountLinkApp extends StatefulWidget {
   const DiscountLinkApp({super.key});
   @override
@@ -277,34 +195,27 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   Future<void> checkForAppUpdate() async {
     if (updateChecked || !mounted) return;
     updateChecked = true;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
 
     try {
-      final packageInfo = await PackageInfo.fromPlatform();
-      final platform = defaultTargetPlatform.name.toLowerCase();
-      final r = await client.get('/app-version', {'platform': platform});
-      final currentBuild = int.tryParse(packageInfo.buildNumber) ?? 0;
-      final latestBuild = int.tryParse('${r['latest_build']}') ?? currentBuild;
-      final minimumBuild = int.tryParse('${r['minimum_build']}') ?? 0;
-      final latestVersion = '${r['latest_version'] ?? ''}';
-      final minimumVersion = '${r['minimum_version'] ?? ''}';
-      final forceUpdate =
-          currentBuild < minimumBuild ||
-          compareVersions(packageInfo.version, minimumVersion) < 0;
+      final updateInfo = await InAppUpdate.checkForUpdate();
       final updateAvailable =
-          forceUpdate ||
-          currentBuild < latestBuild ||
-          compareVersions(packageInfo.version, latestVersion) < 0;
+          updateInfo.updateAvailability == UpdateAvailability.updateAvailable ||
+          updateInfo.updateAvailability ==
+              UpdateAvailability.developerTriggeredUpdateInProgress;
+      if (!updateAvailable) return;
 
-      if (!updateAvailable || !mounted) return;
+      if (updateInfo.immediateUpdateAllowed) {
+        await InAppUpdate.performImmediateUpdate();
+        return;
+      }
 
-      await showAppUpdateDialog(
-        context: context,
-        forceUpdate: forceUpdate,
-        currentVersion: '${packageInfo.version}+${packageInfo.buildNumber}',
-        latestVersion: latestVersion.isEmpty ? '$latestBuild' : latestVersion,
-        message: '${r['message'] ?? 'A new DiscountLink update is available.'}',
-        updateUrl: '${r['update_url'] ?? ''}',
-      );
+      if (updateInfo.flexibleUpdateAllowed) {
+        final result = await InAppUpdate.startFlexibleUpdate();
+        if (result == AppUpdateResult.success) {
+          await InAppUpdate.completeFlexibleUpdate();
+        }
+      }
     } catch (_) {}
   }
 
