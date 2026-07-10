@@ -1,0 +1,6 @@
+Version 1.0.1
+- Added chat report, block, and unblock controls.
+- Admin can review chat reports and moderate conversations.
+- Blocked chats now stop messages and negotiated discount offers.
+- Updated Play Store feature graphic and listing assets.
+- Improved release signing for Play Store app bundles.

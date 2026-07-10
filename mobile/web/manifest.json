@@ -1,11 +1,11 @@
 {
-    "name": "discountlink",
-    "short_name": "discountlink",
+    "name": "Discount Link",
+    "short_name": "Discount Link",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Discounted products, verified sellers, tracked delivery, and fast checkout.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

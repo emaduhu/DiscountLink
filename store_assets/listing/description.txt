@@ -1,0 +1,21 @@
+Short description (77 chars):
+Verified deals, seller chats, secure checkout, delivery tracking, and offers.
+
+Full description (3982 chars):
+Discount Link is a marketplace built for buyers, sellers, and deliverers who want discounted products, direct negotiation, secure checkout, and tracked delivery in one connected app. Buyers can browse products from verified sellers, compare prices, open a chat from a product page, negotiate a better price, receive a private discount offer link, add the offer to cart, pay securely, and follow delivery progress.
+
+For buyers, Discount Link makes shopping more practical. Product chats stay connected to the item being discussed, so the seller and buyer both know exactly what offer, quantity, and product details are being negotiated. When the seller creates a negotiated offer, the buyer opens it inside the app, sees the original price and the new discount price, adds the offer to cart, and continues to checkout. Active orders can be tracked through delivery, and confirmation codes help complete deliveries properly.
+
+For sellers, Discount Link provides a focused way to run shop operations from a phone. Sellers can create shops, add and manage products, organize products by backend-managed categories, update prices and stock, chat with interested buyers, generate product-specific discount links after negotiation, and invite deliverers to join the operation. A seller can keep the sales discussion, offer, payment, and delivery workflow tied to the same product instead of losing details across calls or unrelated messages.
+
+For deliverers, the app supports operational delivery work. Deliverers can receive an invitation message telling them to download the app, sign in, review available delivery jobs, accept assignments, share delivery progress, update location where supported, and complete orders using buyer confirmation codes.
+
+Discount Link also includes moderation and safety controls. Users can report chats that involve harassment, fraud, spam, unsafe requests, or other concerns. Users can also block and unblock conversations from inside the chat screen. When a chat is blocked, new messages and negotiated discount offers are stopped until the chat is unblocked. Admins can review chat reports, close reports, block or unblock conversations, manage users, manage categories, review products, and block unsafe or unsuitable products from the backend dashboard.
+
+The app is designed for a complete marketplace flow: discover a product, speak with the seller, agree on a price, receive a real discount offer, pay, and track delivery. Sellers get tools for shops, products, offers, and delivery coordination. Buyers get transparent prices and a smoother route from negotiation to checkout. Deliverers get a simple operations path for accepting and completing deliveries. Admins get backend controls to keep categories, products, users, and chats organized.
+
+Discount Link helps reduce confusion in local commerce by keeping the important parts of a sale in one place. Product details, seller identity, negotiated offer price, payment status, and delivery progress are part of the same flow. This is useful for buyers who want confidence before paying, sellers who need a better way to close negotiated deals, and deliverers who need clear jobs with order context.
+
+The marketplace supports real conversations without turning negotiation into a messy manual process. A buyer can ask questions before buying. A seller can respond, agree on a special price, and create an offer that belongs only to that product and buyer conversation. The buyer can then review the offer inside the app instead of opening an external browser link, which keeps checkout cleaner and helps prevent mistakes about which product or price was agreed.
+
+Use Discount Link when you want shopping that includes real seller conversations, product-specific offers, clear checkout, and delivery follow-up. It brings buying, selling, payment, negotiated discounts, chat moderation, product management, category management, seller delivery coordination, and delivery tracking into one workflow.
