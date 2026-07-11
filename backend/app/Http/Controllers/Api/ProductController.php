@@ -55,7 +55,7 @@ class ProductController extends Controller
             ],
             'message' => $matches->isEmpty()
                 ? 'No visually similar products were found.'
-                : $matches->count().' products ranked by visual similarity to the uploaded image.',
+                : $matches->count().' close visual match(es) found for the uploaded image.',
         ]);
     }
 

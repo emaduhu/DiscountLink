@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\Http;
 
 class ProductImageMatcher
 {
+    private const MAX_MATCH_DISTANCE = 0.16;
+
     /**
      * @param  Collection<int, Product>  $products
      * @return Collection<int, Product>
@@ -22,7 +24,7 @@ class ProductImageMatcher
         return $products
             ->map(function (Product $product) use ($query) {
                 $score = $this->bestProductScore($query, $product);
-                if ($score === null) {
+                if ($score === null || $score > self::MAX_MATCH_DISTANCE) {
                     return null;
                 }
                 $product->setAttribute('image_match_score', round($score, 4));
@@ -37,7 +39,7 @@ class ProductImageMatcher
     }
 
     /**
-     * @param  array<int, array{histogram: array<int, float>, gray: array<int, float>, hash: array<int, int>}>  $query
+     * @param  array<int, array{histogram: array<int, float>, gray: array<int, float>, grid: array<int, float>, hash: array<int, int>}>  $query
      */
     private function bestProductScore(array $query, Product $product): ?float
     {
@@ -108,7 +110,7 @@ class ProductImageMatcher
     }
 
     /**
-     * @return array<int, array{histogram: array<int, float>, gray: array<int, float>, hash: array<int, int>}>
+     * @return array<int, array{histogram: array<int, float>, gray: array<int, float>, grid: array<int, float>, hash: array<int, int>}>
      */
     private function fingerprints(string $path): array
     {
@@ -151,7 +153,7 @@ class ProductImageMatcher
     }
 
     /**
-     * @return array{histogram: array<int, float>, gray: array<int, float>, hash: array<int, int>}|null
+     * @return array{histogram: array<int, float>, gray: array<int, float>, grid: array<int, float>, hash: array<int, int>}|null
      */
     private function fingerprintCrop(\GdImage $source, int $srcX, int $srcY, int $srcW, int $srcH): ?array
     {
@@ -171,12 +173,18 @@ class ProductImageMatcher
 
         $histogram = array_fill(0, 64, 0.0);
         $gray = array_fill(0, 16, 0.0);
+        $grid = [];
         for ($y = 0; $y < 16; $y++) {
             for ($x = 0; $x < 16; $x++) {
                 $rgb = imagecolorat($sample, $x, $y);
                 $r = ($rgb >> 16) & 0xff;
                 $g = ($rgb >> 8) & 0xff;
                 $b = $rgb & 0xff;
+                if ($x % 2 === 0 && $y % 2 === 0) {
+                    $grid[] = $r / 255;
+                    $grid[] = $g / 255;
+                    $grid[] = $b / 255;
+                }
                 $index = intdiv($r, 64) * 16 + intdiv($g, 64) * 4 + intdiv($b, 64);
                 $histogram[$index]++;
                 $gray[intdiv($this->grayFromRgb($r, $g, $b), 16)]++;
@@ -209,13 +217,14 @@ class ProductImageMatcher
         return [
             'histogram' => array_map(fn (float $value) => $value / 256, $histogram),
             'gray' => array_map(fn (float $value) => $value / 256, $gray),
+            'grid' => $grid,
             'hash' => $hash,
         ];
     }
 
     /**
-     * @param  array<int, array{histogram: array<int, float>, gray: array<int, float>, hash: array<int, int>}>  $a
-     * @param  array<int, array{histogram: array<int, float>, gray: array<int, float>, hash: array<int, int>}>  $b
+     * @param  array<int, array{histogram: array<int, float>, gray: array<int, float>, grid: array<int, float>, hash: array<int, int>}>  $a
+     * @param  array<int, array{histogram: array<int, float>, gray: array<int, float>, grid: array<int, float>, hash: array<int, int>}>  $b
      */
     private function distance(array $a, array $b): float
     {
@@ -230,8 +239,8 @@ class ProductImageMatcher
     }
 
     /**
-     * @param  array{histogram: array<int, float>, gray: array<int, float>, hash: array<int, int>}  $a
-     * @param  array{histogram: array<int, float>, gray: array<int, float>, hash: array<int, int>}  $b
+     * @param  array{histogram: array<int, float>, gray: array<int, float>, grid: array<int, float>, hash: array<int, int>}  $a
+     * @param  array{histogram: array<int, float>, gray: array<int, float>, grid: array<int, float>, hash: array<int, int>}  $b
      */
     private function featureDistance(array $a, array $b): float
     {
@@ -254,7 +263,14 @@ class ProductImageMatcher
             }
         }
 
-        return ($histogramDistance * 0.35) + ($grayDistance * 0.2) + (($hashDistance / 64) * 0.45);
+        $gridDistance = 0.0;
+        $gridCount = min(count($a['grid']), count($b['grid']));
+        for ($i = 0; $i < $gridCount; $i++) {
+            $gridDistance += abs($a['grid'][$i] - $b['grid'][$i]);
+        }
+        $gridDistance = $gridCount > 0 ? $gridDistance / $gridCount : 1.0;
+
+        return ($histogramDistance * 0.2) + ($grayDistance * 0.1) + ($gridDistance * 0.35) + (($hashDistance / 64) * 0.35);
     }
 
     private function grayAt(\GdImage $image, int $x, int $y): int
