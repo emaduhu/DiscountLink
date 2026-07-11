@@ -123,20 +123,18 @@ class AuthController extends Controller
             ],
         );
 
-        try {
-            Mail::raw("Your DiscountLink password reset code is {$code}. It expires in 15 minutes.", function ($message) use ($user) {
-                $message->to($user->email, $user->name)->subject('DiscountLink password reset code');
-            });
-        } catch (\Throwable $error) {
-            Log::warning('DiscountLink password reset code could not be sent.', [
-                'user_id' => $user->id,
-                'email' => $user->email,
-                'error' => $error->getMessage(),
-            ]);
-        }
+        $emailSent = $this->sendRawEmail(
+            $user,
+            'DiscountLink password reset code',
+            "Your DiscountLink password reset code is {$code}. It expires in 15 minutes.",
+            'DiscountLink password reset code could not be sent.',
+        );
 
         return response()->json([
-            'message' => 'If this email is registered, a password reset code has been sent.',
+            'message' => $emailSent
+                ? 'If this email is registered, a password reset code has been sent.'
+                : 'Password reset code was created, but the email could not be sent. Contact support or try again shortly.',
+            'reset_email_sent' => $emailSent,
             'reset_code' => $this->exposedVerificationCode($code),
         ]);
     }
@@ -383,21 +381,14 @@ class AuthController extends Controller
             'expires_at' => now()->addMinutes(15),
         ]);
 
-        try {
-            Mail::raw("Your DiscountLink email verification code is {$code}. It expires in 15 minutes.", function ($message) use ($user) {
-                $message->to($user->email, $user->name)->subject('DiscountLink email verification code');
-            });
+        $sent = $this->sendRawEmail(
+            $user,
+            'DiscountLink email verification code',
+            "Your DiscountLink email verification code is {$code}. It expires in 15 minutes.",
+            'DiscountLink email OTP could not be sent.',
+        );
 
-            return ['sent' => true, 'code' => $exposedCode];
-        } catch (\Throwable $error) {
-            Log::warning('DiscountLink email OTP could not be sent.', [
-                'user_id' => $user->id,
-                'email' => $user->email,
-                'error' => $error->getMessage(),
-            ]);
-
-            return ['sent' => false, 'code' => $exposedCode];
-        }
+        return ['sent' => $sent, 'code' => $exposedCode];
     }
 
     /**
@@ -453,5 +444,38 @@ class AuthController extends Controller
     private function normalizeVerificationCode(string $code): string
     {
         return preg_replace('/\D+/', '', $code) ?? '';
+    }
+
+    private function sendRawEmail(User $user, string $subject, string $body, string $failureMessage): bool
+    {
+        try {
+            Mail::mailer($this->mailMailer())->raw($body, function ($message) use ($user, $subject) {
+                $message->to($user->email, $user->name)->subject($subject);
+            });
+
+            return true;
+        } catch (\Throwable $error) {
+            Log::warning($failureMessage, [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'mailer' => $this->mailMailer(),
+                'error' => $error->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    private function mailMailer(): string
+    {
+        $defaultMailer = (string) config('mail.default', 'log');
+        $smtpHost = (string) config('mail.mailers.smtp.host', '');
+        $smtpUsername = (string) config('mail.mailers.smtp.username', '');
+
+        if (in_array($defaultMailer, ['sendmail', 'log', 'array'], true) && $smtpHost !== '' && $smtpUsername !== '') {
+            return 'smtp';
+        }
+
+        return $defaultMailer;
     }
 }
