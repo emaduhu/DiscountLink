@@ -12,11 +12,11 @@ use App\Services\GoogleAuthService;
 use App\Services\OtpProviderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
@@ -82,10 +82,10 @@ class AuthController extends Controller
             ->orWhere('phone', $identifier)
             ->first();
 
-        abort_if(!$user || !$user->password || !Hash::check($data['password'], $user->password), 422, 'Invalid login credentials.');
+        abort_if(! $user || ! $user->password || ! Hash::check($data['password'], $user->password), 422, 'Invalid login credentials.');
         abort_unless($user->is_active, 403, 'Your account is blocked.');
 
-        if (!empty($data['fcm_token'])) {
+        if (! empty($data['fcm_token'])) {
             $user->update(['fcm_token' => $data['fcm_token']]);
         }
 
@@ -99,11 +99,15 @@ class AuthController extends Controller
 
     public function requestPasswordReset(Request $request): JsonResponse
     {
+        $request->merge([
+            'email' => $this->normalizeEmail((string) $request->input('email', '')),
+        ]);
+
         $data = $request->validate([
             'email' => ['required', 'email', 'max:190'],
         ]);
 
-        $user = User::where('email', $data['email'])->first();
+        $user = $this->findUserByEmail($data['email']);
         if (! $user) {
             return response()->json([
                 'message' => 'If this email is registered, a password reset code has been sent.',
@@ -139,14 +143,21 @@ class AuthController extends Controller
 
     public function resetPassword(Request $request): JsonResponse
     {
+        $request->merge([
+            'email' => $this->normalizeEmail((string) $request->input('email', '')),
+            'code' => $this->normalizeVerificationCode((string) $request->input('code', '')),
+        ]);
+
         $data = $request->validate([
             'email' => ['required', 'email', 'max:190'],
             'code' => ['required', 'string', 'size:6'],
             'password' => ['required', 'string', 'min:6', 'max:120', 'confirmed'],
         ]);
 
-        $user = User::where('email', $data['email'])->first();
-        $reset = DB::table('password_reset_tokens')->where('email', $data['email'])->first();
+        $user = $this->findUserByEmail($data['email']);
+        $reset = $user
+            ? DB::table('password_reset_tokens')->where('email', $user->email)->first()
+            : null;
 
         abort_if(
             ! $user ||
@@ -191,7 +202,7 @@ class AuthController extends Controller
         $user = User::where('email', $email)->first();
         $isNewUser = ! $user;
         abort_if(
-            !$user && (empty($data['full_name']) || empty($data['phone']) || empty($data['nida_number']) || empty($data['address'])),
+            ! $user && (empty($data['full_name']) || empty($data['phone']) || empty($data['nida_number']) || empty($data['address'])),
             422,
             'Complete registration with your name, phone, NIDA number, and address before using social sign-in.'
         );
@@ -206,24 +217,24 @@ class AuthController extends Controller
         if (! $user) {
             $attributes['role'] = $data['role'];
         }
-        if (!empty($data['full_name'])) {
+        if (! empty($data['full_name'])) {
             $attributes['name'] = $data['full_name'];
         }
-        if (!empty($data['phone'])) {
+        if (! empty($data['phone'])) {
             $existingPhone = User::where('phone', $data['phone'])
                 ->when($user, fn ($query) => $query->where('id', '!=', $user->id))
                 ->exists();
             abort_if($existingPhone, 422, 'The phone number has already been registered.');
             $attributes['phone'] = $data['phone'];
         }
-        if (!empty($data['nida_number'])) {
+        if (! empty($data['nida_number'])) {
             $existingNida = User::where('nida_number', $data['nida_number'])
                 ->when($user, fn ($query) => $query->where('id', '!=', $user->id))
                 ->exists();
             abort_if($existingNida, 422, 'The NIDA number has already been registered.');
             $attributes['nida_number'] = $data['nida_number'];
         }
-        if (!empty($data['address'])) {
+        if (! empty($data['address'])) {
             $attributes['address'] = $data['address'];
         }
 
@@ -260,7 +271,7 @@ class AuthController extends Controller
         $data = $request->validate(['code' => ['required', 'string', 'size:6']]);
         $user = $request->user();
         $otp = EmailOtp::where('user_id', $user->id)->where('email', $user->email)->latest()->first();
-        abort_if(!$otp || $otp->expires_at->isPast() || !Hash::check($data['code'], $otp->code_hash), 422, 'Invalid or expired email code.');
+        abort_if(! $otp || $otp->expires_at->isPast() || ! Hash::check($data['code'], $otp->code_hash), 422, 'Invalid or expired email code.');
 
         $otp->update(['verified_at' => now()]);
         $user->update(['email_verified_at' => now()]);
@@ -276,7 +287,7 @@ class AuthController extends Controller
     public function requestOtp(Request $request, OtpProviderService $otp): JsonResponse
     {
         $data = $request->validate(['phone' => ['required', 'string', 'max:30']]);
-        if (!$otp->shouldCreateBackendOtp()) {
+        if (! $otp->shouldCreateBackendOtp()) {
             return response()->json([
                 'message' => 'Use Firebase phone authentication.',
                 'provider' => 'firebase',
@@ -320,7 +331,7 @@ class AuthController extends Controller
         }
 
         $otp = PhoneOtp::where('user_id', $request->user()->id)->where('phone', $data['phone'])->latest()->first();
-        abort_if(!$otp || $otp->expires_at->isPast() || !Hash::check($data['code'], $otp->code_hash), 422, 'Invalid or expired OTP.');
+        abort_if(! $otp || $otp->expires_at->isPast() || ! Hash::check($data['code'], $otp->code_hash), 422, 'Invalid or expired OTP.');
 
         $otp->update(['verified_at' => now()]);
         $request->user()->update(['phone' => $data['phone'], 'phone_verified_at' => now()]);
@@ -350,6 +361,7 @@ class AuthController extends Controller
     {
         $data = $request->validate(['fcm_token' => ['required', 'string', 'max:255']]);
         $request->user()->update($data);
+
         return response()->json(['message' => 'FCM token updated.']);
     }
 
@@ -426,5 +438,20 @@ class AuthController extends Controller
     private function exposedVerificationCode(string $code): ?string
     {
         return (bool) config('services.discountlink.show_verification_codes') ? $code : null;
+    }
+
+    private function findUserByEmail(string $email): ?User
+    {
+        return User::whereRaw('LOWER(email) = ?', [$this->normalizeEmail($email)])->first();
+    }
+
+    private function normalizeEmail(string $email): string
+    {
+        return strtolower(trim($email));
+    }
+
+    private function normalizeVerificationCode(string $code): string
+    {
+        return preg_replace('/\D+/', '', $code) ?? '';
     }
 }
