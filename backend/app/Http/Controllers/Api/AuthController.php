@@ -15,6 +15,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
@@ -93,6 +95,73 @@ class AuthController extends Controller
             'email_verified' => (bool) $user->email_verified_at,
             'phone_verified' => (bool) $user->phone_verified_at,
         ]);
+    }
+
+    public function requestPasswordReset(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'email' => ['required', 'email', 'max:190'],
+        ]);
+
+        $user = User::where('email', $data['email'])->first();
+        if (! $user) {
+            return response()->json([
+                'message' => 'If this email is registered, a password reset code has been sent.',
+            ]);
+        }
+
+        $code = (string) random_int(100000, 999999);
+        DB::table('password_reset_tokens')->updateOrInsert(
+            ['email' => $user->email],
+            [
+                'token' => Hash::make($code),
+                'created_at' => now(),
+            ],
+        );
+
+        try {
+            Mail::raw("Your DiscountLink password reset code is {$code}. It expires in 15 minutes.", function ($message) use ($user) {
+                $message->to($user->email, $user->name)->subject('DiscountLink password reset code');
+            });
+        } catch (\Throwable $error) {
+            Log::warning('DiscountLink password reset code could not be sent.', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'error' => $error->getMessage(),
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'If this email is registered, a password reset code has been sent.',
+            'reset_code' => $this->exposedVerificationCode($code),
+        ]);
+    }
+
+    public function resetPassword(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'email' => ['required', 'email', 'max:190'],
+            'code' => ['required', 'string', 'size:6'],
+            'password' => ['required', 'string', 'min:6', 'max:120', 'confirmed'],
+        ]);
+
+        $user = User::where('email', $data['email'])->first();
+        $reset = DB::table('password_reset_tokens')->where('email', $data['email'])->first();
+
+        abort_if(
+            ! $user ||
+            ! $reset ||
+            ! $reset->created_at ||
+            Carbon::parse($reset->created_at)->addMinutes(15)->isPast() ||
+            ! Hash::check($data['code'], $reset->token),
+            422,
+            'Invalid or expired password reset code.',
+        );
+
+        $user->update(['password' => $data['password']]);
+        DB::table('password_reset_tokens')->where('email', $user->email)->delete();
+
+        return response()->json(['message' => 'Password reset successful. You can now sign in.']);
     }
 
     public function google(Request $request, GoogleAuthService $google, FirebasePhoneAuthService $firebase, ApiTokenService $tokens, OtpProviderService $otp): JsonResponse

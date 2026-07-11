@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Route;
 Route::post('/auth/google', [AuthController::class, 'google']);
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/auth/password/forgot', [AuthController::class, 'requestPasswordReset']);
+Route::post('/auth/password/reset', [AuthController::class, 'resetPassword']);
 Route::post('/webhooks/clickpesa', [PaymentWebhookController::class, 'clickpesa'])->name('api.clickpesa.callback');
 
 Route::middleware(AuthenticateApiToken::class)->group(function () {
