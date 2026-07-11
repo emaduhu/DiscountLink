@@ -152,6 +152,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   final client = ApiClient(apiBaseUrl);
   Map<String, dynamic>? user;
   bool showSplash = true;
+  StreamSubscription<String>? fcmTokenSubscription;
 
   void signedIn(String token, Map<String, dynamic> signedUser) {
     setState(() {
@@ -168,6 +169,16 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
       if (token != null) {
         await client.post('/me/fcm-token', {'fcm_token': token});
       }
+      fcmTokenSubscription ??= FirebaseMessaging.instance.onTokenRefresh.listen(
+        (token) async {
+          if (client.token == null) {
+            return;
+          }
+          try {
+            await client.post('/me/fcm-token', {'fcm_token': token});
+          } catch (_) {}
+        },
+      );
     } catch (_) {}
   }
 
@@ -183,6 +194,12 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
       user = null;
       showSplash = false;
     });
+  }
+
+  @override
+  void dispose() {
+    fcmTokenSubscription?.cancel();
+    super.dispose();
   }
 
   @override

@@ -96,11 +96,10 @@ class DashboardController extends Controller
 
         $sent = 0;
         foreach ($users as $user) {
-            $fcm->sendToUser($user, $data['title'], $data['body'], [
+            if ($fcm->sendToUser($user, $data['title'], $data['body'], [
                 'type' => $data['type'],
                 'target_role' => $data['target_role'] ?? 'all',
-            ]);
-            if ($user->fcm_token) {
+            ])) {
                 $sent++;
             }
         }

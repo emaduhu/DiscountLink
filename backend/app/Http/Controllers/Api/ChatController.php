@@ -113,8 +113,12 @@ class ChatController extends Controller
 
         $fcm->sendToUser($buyer, 'Discount offer from '.$request->user()->name, $product->name.' is now TZS '.$discountLink->discount_price.'.', [
             'type' => 'discount_link',
+            'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+            'route' => 'offer',
             'conversation_id' => (string) $conversation->id,
             'discount_link_id' => (string) $discountLink->id,
+            'product_id' => (string) $product->id,
+            'seller_id' => (string) $request->user()->id,
             'token' => $discountLink->token,
         ]);
 
@@ -136,9 +140,13 @@ class ChatController extends Controller
         if ($recipient) {
             $fcm->sendToUser($recipient, 'New message from '.$request->user()->name, $message->body, [
                 'type' => 'chat_message',
+                'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                'route' => 'chat',
                 'conversation_id' => (string) $conversation->id,
                 'message_id' => (string) $message->id,
                 'sender_id' => (string) $request->user()->id,
+                'sender_name' => $request->user()->name,
+                'product_id' => (string) ($conversation->product_id ?? ''),
             ]);
         }
         return response()->json(['message' => $message], 201);
@@ -171,7 +179,7 @@ class ChatController extends Controller
         ], 201);
     }
 
-    public function block(Request $request, Conversation $conversation): JsonResponse
+    public function block(Request $request, Conversation $conversation, FcmService $fcm): JsonResponse
     {
         abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
 
@@ -185,13 +193,24 @@ class ChatController extends Controller
             'block_reason' => $data['reason'] ?? 'Blocked by chat participant.',
         ]);
 
+        $recipient = User::find($conversation->user_one_id === $request->user()->id ? $conversation->user_two_id : $conversation->user_one_id);
+        if ($recipient) {
+            $fcm->sendToUser($recipient, 'Chat blocked by '.$request->user()->name, 'This conversation has been blocked.', [
+                'type' => 'chat_blocked',
+                'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                'route' => 'chat',
+                'conversation_id' => (string) $conversation->id,
+                'blocked_by_id' => (string) $request->user()->id,
+            ]);
+        }
+
         return response()->json([
             'conversation' => $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role']),
             'message' => 'Chat blocked.',
         ]);
     }
 
-    public function unblock(Request $request, Conversation $conversation): JsonResponse
+    public function unblock(Request $request, Conversation $conversation, FcmService $fcm): JsonResponse
     {
         abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
         abort_unless($conversation->blocked_by_id === $request->user()->id, 403, 'Only the user who blocked this chat can unblock it.');
@@ -201,6 +220,17 @@ class ChatController extends Controller
             'blocked_at' => null,
             'block_reason' => null,
         ]);
+
+        $recipient = User::find($conversation->user_one_id === $request->user()->id ? $conversation->user_two_id : $conversation->user_one_id);
+        if ($recipient) {
+            $fcm->sendToUser($recipient, 'Chat unblocked by '.$request->user()->name, 'You can continue this conversation.', [
+                'type' => 'chat_unblocked',
+                'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                'route' => 'chat',
+                'conversation_id' => (string) $conversation->id,
+                'unblocked_by_id' => (string) $request->user()->id,
+            ]);
+        }
 
         return response()->json([
             'conversation' => $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role']),
