@@ -5,14 +5,17 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AppSetting;
 use App\Models\DelivererInvitation;
+use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Shop;
+use App\Services\ClickPesaService;
 use App\Services\OtpProviderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 class ShopController extends Controller
 {
@@ -21,7 +24,7 @@ class ShopController extends Controller
         return response()->json(['categories' => $this->configuredCategories()]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, ClickPesaService $clickPesa): JsonResponse
     {
         abort_unless($request->user()->role === 'seller', 403, 'Only sellers can open shops.');
         $data = $request->validate([
@@ -32,6 +35,7 @@ class ShopController extends Controller
             'address' => ['nullable', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
+            'registration_payment_phone' => ['nullable', 'string', 'max:30'],
         ]);
         $categories = collect($data['categories'] ?? [$data['category'] ?? null])
             ->filter()
@@ -41,11 +45,71 @@ class ShopController extends Controller
             ->values();
         abort_if($categories->isEmpty(), 422, 'Choose at least one shop category.');
         $this->abortForUnknownCategories($categories);
-        $data['address'] = $data['address'] ?: $request->user()->address;
+        $data['address'] = ($data['address'] ?? null) ?: $request->user()->address;
+        abort_if(! $data['address'], 422, 'Add a shop address or update your seller address.');
         $data['category'] = $categories->first();
         $data['categories'] = $categories->all();
-        $shop = Shop::create($data + ['seller_id' => $request->user()->id]);
-        return response()->json(['shop' => $shop], 201);
+        unset($data['registration_payment_phone']);
+
+        $feeAmount = $this->shopRegistrationFeeAmount();
+        if ($feeAmount <= 0) {
+            $shop = Shop::create($data + [
+                'seller_id' => $request->user()->id,
+                'is_active' => true,
+                'registration_fee_amount' => 0,
+                'registration_fee_status' => 'waived',
+            ]);
+
+            return response()->json([
+                'message' => 'Shop created. Registration fee is currently waived.',
+                'shop' => $shop,
+                'registration_fee' => $this->registrationFeePayload(),
+            ], 201);
+        }
+
+        abort_unless($request->user()->phone && $request->user()->phone_verified_at, 422, 'Verify your seller phone before paying the shop registration fee.');
+
+        $shop = Shop::create($data + [
+            'seller_id' => $request->user()->id,
+            'is_active' => false,
+            'registration_fee_amount' => $feeAmount,
+            'registration_fee_status' => 'pending',
+        ]);
+        $payment = Payment::create([
+            'shop_id' => $shop->id,
+            'user_id' => $request->user()->id,
+            'type' => 'shop_registration_fee',
+            'provider' => 'clickpesa',
+            'status' => 'pending',
+            'amount' => $feeAmount,
+            'phone' => $request->input('registration_payment_phone') ?: $request->user()->phone,
+            'payload' => ['shop_id' => $shop->id],
+        ]);
+        $shop->update(['registration_fee_payment_id' => $payment->id]);
+
+        try {
+            $push = $clickPesa->requestUssdPush($payment);
+        } catch (ValidationException $error) {
+            $shop->update(['registration_fee_status' => 'failed']);
+
+            return response()->json([
+                'message' => 'Shop saved, but ClickPesa could not send the registration fee USSD push.',
+                'errors' => $error->errors(),
+                'shop' => $shop->fresh('registrationFeePayment'),
+                'payment' => $payment->fresh(),
+                'registration_fee' => $this->registrationFeePayload(),
+            ], 422);
+        }
+
+        $shop->update(['registration_fee_status' => 'processing']);
+
+        return response()->json([
+            'message' => 'Shop saved. Approve the ClickPesa USSD prompt to activate this shop.',
+            'shop' => $shop->fresh('registrationFeePayment'),
+            'payment' => $payment->fresh(),
+            'ussd_push' => $push,
+            'registration_fee' => $this->registrationFeePayload(),
+        ], 202);
     }
 
     public function mine(Request $request): JsonResponse
@@ -53,6 +117,7 @@ class ShopController extends Controller
         return response()->json([
             'shops' => $request->user()->shops()
                 ->with([
+                    'registrationFeePayment',
                     'products' => fn ($query) => $query
                         ->withAvg('ratings', 'rating')
                         ->withCount('ratings')
@@ -61,6 +126,7 @@ class ShopController extends Controller
                 ])
                 ->latest()
                 ->get(),
+            'registration_fee' => $this->registrationFeePayload(),
             'deliverer_invitations' => DelivererInvitation::where('seller_id', $request->user()->id)
                 ->latest()
                 ->limit(20)
@@ -143,6 +209,7 @@ class ShopController extends Controller
     public function product(Request $request, Shop $shop): JsonResponse
     {
         abort_unless($shop->seller_id === $request->user()->id, 403);
+        abort_unless($shop->is_active, 422, 'Pay the shop registration fee before adding products.');
         $data = $request->validate([
             'name' => ['required', 'string', 'max:180'],
             'description' => ['nullable', 'string'],
@@ -245,6 +312,22 @@ class ShopController extends Controller
         $allowed = $this->configuredCategories();
         $unknown = $categories->reject(fn (string $category) => in_array($category, $allowed, true));
         abort_if($unknown->isNotEmpty(), 422, 'Choose categories configured by the backend.');
+    }
+
+    private function shopRegistrationFeeAmount(): float
+    {
+        return max(0, round((float) AppSetting::get('shop_registration_fee_amount', '0'), 2));
+    }
+
+    private function registrationFeePayload(): array
+    {
+        $amount = $this->shopRegistrationFeeAmount();
+
+        return [
+            'amount' => $amount,
+            'currency' => 'TZS',
+            'enabled' => $amount > 0,
+        ];
     }
 
     /**

@@ -1934,6 +1934,12 @@ class _CartPageState extends State<CartPage> {
   final checkoutPhone = TextEditingController();
   final money = NumberFormat('#,##0.00');
   List cart = [];
+  Map<String, dynamic> serviceFee = {
+    'rate': 0,
+    'amount': 0,
+    'currency': 'TZS',
+    'enabled': false,
+  };
   bool loading = true;
   bool checkingOut = false;
   String? checkoutPaymentStatus;
@@ -1988,12 +1994,26 @@ class _CartPageState extends State<CartPage> {
     return total + (cartDeliveryPrice(row) * quantity);
   });
 
+  double serviceFeeRate() => double.tryParse('${serviceFee['rate'] ?? 0}') ?? 0;
+
+  double serviceFeeAmount() =>
+      double.tryParse('${serviceFee['amount'] ?? 0}') ??
+      (cartSubtotal() * (serviceFeeRate() / 100));
+
+  double cartGrandTotal() =>
+      cartSubtotal() + cartDeliveryTotal() + serviceFeeAmount();
+
   Future<void> load() async {
     setState(() => loading = true);
     try {
       final r = await widget.client.get('/cart');
       if (!mounted) return;
-      setState(() => cart = r['items'] as List);
+      setState(() {
+        cart = r['items'] as List;
+        serviceFee =
+            (r['service_fee'] as Map?)?.cast<String, dynamic>() ??
+            {'rate': 0, 'amount': 0, 'currency': 'TZS', 'enabled': false};
+      });
     } catch (error) {
       if (mounted) showError(context, error);
     } finally {
@@ -2049,7 +2069,7 @@ class _CartPageState extends State<CartPage> {
           title: Text(tx('Payment push sent', 'Ombi la malipo limetumwa')),
           content: Text(
             '${tx('Order', 'Oda')}: ${r['order']['reference']}\n'
-            '${tx('Amount', 'Kiasi')}: TZS ${money.format(cartSubtotal() + cartDeliveryTotal())}\n'
+            '${tx('Amount', 'Kiasi')}: TZS ${money.format(num.tryParse('${r['order']['grand_total'] ?? cartGrandTotal()}') ?? cartGrandTotal())}\n'
             '${tx('Phone', 'Simu')}: ${checkoutPhone.text.trim()}\n'
             '${tx('Payment status', 'Hali ya malipo')}: ${payment?['status'] ?? push?['status'] ?? 'processing'}\n'
             '${tx('Reference', 'Kumbukumbu')}: ${push?['orderReference'] ?? payment?['provider_reference'] ?? '-'}\n\n'
@@ -2174,11 +2194,15 @@ class _CartPageState extends State<CartPage> {
                     label: tx('Delivery', 'Usafiri'),
                     value: 'TZS ${money.format(cartDeliveryTotal())}',
                   ),
+                  PaymentSummaryRow(
+                    label:
+                        '${tx('Service fee', 'Ada ya huduma')} (${money.format(serviceFeeRate())}%)',
+                    value: 'TZS ${money.format(serviceFeeAmount())}',
+                  ),
                   const Divider(height: 20),
                   PaymentSummaryRow(
                     label: tx('Total to pay', 'Jumla ya kulipa'),
-                    value:
-                        'TZS ${money.format(cartSubtotal() + cartDeliveryTotal())}',
+                    value: 'TZS ${money.format(cartGrandTotal())}',
                     strong: true,
                   ),
                   const SizedBox(height: 10),
@@ -2676,11 +2700,17 @@ class _SellerPageState extends State<SellerPage> {
   final stock = TextEditingController(text: '10');
   final delivererName = TextEditingController();
   final delivererPhone = TextEditingController();
+  final money = NumberFormat('#,##0.00');
   final selectedCategories = <String>{'Electronics'};
   List<String> shopCategories = defaultShopCategories;
   final picker = ImagePicker();
   List<XFile> selectedProductImages = [];
   List shops = [];
+  Map<String, dynamic> registrationFee = {
+    'amount': 0,
+    'currency': 'TZS',
+    'enabled': false,
+  };
   List delivererInvitations = [];
   int? selectedShopId;
   int? editingShopId;
@@ -2722,8 +2752,18 @@ class _SellerPageState extends State<SellerPage> {
       if (!mounted) return;
       setState(() {
         shops = r['shops'] as List;
+        registrationFee =
+            (r['registration_fee'] as Map?)?.cast<String, dynamic>() ??
+            {'amount': 0, 'currency': 'TZS', 'enabled': false};
         delivererInvitations = (r['deliverer_invitations'] as List?) ?? [];
-        if (shops.isNotEmpty) selectedShopId ??= shops.first['id'] as int;
+        if (shops.isNotEmpty) {
+          selectedShopId ??= shops.first['id'] as int;
+          if (!shops.any((shop) => shop['id'] == selectedShopId)) {
+            selectedShopId = shops.first['id'] as int;
+          }
+        } else {
+          selectedShopId = null;
+        }
       });
     } catch (error) {
       if (mounted) showError(context, error);
@@ -2740,6 +2780,75 @@ class _SellerPageState extends State<SellerPage> {
 
   List<String> productImagePaths() {
     return selectedProductImages.map((image) => image.path).toList();
+  }
+
+  Map<String, dynamic>? selectedShop() {
+    for (final shop in shops) {
+      if (shop is Map<String, dynamic> && shop['id'] == selectedShopId) {
+        return shop;
+      }
+    }
+    return null;
+  }
+
+  double registrationFeeAmount() =>
+      double.tryParse('${registrationFee['amount'] ?? 0}') ?? 0;
+
+  bool registrationFeeEnabled() =>
+      registrationFee['enabled'] == true || registrationFeeAmount() > 0;
+
+  String shopRegistrationStatus(Map<String, dynamic> shop) {
+    final status = '${shop['registration_fee_status'] ?? 'waived'}';
+    if (shop['is_active'] == true && status == 'paid') {
+      return 'Registration paid';
+    }
+    if (shop['is_active'] == true && status == 'waived') {
+      return 'Registration fee waived';
+    }
+    if (status == 'processing') return 'Waiting for ClickPesa confirmation';
+    if (status == 'failed') return 'Registration fee push failed';
+    return 'Registration fee pending';
+  }
+
+  Future<void> saveShop() async {
+    try {
+      final r = await widget.client.post('/shops', {
+        'name': shopName.text,
+        'category': selectedCategories.first,
+        'categories': selectedCategories.toList(),
+        'address': address.text,
+      });
+      shopName.clear();
+      await load();
+      if (!mounted) return;
+      final payment = r['payment'] as Map<String, dynamic>?;
+      if (payment != null) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Registration fee push sent'),
+            content: Text(
+              'Approve the ClickPesa USSD prompt on ${payment['phone'] ?? widget.user['phone'] ?? 'your phone'}.\n\n'
+              'Amount: TZS ${money.format(double.tryParse('${payment['amount'] ?? registrationFeeAmount()}') ?? registrationFeeAmount())}\n'
+              'Shop activates after payment confirmation.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${r['message'] ?? 'Shop created.'}')),
+        );
+      }
+    } catch (error) {
+      if (mounted) showError(context, error);
+      await load();
+    }
   }
 
   void startEditShop(Map<String, dynamic> shop) {
@@ -2907,6 +3016,10 @@ class _SellerPageState extends State<SellerPage> {
 
   @override
   Widget build(BuildContext context) {
+    final activeSelectedShop = selectedShop();
+    final selectedShopCanPublish =
+        activeSelectedShop == null || activeSelectedShop['is_active'] == true;
+
     return ListView(
       padding: EdgeInsets.fromLTRB(
         16,
@@ -2940,18 +3053,24 @@ class _SellerPageState extends State<SellerPage> {
                 label: 'Address',
                 icon: Icons.place_outlined,
               ),
+              PaymentInfoBox(
+                icon: registrationFeeEnabled()
+                    ? Icons.payments_outlined
+                    : Icons.check_circle_outline,
+                active: registrationFeeEnabled(),
+                text: registrationFeeEnabled()
+                    ? 'New shops pay TZS ${money.format(registrationFeeAmount())} via ClickPesa USSD before they become active. The prompt is sent to your verified seller phone ${widget.user['phone'] ?? ''}.'
+                    : 'Shop registration fee is currently waived by the backend.',
+              ),
+              const SizedBox(height: 12),
               FilledButton.icon(
-                onPressed: () async {
-                  await widget.client.post('/shops', {
-                    'name': shopName.text,
-                    'category': selectedCategories.first,
-                    'categories': selectedCategories.toList(),
-                    'address': address.text,
-                  });
-                  await load();
-                },
+                onPressed: saveShop,
                 icon: const Icon(Icons.add_business),
-                label: const Text('Save shop'),
+                label: Text(
+                  registrationFeeEnabled()
+                      ? 'Save shop and send fee push'
+                      : 'Save shop',
+                ),
               ),
             ],
           ),
@@ -3058,12 +3177,26 @@ class _SellerPageState extends State<SellerPage> {
                     for (final s in shops)
                       DropdownMenuItem(
                         value: s['id'] as int,
-                        child: Text(s['name']),
+                        child: Text(
+                          s['is_active'] == true
+                              ? s['name']
+                              : '${s['name']} - fee pending',
+                        ),
                       ),
                   ],
                   onChanged: (v) => setState(() => selectedShopId = v),
                   decoration: const InputDecoration(labelText: 'Shop'),
                 ),
+              if (activeSelectedShop != null &&
+                  activeSelectedShop['is_active'] != true) ...[
+                const SizedBox(height: 8),
+                PaymentInfoBox(
+                  icon: Icons.lock_outline,
+                  text:
+                      '${shopRegistrationStatus(activeSelectedShop)}. Products can be added after ClickPesa confirms the shop registration fee.',
+                  active: true,
+                ),
+              ],
               const SizedBox(height: 12),
               Field(
                 controller: productName,
@@ -3130,7 +3263,7 @@ class _SellerPageState extends State<SellerPage> {
                 const SizedBox(height: 8),
               ],
               FilledButton.icon(
-                onPressed: selectedShopId == null
+                onPressed: selectedShopId == null || !selectedShopCanPublish
                     ? null
                     : () async {
                         try {
@@ -3193,13 +3326,23 @@ class _SellerPageState extends State<SellerPage> {
                               '${((s['categories'] as List?) ?? [s['category']]).where((category) => category != null).join(', ')} - ${s['products']?.length ?? 0} products',
                               style: const TextStyle(color: kTextColor),
                             ),
+                            const SizedBox(height: 4),
+                            Text(
+                              shopRegistrationStatus(s as Map<String, dynamic>),
+                              style: TextStyle(
+                                color: s['is_active'] == true
+                                    ? Colors.green.shade700
+                                    : Colors.orange.shade800,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                           ],
                         ),
                       ),
                       IconButton(
                         tooltip: 'Edit shop',
-                        onPressed: () =>
-                            startEditShop(s as Map<String, dynamic>),
+                        onPressed: () => startEditShop(s),
                         icon: const Icon(Icons.edit_outlined),
                       ),
                     ],
@@ -3246,8 +3389,7 @@ class _SellerPageState extends State<SellerPage> {
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: FilledButton(
-                                    onPressed: () =>
-                                        saveShopEdit(s as Map<String, dynamic>),
+                                    onPressed: () => saveShopEdit(s),
                                     child: const Text('Save shop'),
                                   ),
                                 ),
@@ -3448,11 +3590,13 @@ class _SellerPageState extends State<SellerPage> {
                       ),
                     ),
                   if (((s['products'] as List?) ?? []).isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
                       child: Text(
-                        'No products in this shop yet.',
-                        style: TextStyle(color: kTextColor),
+                        s['is_active'] == true
+                            ? 'No products in this shop yet.'
+                            : 'Pay the registration fee to activate this shop and start adding products.',
+                        style: const TextStyle(color: kTextColor),
                       ),
                     ),
                 ],

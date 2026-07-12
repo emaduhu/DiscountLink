@@ -191,6 +191,32 @@ class DashboardController extends Controller
         return redirect()->route('dashboard')->with('status', 'Shop categories updated.');
     }
 
+    public function updateShopRegistrationFee(Request $request): RedirectResponse
+    {
+        $this->authorizeAdmin();
+
+        $data = $request->validate([
+            'shop_registration_fee_amount' => ['required', 'numeric', 'min:0', 'max:999999999'],
+        ]);
+
+        AppSetting::put('shop_registration_fee_amount', number_format((float) $data['shop_registration_fee_amount'], 2, '.', ''));
+
+        return redirect()->route('dashboard')->with('status', 'Shop registration fee updated.');
+    }
+
+    public function updateServiceFee(Request $request): RedirectResponse
+    {
+        $this->authorizeAdmin();
+
+        $data = $request->validate([
+            'service_fee_percentage' => ['required', 'numeric', 'min:0', 'max:100'],
+        ]);
+
+        AppSetting::put('service_fee_percentage', number_format((float) $data['service_fee_percentage'], 2, '.', ''));
+
+        return redirect()->route('dashboard')->with('status', 'Checkout service fee updated.');
+    }
+
     public function updateOtpSettings(Request $request): RedirectResponse
     {
         $this->authorizeAdmin();
@@ -230,7 +256,7 @@ class DashboardController extends Controller
             ],
             'orders' => Order::with('buyer', 'seller', 'shop', 'deliveryAssignment.deliverer')->latest()->limit(25)->get(),
             'deliveries' => DeliveryAssignment::with('order', 'deliverer')->latest()->limit(25)->get(),
-            'payments' => Payment::with('order')->latest()->limit(25)->get(),
+            'payments' => Payment::with('order', 'shop')->latest()->limit(25)->get(),
             'users' => User::whereIn('role', ['buyer', 'seller', 'deliverer'])->latest()->limit(50)->get(),
             'products' => Product::with(['shop', 'seller'])->latest()->limit(100)->get(),
             'conversations' => Conversation::with(['userOne', 'userTwo', 'product', 'blocker'])->latest()->limit(50)->get(),
@@ -243,6 +269,8 @@ class DashboardController extends Controller
                 'infobip_sender_id' => AppSetting::get('infobip_sender_id', config('services.infobip.sender_id')),
                 'infobip_base_url' => AppSetting::get('infobip_base_url', config('services.infobip.base_url')),
                 'firebase_project_id' => AppSetting::get('firebase_project_id', config('services.firebase.project_id')),
+                'shop_registration_fee_amount' => AppSetting::get('shop_registration_fee_amount', '0.00'),
+                'service_fee_percentage' => AppSetting::get('service_fee_percentage', '0.00'),
             ],
             'shopCategories' => AppSetting::get('shop_categories', "Electronics\nFashion\nGroceries\nBooks\nArt\nHome\nOther"),
         ]);

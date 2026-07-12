@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AppSetting;
 use App\Models\Cart;
 use App\Models\DeliveryAssignment;
 use App\Models\DiscountLink;
@@ -36,7 +37,26 @@ class CartController extends Controller
     public function index(Request $request): JsonResponse
     {
         $items = Cart::with(['product.shop', 'discountLink'])->where('buyer_id', $request->user()->id)->get();
-        return response()->json(['items' => $items]);
+        $subtotal = $items->sum(fn ($item) => $this->cartUnitPrice($item) * $item->quantity);
+        $delivery = $items->sum(fn ($item) => $item->product->delivery_price * $item->quantity);
+        $serviceFeeRate = $this->serviceFeeRate();
+        $serviceFee = $this->serviceFeeTotal($subtotal, $serviceFeeRate);
+
+        return response()->json([
+            'items' => $items,
+            'service_fee' => [
+                'rate' => $serviceFeeRate,
+                'amount' => $serviceFee,
+                'currency' => 'TZS',
+                'enabled' => $serviceFeeRate > 0,
+            ],
+            'summary' => [
+                'subtotal' => $subtotal,
+                'delivery_total' => $delivery,
+                'service_fee_total' => $serviceFee,
+                'grand_total' => $subtotal + $delivery + $serviceFee,
+            ],
+        ]);
     }
 
     public function add(Request $request, Product $product): JsonResponse
@@ -104,6 +124,8 @@ class CartController extends Controller
             $first = $items->first()->product;
             $subtotal = $items->sum(fn ($item) => $this->cartUnitPrice($item) * $item->quantity);
             $delivery = $items->sum(fn ($item) => $item->product->delivery_price * $item->quantity);
+            $serviceFeeRate = $this->serviceFeeRate();
+            $serviceFee = $this->serviceFeeTotal($subtotal, $serviceFeeRate);
             $code = $this->deliveryCode();
             $order = Order::create([
                 'reference' => 'DL-'.now()->format('YmdHis').'-'.Str::upper(Str::random(5)),
@@ -113,7 +135,9 @@ class CartController extends Controller
                 'delivery_address' => $data['delivery_address'] ?: $request->user()->address,
                 'subtotal' => $subtotal,
                 'delivery_total' => $delivery,
-                'grand_total' => $subtotal + $delivery,
+                'service_fee_rate' => $serviceFeeRate,
+                'service_fee_total' => $serviceFee,
+                'grand_total' => $subtotal + $delivery + $serviceFee,
                 'delivery_code_hash' => Hash::make($code),
                 'delivery_code_demo' => $code,
             ]);
@@ -186,5 +210,15 @@ class CartController extends Controller
     {
         return $discountLink->used_at === null
             && ($discountLink->expires_at === null || $discountLink->expires_at->isFuture());
+    }
+
+    private function serviceFeeRate(): float
+    {
+        return max(0, round((float) AppSetting::get('service_fee_percentage', '0'), 2));
+    }
+
+    private function serviceFeeTotal(float $subtotal, float $rate): float
+    {
+        return round($subtotal * ($rate / 100), 2);
     }
 }

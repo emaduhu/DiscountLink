@@ -15,8 +15,10 @@ class ClickPesaService
 {
     public function requestUssdPush(Payment $payment, string $currency = 'TZS'): array
     {
+        $prefix = $payment->type === 'shop_registration_fee' ? 'DLSHOP' : 'DLPAY';
+
         if (! $this->isConfigured() || app()->environment('local')) {
-            $orderReference = $this->orderReference($payment, 'DLPAY');
+            $orderReference = $this->orderReference($payment, $prefix);
             $payment->update([
                 'provider_reference' => 'local-'.$payment->id,
                 'status' => 'processing',
@@ -26,7 +28,7 @@ class ClickPesaService
             return ['reference' => $payment->provider_reference, 'orderReference' => $orderReference, 'status' => $payment->status];
         }
 
-        $orderReference = $this->orderReference($payment, 'DLPAY');
+        $orderReference = $this->orderReference($payment, $prefix);
         $payload = [
             'amount' => $this->amount($payment),
             'currency' => $currency,
@@ -194,6 +196,23 @@ class ClickPesaService
 
         if ($payment->type === 'collection' && in_array($status, ['paid', 'success', 'completed'], true)) {
             $payment->order?->update(['status' => 'paid', 'paid_at' => now()]);
+        }
+
+        if ($payment->type === 'shop_registration_fee') {
+            if (in_array($status, ['paid', 'success', 'completed'], true)) {
+                $payment->shop?->update([
+                    'is_active' => true,
+                    'registration_fee_status' => 'paid',
+                    'registration_fee_payment_id' => $payment->id,
+                    'registration_paid_at' => now(),
+                ]);
+            } elseif (in_array($status, ['failed', 'cancelled', 'canceled', 'expired'], true)) {
+                $payment->shop?->update([
+                    'is_active' => false,
+                    'registration_fee_status' => 'failed',
+                    'registration_fee_payment_id' => $payment->id,
+                ]);
+            }
         }
     }
 
