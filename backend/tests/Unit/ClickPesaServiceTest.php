@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Models\Payment;
 use App\Services\ClickPesaService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -16,9 +17,9 @@ class ClickPesaServiceTest extends TestCase
         Config::set('services.clickpesa.client_id', 'client-id');
         Config::set('services.clickpesa.api_key', 'api-key');
         Config::set('services.clickpesa.base_url', 'https://api.clickpesa.test');
+        Cache::put('clickpesa.jwt.'.sha1('client-id'), 'jwt-token');
 
         Http::fake([
-            'api.clickpesa.test/third-parties/generate-token' => Http::response(['token' => 'jwt-token']),
             'api.clickpesa.test/third-parties/payments/preview-ussd-push-request' => Http::response(['status' => 'previewed']),
             'api.clickpesa.test/third-parties/payments/initiate-ussd-push-request' => Http::response([
                 'id' => 'txn-1',
@@ -39,10 +40,6 @@ class ClickPesaServiceTest extends TestCase
         $this->assertSame('txn-1', $result['reference']);
         $this->assertSame('DLPAY0000000025', $result['orderReference']);
         $this->assertSame('processing', $result['status']);
-
-        Http::assertSent(fn ($request) => $request->url() === 'https://api.clickpesa.test/third-parties/generate-token'
-            && $request->hasHeader('client-id', 'client-id')
-            && $request->hasHeader('api-key', 'api-key'));
 
         Http::assertSent(fn ($request) => $request->url() === 'https://api.clickpesa.test/third-parties/payments/initiate-ussd-push-request'
             && $request->hasHeader('Authorization', 'Bearer jwt-token')

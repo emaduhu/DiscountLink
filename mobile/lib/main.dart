@@ -1932,9 +1932,11 @@ class _CartPageState extends State<CartPage> {
   final city = TextEditingController(text: 'Dar es Salaam');
   final landmark = TextEditingController();
   final checkoutPhone = TextEditingController();
+  final money = NumberFormat('#,##0.00');
   List cart = [];
   bool loading = true;
   bool checkingOut = false;
+  String? checkoutPaymentStatus;
 
   @override
   void initState() {
@@ -1958,6 +1960,33 @@ class _CartPageState extends State<CartPage> {
     city.text.trim(),
     landmark.text.trim(),
   ].where((part) => part.isNotEmpty).join(', ');
+
+  double cartUnitPrice(Map<String, dynamic> item) {
+    final override = num.tryParse('${item['unit_price_override'] ?? ''}');
+    if (override != null) return override.toDouble();
+    final product = item['product'] as Map;
+    final discount = num.tryParse('${product['discount_price'] ?? ''}');
+    final price = num.tryParse('${product['price'] ?? 0}') ?? 0;
+
+    return (discount ?? price).toDouble();
+  }
+
+  double cartDeliveryPrice(Map<String, dynamic> item) {
+    final product = item['product'] as Map;
+    return (num.tryParse('${product['delivery_price'] ?? 0}') ?? 0).toDouble();
+  }
+
+  double cartSubtotal() => cart.fold<double>(0, (total, item) {
+    final row = item as Map<String, dynamic>;
+    final quantity = (num.tryParse('${row['quantity'] ?? 1}') ?? 1).toDouble();
+    return total + (cartUnitPrice(row) * quantity);
+  });
+
+  double cartDeliveryTotal() => cart.fold<double>(0, (total, item) {
+    final row = item as Map<String, dynamic>;
+    final quantity = (num.tryParse('${row['quantity'] ?? 1}') ?? 1).toDouble();
+    return total + (cartDeliveryPrice(row) * quantity);
+  });
 
   Future<void> load() async {
     setState(() => loading = true);
@@ -1987,19 +2016,46 @@ class _CartPageState extends State<CartPage> {
   }
 
   Future<void> checkout() async {
-    setState(() => checkingOut = true);
+    setState(() {
+      checkingOut = true;
+      checkoutPaymentStatus = tx(
+        'Creating your order and preparing ClickPesa...',
+        'Inatengeneza oda na kuandaa ClickPesa...',
+      );
+    });
     try {
+      setState(() {
+        checkoutPaymentStatus = tx(
+          'Sending a USSD payment push to ${checkoutPhone.text.trim()}...',
+          'Inatuma ombi la malipo ya USSD kwenda ${checkoutPhone.text.trim()}...',
+        );
+      });
       final r = await widget.client.post('/checkout', {
         'delivery_address': checkoutAddress(),
         'phone': checkoutPhone.text.trim(),
       });
       if (!mounted) return;
+      setState(() {
+        checkoutPaymentStatus = tx(
+          'USSD push sent. Approve it on your phone to complete payment.',
+          'Ombi la USSD limetumwa. Likubali kwenye simu yako kukamilisha malipo.',
+        );
+      });
+      final push = r['ussd_push'] as Map<String, dynamic>?;
+      final payment = r['payment'] as Map<String, dynamic>?;
       await showDialog<void>(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text('USSD push requested'),
+          title: Text(tx('Payment push sent', 'Ombi la malipo limetumwa')),
           content: Text(
-            'Order ${r['order']['reference']}\nBuyer delivery code: ${r['delivery_code'] ?? r['delivery_code_demo']}\n\nKeep this code. Share it only after the order arrives to release seller and delivery payments.',
+            '${tx('Order', 'Oda')}: ${r['order']['reference']}\n'
+            '${tx('Amount', 'Kiasi')}: TZS ${money.format(cartSubtotal() + cartDeliveryTotal())}\n'
+            '${tx('Phone', 'Simu')}: ${checkoutPhone.text.trim()}\n'
+            '${tx('Payment status', 'Hali ya malipo')}: ${payment?['status'] ?? push?['status'] ?? 'processing'}\n'
+            '${tx('Reference', 'Kumbukumbu')}: ${push?['orderReference'] ?? payment?['provider_reference'] ?? '-'}\n\n'
+            '${tx('Approve the USSD prompt on your phone. Keep this buyer delivery code:', 'Kubali ombi la USSD kwenye simu yako. Hifadhi kodi hii ya kupokea mzigo:')} '
+            '${r['delivery_code'] ?? r['delivery_code_demo']}\n\n'
+            '${tx('Share the delivery code only after the order arrives.', 'Toa kodi ya mzigo baada tu ya kupokea oda yako.')}',
           ),
           actions: [
             TextButton(
@@ -2011,10 +2067,37 @@ class _CartPageState extends State<CartPage> {
       );
       await load();
     } catch (error) {
-      if (mounted) showError(context, error);
+      if (mounted) await showPaymentError(context, error);
     } finally {
-      if (mounted) setState(() => checkingOut = false);
+      if (mounted) {
+        setState(() {
+          checkingOut = false;
+          checkoutPaymentStatus = null;
+        });
+      }
     }
+  }
+
+  Future<void> showPaymentError(BuildContext context, Object error) async {
+    final message = error.toString().replaceFirst('Exception: ', '');
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(
+          tx('Payment push was not sent', 'Ombi la malipo halikutumwa'),
+        ),
+        content: Text(
+          '$message\n\n'
+          '${tx('Your cart is still saved. Check that the payment phone is correct, then try again after the payment provider issue is resolved.', 'Kikapu chako bado kimehifadhiwa. Hakiki namba ya malipo, kisha jaribu tena baada ya tatizo la mtoa huduma kutatuliwa.')}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(tx('OK', 'Sawa')),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -2079,6 +2162,42 @@ class _CartPageState extends State<CartPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  SectionTitle(
+                    title: tx('Payment summary', 'Muhtasari wa malipo'),
+                  ),
+                  const SizedBox(height: 8),
+                  PaymentSummaryRow(
+                    label: tx('Products', 'Bidhaa'),
+                    value: 'TZS ${money.format(cartSubtotal())}',
+                  ),
+                  PaymentSummaryRow(
+                    label: tx('Delivery', 'Usafiri'),
+                    value: 'TZS ${money.format(cartDeliveryTotal())}',
+                  ),
+                  const Divider(height: 20),
+                  PaymentSummaryRow(
+                    label: tx('Total to pay', 'Jumla ya kulipa'),
+                    value:
+                        'TZS ${money.format(cartSubtotal() + cartDeliveryTotal())}',
+                    strong: true,
+                  ),
+                  const SizedBox(height: 10),
+                  PaymentInfoBox(
+                    icon: Icons.phone_android_outlined,
+                    text: tx(
+                      'ClickPesa sends a USSD prompt to the payment phone below. Approve the prompt on that phone to complete payment.',
+                      'ClickPesa hutuma ombi la USSD kwenye simu ya malipo hapo chini. Kubali ombi hilo kwenye simu hiyo kukamilisha malipo.',
+                    ),
+                  ),
+                  if (checkoutPaymentStatus != null) ...[
+                    const SizedBox(height: 10),
+                    PaymentInfoBox(
+                      icon: Icons.sync_outlined,
+                      text: checkoutPaymentStatus!,
+                      active: true,
+                    ),
+                  ],
+                  const SizedBox(height: 16),
                   SectionTitle(
                     title: tx('Delivery details', 'Taarifa za usafiri'),
                   ),
@@ -4997,6 +5116,85 @@ class SectionTitle extends StatelessWidget {
         if (action != null)
           TextButton(onPressed: onAction, child: Text(action!)),
       ],
+    );
+  }
+}
+
+class PaymentSummaryRow extends StatelessWidget {
+  const PaymentSummaryRow({
+    super.key,
+    required this.label,
+    required this.value,
+    this.strong = false,
+  });
+
+  final String label;
+  final String value;
+  final bool strong;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = TextStyle(
+      fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
+      color: strong ? Colors.black : kTextColor,
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: style)),
+          Text(value, style: style),
+        ],
+      ),
+    );
+  }
+}
+
+class PaymentInfoBox extends StatelessWidget {
+  const PaymentInfoBox({
+    super.key,
+    required this.icon,
+    required this.text,
+    this.active = false,
+  });
+
+  final IconData icon;
+  final String text;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: active ? kPrimaryLightColor : kSurfaceColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: active
+              ? kPrimaryColor.withValues(alpha: 0.18)
+              : Colors.black.withValues(alpha: 0.05),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: active ? kPrimaryColor : kTextColor, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                text,
+                style: TextStyle(
+                  color: active ? kPrimaryColor : kTextColor,
+                  fontSize: 12,
+                  fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

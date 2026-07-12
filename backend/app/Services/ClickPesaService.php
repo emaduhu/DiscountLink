@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Models\Payment;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
 class ClickPesaService
@@ -32,15 +34,23 @@ class ClickPesaService
             'phoneNumber' => $this->phone($payment->phone),
         ];
 
-        $preview = $this->client()
-            ->post($this->url('/third-parties/payments/preview-ussd-push-request'), $payload)
-            ->throw()
-            ->json();
+        try {
+            $preview = $this->postClickPesa('/third-parties/payments/preview-ussd-push-request', $payload);
+            $initiate = $this->postClickPesa('/third-parties/payments/initiate-ussd-push-request', $payload);
+        } catch (ValidationException $error) {
+            $payment->update([
+                'provider' => 'clickpesa',
+                'provider_reference' => $orderReference,
+                'status' => 'failed',
+                'payload' => [
+                    'orderReference' => $orderReference,
+                    'request' => $payload,
+                    'error' => $error->errors(),
+                ],
+            ]);
 
-        $initiate = $this->client()
-            ->post($this->url('/third-parties/payments/initiate-ussd-push-request'), $payload)
-            ->throw()
-            ->json();
+            throw $error;
+        }
 
         $transactionId = $this->firstData($initiate, [
             'id',
@@ -100,10 +110,7 @@ class ClickPesaService
             'reason' => 'DiscountLink '.$payment->type,
         ];
 
-        $response = $this->client()
-            ->post($this->url('/third-parties/payouts/mobile-money'), $payload)
-            ->throw()
-            ->json();
+        $response = $this->postClickPesa('/third-parties/payouts/mobile-money', $payload);
 
         $transactionId = $this->firstData($response, [
             'id',
@@ -249,6 +256,33 @@ class ClickPesaService
         }
 
         return $request->withToken($token);
+    }
+
+    private function postClickPesa(string $path, array $payload): array
+    {
+        $response = $this->client()->post($this->url($path), $payload);
+        if (! $response->successful()) {
+            throw ValidationException::withMessages([
+                'payment' => $this->clickPesaErrorMessage($response),
+            ]);
+        }
+
+        $json = $response->json();
+
+        return is_array($json) ? $json : [];
+    }
+
+    private function clickPesaErrorMessage(Response $response): string
+    {
+        $message = data_get($response->json(), 'message')
+            ?: data_get($response->json(), 'error')
+            ?: 'ClickPesa could not send the USSD payment push.';
+
+        if (str_contains(strtolower((string) $message), 'm-pesa payment method is not active')) {
+            return 'ClickPesa rejected the payment push: M-Pesa payment method is not active on this ClickPesa account. Ask ClickPesa to activate M-Pesa collections, then try checkout again.';
+        }
+
+        return 'ClickPesa rejected the payment push: '.$message;
     }
 
     private function tokenCacheKey(): string

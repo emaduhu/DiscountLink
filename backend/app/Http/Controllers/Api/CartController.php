@@ -129,9 +129,7 @@ class CartController extends Controller
                     'line_total' => ($unit + $item->product->delivery_price) * $item->quantity,
                 ]);
             }
-            DiscountLink::whereIn('id', $items->pluck('discount_link_id')->filter()->all())->update(['used_at' => now()]);
             $assignment = DeliveryAssignment::create(['order_id' => $order->id]);
-            Cart::where('buyer_id', $request->user()->id)->delete();
             $order->setAttribute('plain_delivery_code', $code);
             $order->setRelation('deliveryAssignment', $assignment);
             return $order;
@@ -145,6 +143,10 @@ class CartController extends Controller
             'phone' => $data['phone'] ?? $request->user()->phone,
         ]);
         $push = $clickPesa->requestUssdPush($payment);
+
+        DiscountLink::whereIn('id', $items->pluck('discount_link_id')->filter()->all())->update(['used_at' => now()]);
+        Cart::where('buyer_id', $request->user()->id)->delete();
+
         $assignmentId = (string) $order->deliveryAssignment?->id;
         User::where('role', 'deliverer')
             ->where('is_active', true)
