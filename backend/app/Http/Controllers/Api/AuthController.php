@@ -284,6 +284,10 @@ class AuthController extends Controller
 
     public function requestOtp(Request $request, OtpProviderService $otp): JsonResponse
     {
+        $request->merge([
+            'phone' => $this->normalizePhone((string) $request->input('phone', '')),
+        ]);
+
         $data = $request->validate(['phone' => ['required', 'string', 'max:30']]);
         if (! $otp->shouldCreateBackendOtp()) {
             return response()->json([
@@ -293,7 +297,21 @@ class AuthController extends Controller
         }
 
         $code = (string) random_int(100000, 999999);
-        $reference = $otp->send($data['phone'], $code);
+        $exposedCode = $this->exposedVerificationCode($code);
+        $sent = true;
+        $reference = null;
+
+        try {
+            $reference = $otp->send($data['phone'], $code);
+        } catch (\Throwable $error) {
+            $sent = false;
+            Log::warning('DiscountLink phone OTP request could not be sent.', [
+                'user_id' => $request->user()->id,
+                'phone' => $data['phone'],
+                'provider' => $otp->activeProvider(),
+                'error' => $error->getMessage(),
+            ]);
+        }
 
         PhoneOtp::create([
             'user_id' => $request->user()->id,
@@ -304,14 +322,20 @@ class AuthController extends Controller
         ]);
 
         return response()->json([
-            'message' => 'OTP sent.',
+            'message' => $sent ? 'OTP sent.' : 'OTP was created, but SMS delivery failed. Try again shortly.',
             'provider' => $otp->activeProvider(),
-            'phone_code' => $this->exposedVerificationCode($code),
+            'phone_otp_sent' => $sent,
+            'phone_code' => $exposedCode,
         ]);
     }
 
     public function verifyOtp(Request $request, OtpProviderService $otp, FirebasePhoneAuthService $firebase): JsonResponse
     {
+        $request->merge([
+            'phone' => $this->normalizePhone((string) $request->input('phone', '')),
+            'code' => $this->normalizeVerificationCode((string) $request->input('code', '')),
+        ]);
+
         $rules = ['phone' => ['required', 'string']];
         if ($otp->activeProvider() === 'firebase') {
             $rules['firebase_id_token'] = ['required', 'string'];
@@ -444,6 +468,11 @@ class AuthController extends Controller
     private function normalizeVerificationCode(string $code): string
     {
         return preg_replace('/\D+/', '', $code) ?? '';
+    }
+
+    private function normalizePhone(string $phone): string
+    {
+        return preg_replace('/[\s-]+/', '', trim($phone)) ?? '';
     }
 
     private function sendRawEmail(User $user, string $subject, string $body, string $failureMessage): bool

@@ -23,7 +23,8 @@ class ChatController extends Controller
             ->orWhere('user_two_id', $request->user()->id)
             ->latest('updated_at')
             ->get();
-        return response()->json(['conversations' => $conversations]);
+
+        return response()->json(['conversations' => $this->withUnreadCounts($conversations, $request->user()->id)]);
     }
 
     public function contacts(Request $request): JsonResponse
@@ -59,14 +60,28 @@ class ChatController extends Controller
             'order_id' => $data['order_id'] ?? null,
             'product_id' => $data['product_id'] ?? null,
         ]);
-        return response()->json(['conversation' => $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role'])], 201);
+        return response()->json([
+            'conversation' => $this->withUnreadCount(
+                $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role']),
+                $request->user()->id,
+            ),
+        ], 201);
     }
 
     public function messages(Request $request, Conversation $conversation): JsonResponse
     {
         abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
+
+        $conversation->messages()
+            ->where('sender_id', '!=', $request->user()->id)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
         return response()->json([
-            'conversation' => $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role']),
+            'conversation' => $this->withUnreadCount(
+                $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role']),
+                $request->user()->id,
+            ),
             'messages' => $conversation->messages()->latest()->paginate(50),
         ]);
     }
@@ -110,12 +125,14 @@ class ChatController extends Controller
             'body' => $body,
         ]);
         $conversation->touch();
+        $unreadCount = $this->unreadCountFor($conversation, $buyer->id);
 
         $fcm->sendToUser($buyer, 'Discount offer from '.$request->user()->name, $product->name.' is now TZS '.$discountLink->discount_price.'.', [
             'type' => 'discount_link',
             'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
             'route' => 'offer',
             'conversation_id' => (string) $conversation->id,
+            'unread_count' => (string) $unreadCount,
             'discount_link_id' => (string) $discountLink->id,
             'product_id' => (string) $product->id,
             'seller_id' => (string) $request->user()->id,
@@ -138,11 +155,13 @@ class ChatController extends Controller
         $recipientId = $conversation->user_one_id === $request->user()->id ? $conversation->user_two_id : $conversation->user_one_id;
         $recipient = User::find($recipientId);
         if ($recipient) {
+            $unreadCount = $this->unreadCountFor($conversation, $recipient->id);
             $fcm->sendToUser($recipient, 'New message from '.$request->user()->name, $message->body, [
                 'type' => 'chat_message',
                 'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
                 'route' => 'chat',
                 'conversation_id' => (string) $conversation->id,
+                'unread_count' => (string) $unreadCount,
                 'message_id' => (string) $message->id,
                 'sender_id' => (string) $request->user()->id,
                 'sender_name' => $request->user()->name,
@@ -236,5 +255,29 @@ class ChatController extends Controller
             'conversation' => $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role']),
             'message' => 'Chat unblocked.',
         ]);
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, Conversation>  $conversations
+     * @return \Illuminate\Support\Collection<int, Conversation>
+     */
+    private function withUnreadCounts($conversations, int $userId)
+    {
+        return $conversations->map(fn (Conversation $conversation) => $this->withUnreadCount($conversation, $userId));
+    }
+
+    private function withUnreadCount(Conversation $conversation, int $userId): Conversation
+    {
+        $conversation->setAttribute('unread_count', $this->unreadCountFor($conversation, $userId));
+
+        return $conversation;
+    }
+
+    private function unreadCountFor(Conversation $conversation, int $userId): int
+    {
+        return $conversation->messages()
+            ->where('sender_id', '!=', $userId)
+            ->whereNull('read_at')
+            ->count();
     }
 }

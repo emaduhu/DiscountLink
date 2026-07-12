@@ -63,9 +63,11 @@ return [
     ],
 
     'clickpesa' => [
+        'client_id' => env('CLICKPESA_CLIENT_ID'),
         'api_key' => env('CLICKPESA_API_KEY'),
         'base_url' => env('CLICKPESA_BASE_URL', 'https://api.clickpesa.com'),
         'webhook_secret' => env('CLICKPESA_WEBHOOK_SECRET'),
+        'timeout' => env('CLICKPESA_TIMEOUT', 30),
     ],
 
     'fcm' => [

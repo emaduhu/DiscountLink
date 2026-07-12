@@ -1240,6 +1240,8 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int index = 0;
+  int unreadChatCount = 0;
+  Timer? unreadChatTimer;
 
   @override
   void initState() {
@@ -1248,6 +1250,37 @@ class _HomePageState extends State<HomePage> {
         widget.user['phone_verified_at'] == null) {
       index = profileIndexForRole(widget.user['role'] as String);
     }
+    loadUnreadChatCount();
+    unreadChatTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => loadUnreadChatCount(),
+    );
+  }
+
+  @override
+  void dispose() {
+    unreadChatTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> loadUnreadChatCount() async {
+    try {
+      final r = await widget.client.get('/conversations');
+      final conversations = (r['conversations'] as List?) ?? [];
+      updateUnreadChatCount(unreadCountFromConversations(conversations));
+    } catch (_) {}
+  }
+
+  void updateUnreadChatCount(int count) {
+    if (!mounted || count == unreadChatCount) return;
+    setState(() => unreadChatCount = count);
+  }
+
+  Widget chatDestinationIcon(IconData icon) {
+    final count = unreadChatCount;
+    if (count <= 0) return Icon(icon);
+
+    return Badge(label: Text(count > 99 ? '99+' : '$count'), child: Icon(icon));
   }
 
   @override
@@ -1264,7 +1297,11 @@ class _HomePageState extends State<HomePage> {
       if (role == 'seller')
         SellerPage(client: widget.client, user: widget.user),
       if (role == 'deliverer') DeliveryPage(client: widget.client),
-      ChatPage(client: widget.client, user: widget.user),
+      ChatPage(
+        client: widget.client,
+        user: widget.user,
+        onUnreadCountChanged: updateUnreadChatCount,
+      ),
       ProfilePage(
         client: widget.client,
         user: widget.user,
@@ -1297,9 +1334,9 @@ class _HomePageState extends State<HomePage> {
           selectedIcon: Icon(Icons.delivery_dining),
           label: 'Deliver',
         ),
-      const NavigationDestination(
-        icon: Icon(Icons.chat_bubble_outline),
-        selectedIcon: Icon(Icons.chat_bubble),
+      NavigationDestination(
+        icon: chatDestinationIcon(Icons.chat_bubble_outline),
+        selectedIcon: chatDestinationIcon(Icons.chat_bubble),
         label: 'Chat',
       ),
       const NavigationDestination(
@@ -1351,6 +1388,16 @@ int profileIndexForRole(String role) => switch (role) {
   'seller' || 'deliverer' => 2,
   _ => 1,
 };
+
+int unreadCountFromConversations(List conversations) {
+  var total = 0;
+  for (final item in conversations) {
+    if (item is! Map) continue;
+    total += int.tryParse('${item['unread_count'] ?? 0}') ?? 0;
+  }
+
+  return total;
+}
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({
@@ -1410,7 +1457,12 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> sendOtp() async {
     setState(() => loading = true);
     try {
-      final phone = widget.user['phone'] as String;
+      final phone = '${widget.user['phone'] ?? ''}'.trim();
+      if (phone.isEmpty) {
+        throw Exception(
+          tx('Add a phone number first.', 'Weka namba ya simu kwanza.'),
+        );
+      }
       if (otpProvider == 'firebase') {
         await FirebaseAuth.instance.verifyPhoneNumber(
           phoneNumber: phone.startsWith('+') ? phone : '+$phone',
@@ -1439,6 +1491,15 @@ class _ProfilePageState extends State<ProfilePage> {
         );
       } else {
         final r = await widget.client.post('/otp/request', {'phone': phone});
+        if (r['phone_otp_sent'] == false) {
+          throw Exception(
+            r['message'] ??
+                tx(
+                  'OTP could not be sent. Try again shortly.',
+                  'OTP haikuweza kutumwa. Jaribu tena baada ya muda.',
+                ),
+          );
+        }
         if (mounted) {
           setState(() {
             visiblePhoneCode = r['phone_code']?.toString();
@@ -1474,7 +1535,7 @@ class _ProfilePageState extends State<ProfilePage> {
         }
         final credential = PhoneAuthProvider.credential(
           verificationId: verificationId,
-          smsCode: code.text,
+          smsCode: code.text.trim(),
         );
         final firebaseUser = await FirebaseAuth.instance.signInWithCredential(
           credential,
@@ -1485,7 +1546,7 @@ class _ProfilePageState extends State<ProfilePage> {
       } else {
         final r = await widget.client.post('/otp/verify', {
           'phone': widget.user['phone'],
-          'code': code.text,
+          'code': code.text.trim(),
         });
         widget.onUserChanged(r['user'] as Map<String, dynamic>);
       }
@@ -3351,7 +3412,7 @@ class _DeliveryPageState extends State<DeliveryPage> {
   @override
   void initState() {
     super.initState();
-    load();
+    load(showLoading: true);
     locationTimer = Timer.periodic(
       const Duration(seconds: 20),
       (_) => shareAcceptedLocation(silent: true),
@@ -3365,13 +3426,15 @@ class _DeliveryPageState extends State<DeliveryPage> {
     super.dispose();
   }
 
-  Future<void> load() async {
-    setState(() => loading = true);
+  Future<void> load({bool showLoading = false, bool silent = false}) async {
+    if (showLoading && mounted) {
+      setState(() => loading = true);
+    }
     try {
       final r = await widget.client.get('/deliveries');
       if (mounted) setState(() => jobs = r['jobs'] as List);
     } catch (error) {
-      if (mounted) showError(context, error);
+      if (mounted && !silent) showError(context, error);
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -3413,7 +3476,7 @@ class _DeliveryPageState extends State<DeliveryPage> {
           'longitude': position.longitude,
         });
       }
-      await load();
+      await load(silent: true);
       if (!silent && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Delivery location shared.')),
@@ -3439,7 +3502,7 @@ class _DeliveryPageState extends State<DeliveryPage> {
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
-      onRefresh: load,
+      onRefresh: () => load(silent: false),
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -3584,9 +3647,15 @@ class _DeliveryPageState extends State<DeliveryPage> {
 }
 
 class ChatPage extends StatefulWidget {
-  const ChatPage({super.key, required this.client, required this.user});
+  const ChatPage({
+    super.key,
+    required this.client,
+    required this.user,
+    required this.onUnreadCountChanged,
+  });
   final ApiClient client;
   final Map<String, dynamic> user;
+  final ValueChanged<int> onUnreadCountChanged;
   @override
   State<ChatPage> createState() => _ChatPageState();
 }
@@ -3620,6 +3689,9 @@ class _ChatPageState extends State<ChatPage> {
           conversations = r['conversations'] as List;
           loading = false;
         });
+        widget.onUnreadCountChanged(
+          unreadCountFromConversations(conversations),
+        );
       }
     } catch (error) {
       if (mounted) {
@@ -3729,6 +3801,8 @@ class ChatListTile extends StatelessWidget {
     final last = messages.isEmpty
         ? null
         : messages.last as Map<String, dynamic>;
+    final unreadCount =
+        int.tryParse('${conversation['unread_count'] ?? 0}') ?? 0;
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       leading: CircleAvatar(
@@ -3753,7 +3827,12 @@ class ChatListTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: const Icon(Icons.chevron_right),
+      trailing: unreadCount > 0
+          ? Badge(
+              label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
+              child: const Icon(Icons.chevron_right),
+            )
+          : const Icon(Icons.chevron_right),
       onTap: onTap,
     );
   }

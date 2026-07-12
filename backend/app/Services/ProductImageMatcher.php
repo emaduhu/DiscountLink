@@ -8,7 +8,8 @@ use Illuminate\Support\Facades\Http;
 
 class ProductImageMatcher
 {
-    private const MAX_MATCH_DISTANCE = 0.16;
+    private const STRONG_MATCH_DISTANCE = 0.16;
+    private const MAX_MATCH_DISTANCE = 0.17;
 
     /**
      * @var array<string, array<int, array{
@@ -36,12 +37,15 @@ class ProductImageMatcher
 
         return $products
             ->map(function (Product $product) use ($query) {
-                $score = $this->bestProductScore($query, $product);
-                if ($score === null || $score > self::MAX_MATCH_DISTANCE) {
+                $match = $this->bestProductMatch($query, $product);
+                if ($match === null || $match['score'] > self::MAX_MATCH_DISTANCE) {
                     return null;
                 }
+                $score = $match['score'];
                 $product->setAttribute('image_match_score', round($score, 4));
-                $product->setAttribute('image_match_percent', max(0, min(100, (int) round((1 - ($score / self::MAX_MATCH_DISTANCE)) * 100))));
+                $product->setAttribute('image_match_percent', max(0, min(100, (int) round((1 - ($score / self::STRONG_MATCH_DISTANCE)) * 100))));
+                $product->setAttribute('image_match_source', $match['source']);
+                $product->setAttribute('image_match_compared_images', $match['compared_images']);
 
                 return $product;
             })
@@ -53,17 +57,41 @@ class ProductImageMatcher
 
     /**
      * @param  array<int, array{histogram: array<int, float>, gray: array<int, float>, grid: array<int, float>, luminance: array<int, float>, edge: array<int, float>, hash: array<int, int>, average_hash: array<int, int>}>  $query
+     * @return array{score: float, source: string, compared_images: int}|null
      */
-    private function bestProductScore(array $query, Product $product): ?float
+    private function bestProductMatch(array $query, Product $product): ?array
     {
-        $scores = collect($product->images ?? [])
-            ->map(fn ($source) => $this->resolveImagePath((string) $source))
-            ->filter()
-            ->map(fn (string $path) => $this->fingerprints($path))
-            ->filter(fn (array $fingerprints) => $fingerprints !== [])
-            ->map(fn (array $candidate) => $this->distance($query, $candidate));
+        $best = null;
+        $comparedImages = 0;
 
-        return $scores->isEmpty() ? null : $scores->min();
+        foreach (($product->images ?? []) as $source) {
+            $source = (string) $source;
+            $path = $this->resolveImagePath($source);
+            if (! $path) {
+                continue;
+            }
+
+            $candidate = $this->fingerprints($path);
+            if ($candidate === []) {
+                continue;
+            }
+
+            $comparedImages++;
+            $score = $this->distance($query, $candidate);
+            if ($best === null || $score < $best['score']) {
+                $best = [
+                    'score' => $score,
+                    'source' => $source,
+                    'compared_images' => $comparedImages,
+                ];
+            }
+        }
+
+        if ($best !== null) {
+            $best['compared_images'] = $comparedImages;
+        }
+
+        return $best;
     }
 
     private function resolveImagePath(string $source): ?string
