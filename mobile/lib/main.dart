@@ -1418,13 +1418,16 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   final code = TextEditingController();
   final emailCode = TextEditingController();
+  final newPhone = TextEditingController();
   bool sent = false;
   bool emailSent = false;
   bool loading = false;
+  bool phoneChangeLoading = false;
   bool emailLoading = false;
   String otpProvider = 'beem';
   String? firebaseVerificationId;
   String? visiblePhoneCode;
+  String? localPendingPhone;
 
   @override
   void initState() {
@@ -1437,6 +1440,9 @@ class _ProfilePageState extends State<ProfilePage> {
         sent = true;
       }
     }
+    newPhone.text =
+        '${widget.user['pending_phone'] ?? widget.user['phone'] ?? ''}'.trim();
+    localPendingPhone = '${widget.user['pending_phone'] ?? ''}'.trim();
     loadProvider();
   }
 
@@ -1444,7 +1450,22 @@ class _ProfilePageState extends State<ProfilePage> {
   void dispose() {
     code.dispose();
     emailCode.dispose();
+    newPhone.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant ProfilePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final nextPhone =
+        '${widget.user['pending_phone'] ?? widget.user['phone'] ?? ''}'.trim();
+    final previousPhone =
+        '${oldWidget.user['pending_phone'] ?? oldWidget.user['phone'] ?? ''}'
+            .trim();
+    if (nextPhone != previousPhone && newPhone.text.trim() == previousPhone) {
+      newPhone.text = nextPhone;
+    }
+    localPendingPhone = '${widget.user['pending_phone'] ?? ''}'.trim();
   }
 
   Future<void> loadProvider() async {
@@ -1457,7 +1478,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> sendOtp() async {
     setState(() => loading = true);
     try {
-      final phone = '${widget.user['phone'] ?? ''}'.trim();
+      final phone = verificationPhone();
       if (phone.isEmpty) {
         throw Exception(
           tx('Add a phone number first.', 'Weka namba ya simu kwanza.'),
@@ -1519,10 +1540,18 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> verifyFirebaseToken(String idToken) async {
     final r = await widget.client.post('/otp/verify', {
-      'phone': widget.user['phone'],
+      'phone': verificationPhone(),
       'firebase_id_token': idToken,
     });
     widget.onUserChanged(r['user'] as Map<String, dynamic>);
+    if (mounted) {
+      setState(() {
+        localPendingPhone = null;
+        sent = false;
+        visiblePhoneCode = null;
+        code.clear();
+      });
+    }
   }
 
   Future<void> verifyOtp() async {
@@ -1545,15 +1574,68 @@ class _ProfilePageState extends State<ProfilePage> {
         await verifyFirebaseToken(idToken);
       } else {
         final r = await widget.client.post('/otp/verify', {
-          'phone': widget.user['phone'],
+          'phone': verificationPhone(),
           'code': code.text.trim(),
         });
         widget.onUserChanged(r['user'] as Map<String, dynamic>);
+        if (mounted) {
+          setState(() {
+            localPendingPhone = null;
+            sent = false;
+            visiblePhoneCode = null;
+            code.clear();
+          });
+        }
       }
     } catch (error) {
       if (mounted) showError(context, error);
     } finally {
       if (mounted) setState(() => loading = false);
+    }
+  }
+
+  String verificationPhone() =>
+      '${localPendingPhone?.isNotEmpty == true ? localPendingPhone : widget.user['pending_phone'] ?? widget.user['phone'] ?? ''}'
+          .trim();
+
+  Future<void> startPhoneChange() async {
+    final phone = newPhone.text.trim();
+    if (phone.isEmpty) {
+      showError(
+        context,
+        Exception(
+          tx('Enter the new phone number.', 'Weka namba mpya ya simu.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => phoneChangeLoading = true);
+    try {
+      final r = await widget.client.put('/me', {'phone': phone});
+      widget.onUserChanged(r['user'] as Map<String, dynamic>);
+      if (!mounted) return;
+      setState(() {
+        localPendingPhone = phone;
+        visiblePhoneCode = r['phone_code']?.toString();
+        if (visiblePhoneCode != null && visiblePhoneCode!.isNotEmpty) {
+          code.text = visiblePhoneCode!;
+        } else {
+          code.clear();
+        }
+        sent = r['phone_otp_sent'] == true || visiblePhoneCode != null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${r['message'] ?? tx('Phone change started.', 'Mabadiliko ya simu yameanza.')}',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => phoneChangeLoading = false);
     }
   }
 
@@ -1601,6 +1683,10 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     final phoneVerified = widget.user['phone_verified_at'] != null;
     final emailVerified = widget.user['email_verified_at'] != null;
+    final pendingPhone =
+        '${localPendingPhone?.isNotEmpty == true ? localPendingPhone : widget.user['pending_phone'] ?? ''}'
+            .trim();
+    final hasPendingPhone = pendingPhone.isNotEmpty;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
@@ -1685,6 +1771,12 @@ class _ProfilePageState extends State<ProfilePage> {
                 title: tx('Phone', 'Simu'),
                 value: widget.user['phone'] ?? '',
               ),
+              if (hasPendingPhone)
+                ProfileLine(
+                  icon: Icons.pending_actions_outlined,
+                  title: tx('Pending phone', 'Simu inayosubiri'),
+                  value: pendingPhone,
+                ),
               ProfileLine(
                 icon: Icons.badge_outlined,
                 title: tx('NIDA number', 'Namba ya NIDA'),
@@ -1765,21 +1857,47 @@ class _ProfilePageState extends State<ProfilePage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                phoneVerified
+                hasPendingPhone
+                    ? tx('Verify new phone', 'Thibitisha simu mpya')
+                    : phoneVerified
                     ? tx('Phone verified', 'Simu imethibitishwa')
                     : '${tx('Verify phone with', 'Thibitisha simu kwa')} ${otpProviderLabel(otpProvider)}',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 10),
-              if (!phoneVerified) ...[
+              Field(
+                controller: newPhone,
+                label: tx('New phone number', 'Namba mpya ya simu'),
+                icon: Icons.phone_android_outlined,
+                keyboard: TextInputType.phone,
+              ),
+              FilledButton.icon(
+                onPressed: phoneChangeLoading ? null : startPhoneChange,
+                icon: const Icon(Icons.swap_calls_outlined),
+                label: Text(
+                  phoneChangeLoading
+                      ? tx('Sending OTP...', 'Inatuma OTP...')
+                      : tx(
+                          'Change phone and send OTP',
+                          'Badili simu na tuma OTP',
+                        ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (!phoneVerified || hasPendingPhone) ...[
                 VerificationStatusLine(
                   sent: sent,
                   visibleCode: visiblePhoneCode,
-                  destination: widget.user['phone'] ?? '',
-                  pendingText: tx(
-                    'Phone is pending. Send an OTP to verify this account.',
-                    'Simu haijathibitishwa. Tuma OTP kuthibitisha akaunti.',
-                  ),
+                  destination: verificationPhone(),
+                  pendingText: hasPendingPhone
+                      ? tx(
+                          'New phone is pending. Verify it before it replaces the current number.',
+                          'Simu mpya inasubiri. Ithibitishe kabla haijachukua nafasi ya namba ya sasa.',
+                        )
+                      : tx(
+                          'Phone is pending. Send an OTP to verify this account.',
+                          'Simu haijathibitishwa. Tuma OTP kuthibitisha akaunti.',
+                        ),
                 ),
                 const SizedBox(height: 8),
                 FilledButton.icon(
@@ -1807,7 +1925,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     'Uthibitishaji wa simu umekamilika.',
                   ),
                 ),
-              if (!phoneVerified) ...[
+              if (!phoneVerified || hasPendingPhone) ...[
                 FilledButton(
                   onPressed: loading ? null : verifyOtp,
                   child: Text(

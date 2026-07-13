@@ -219,11 +219,13 @@ class AuthController extends Controller
             $attributes['name'] = $data['full_name'];
         }
         if (! empty($data['phone'])) {
-            $existingPhone = User::where('phone', $data['phone'])
-                ->when($user, fn ($query) => $query->where('id', '!=', $user->id))
-                ->exists();
-            abort_if($existingPhone, 422, 'The phone number has already been registered.');
-            $attributes['phone'] = $data['phone'];
+            if (! $user || ! $user->phone || $user->phone === $data['phone']) {
+                $this->abortIfPhoneTaken($data['phone'], $user);
+                $attributes['phone'] = $data['phone'];
+            } else {
+                $this->abortIfPhoneTaken($data['phone'], $user);
+                $attributes['pending_phone'] = $data['phone'];
+            }
         }
         if (! empty($data['nida_number'])) {
             $existingNida = User::where('nida_number', $data['nida_number'])
@@ -237,7 +239,11 @@ class AuthController extends Controller
         }
 
         $user = User::updateOrCreate(['email' => $email], $attributes);
-        $phoneOtp = $isNewUser ? $this->sendPhoneOtp($user, $otp) : ['sent' => false, 'code' => null];
+        $phoneOtp = match (true) {
+            $isNewUser => $this->sendPhoneOtp($user, $otp),
+            ! empty($attributes['pending_phone']) => $this->sendPhoneOtpTo($user, $attributes['pending_phone'], $otp),
+            default => ['sent' => false, 'code' => null],
+        };
 
         return response()->json([
             'token' => $tokens->issue($user),
@@ -289,6 +295,7 @@ class AuthController extends Controller
         ]);
 
         $data = $request->validate(['phone' => ['required', 'string', 'max:30']]);
+        $this->abortUnlessVerifiablePhone($request->user(), $data['phone']);
         if (! $otp->shouldCreateBackendOtp()) {
             return response()->json([
                 'message' => 'Use Firebase phone authentication.',
@@ -347,7 +354,7 @@ class AuthController extends Controller
 
         if ($otp->activeProvider() === 'firebase') {
             $firebase->verifyPhoneToken($data['firebase_id_token'], $data['phone']);
-            $request->user()->update(['phone' => $data['phone'], 'phone_verified_at' => now()]);
+            $this->markPhoneVerified($request->user(), $data['phone']);
 
             return response()->json(['message' => 'Phone verified.', 'user' => $request->user()->fresh()]);
         }
@@ -356,7 +363,7 @@ class AuthController extends Controller
         abort_if(! $otp || $otp->expires_at->isPast() || ! Hash::check($data['code'], $otp->code_hash), 422, 'Invalid or expired OTP.');
 
         $otp->update(['verified_at' => now()]);
-        $request->user()->update(['phone' => $data['phone'], 'phone_verified_at' => now()]);
+        $this->markPhoneVerified($request->user(), $data['phone']);
 
         return response()->json(['message' => 'Phone verified.', 'user' => $request->user()->fresh()]);
     }
@@ -366,17 +373,51 @@ class AuthController extends Controller
         return response()->json(['user' => $request->user()]);
     }
 
-    public function updateProfile(Request $request): JsonResponse
+    public function updateProfile(Request $request, OtpProviderService $otp): JsonResponse
     {
+        $request->merge([
+            'phone' => $request->has('phone') ? $this->normalizePhone((string) $request->input('phone', '')) : null,
+        ]);
+
         $data = $request->validate([
             'address' => ['nullable', 'string', 'max:255'],
+            'phone' => ['nullable', 'string', 'max:30'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
         ]);
 
-        $request->user()->update($data);
+        $user = $request->user();
+        $phoneOtp = ['sent' => false, 'code' => null];
+        $phoneChanged = false;
 
-        return response()->json(['user' => $request->user()->fresh()]);
+        if (array_key_exists('phone', $data)) {
+            $phone = $data['phone'];
+            unset($data['phone']);
+
+            if ($phone && $phone !== $user->phone) {
+                $this->abortIfPhoneTaken($phone, $user);
+                $user->update(['pending_phone' => $phone]);
+                $phoneOtp = $this->sendPhoneOtpTo($user, $phone, $otp);
+                $phoneChanged = true;
+            } elseif ($phone === $user->phone && $user->pending_phone) {
+                $user->update(['pending_phone' => null]);
+            }
+        }
+
+        if ($data !== []) {
+            $user->update($data);
+        }
+
+        return response()->json([
+            'message' => $phoneChanged
+                ? 'Phone change started. Verify the OTP sent to the new number.'
+                : 'Profile updated.',
+            'user' => $user->fresh(),
+            'phone_change_started' => $phoneChanged,
+            'phone_otp_sent' => $phoneOtp['sent'],
+            'phone_code' => $phoneOtp['code'],
+            'otp_provider' => $otp->activeProvider(),
+        ]);
     }
 
     public function updateFcm(Request $request): JsonResponse
@@ -424,14 +465,26 @@ class AuthController extends Controller
             return ['sent' => false, 'code' => null];
         }
 
+        return $this->sendPhoneOtpTo($user, $user->phone, $otp);
+    }
+
+    /**
+     * @return array{sent: bool, code: string|null}
+     */
+    private function sendPhoneOtpTo(User $user, string $phone, OtpProviderService $otp): array
+    {
+        if ($otp->activeProvider() === 'firebase') {
+            return ['sent' => false, 'code' => null];
+        }
+
         $code = (string) random_int(100000, 999999);
         $exposedCode = $this->exposedVerificationCode($code);
 
         try {
-            $reference = $otp->send($user->phone, $code);
+            $reference = $otp->send($phone, $code);
             PhoneOtp::create([
                 'user_id' => $user->id,
-                'phone' => $user->phone,
+                'phone' => $phone,
                 'code_hash' => $otp->hashCode($code),
                 'provider_reference' => $reference,
                 'expires_at' => now()->addMinutes(10),
@@ -441,7 +494,7 @@ class AuthController extends Controller
         } catch (\Throwable $error) {
             Log::warning('DiscountLink phone OTP could not be sent.', [
                 'user_id' => $user->id,
-                'phone' => $user->phone,
+                'phone' => $phone,
                 'provider' => $otp->activeProvider(),
                 'error' => $error->getMessage(),
             ]);
@@ -473,6 +526,48 @@ class AuthController extends Controller
     private function normalizePhone(string $phone): string
     {
         return preg_replace('/[\s-]+/', '', trim($phone)) ?? '';
+    }
+
+    private function abortUnlessVerifiablePhone(User $user, string $phone): void
+    {
+        $phone = $this->normalizePhone($phone);
+        $current = $this->normalizePhone((string) $user->phone);
+        $pending = $this->normalizePhone((string) $user->pending_phone);
+
+        abort_unless($phone === $current || ($pending !== '' && $phone === $pending), 422, 'Start the phone number change before requesting an OTP for this number.');
+    }
+
+    private function abortIfPhoneTaken(string $phone, ?User $user = null): void
+    {
+        $taken = User::where(function ($query) use ($phone) {
+            $query->where('phone', $phone)->orWhere('pending_phone', $phone);
+        })
+            ->when($user?->id, fn ($query, $id) => $query->where('id', '!=', $id))
+            ->exists();
+
+        abort_if($taken, 422, 'The phone number has already been registered.');
+    }
+
+    private function markPhoneVerified(User $user, string $phone): void
+    {
+        $phone = $this->normalizePhone($phone);
+        $this->abortUnlessVerifiablePhone($user, $phone);
+
+        if ($phone === $this->normalizePhone((string) $user->pending_phone)) {
+            $this->abortIfPhoneTaken($phone, $user);
+            $user->update([
+                'phone' => $phone,
+                'pending_phone' => null,
+                'phone_verified_at' => now(),
+            ]);
+
+            return;
+        }
+
+        $user->update([
+            'phone_verified_at' => now(),
+            'pending_phone' => null,
+        ]);
     }
 
     private function sendRawEmail(User $user, string $subject, string $body, string $failureMessage): bool

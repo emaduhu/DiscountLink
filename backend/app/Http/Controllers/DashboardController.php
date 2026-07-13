@@ -253,6 +253,8 @@ class DashboardController extends Controller
                 'products' => Product::count(),
                 'orders' => Order::count(),
                 'gmv' => Order::whereNotNull('paid_at')->sum('grand_total'),
+                'registration_fee' => 'TZS '.number_format((float) AppSetting::get('shop_registration_fee_amount', '0'), 2),
+                'service_fee' => number_format((float) AppSetting::get('service_fee_percentage', '0'), 2).'%',
             ],
             'orders' => Order::with('buyer', 'seller', 'shop', 'deliveryAssignment.deliverer')->latest()->limit(25)->get(),
             'deliveries' => DeliveryAssignment::with('order', 'deliverer')->latest()->limit(25)->get(),

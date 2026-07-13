@@ -1,5 +1,5 @@
-Version 1.0.2
-- Added unread chat badges on the Chat tab and conversation list.
-- Improved phone OTP sending and verification feedback.
-- Reduced visible refresh flicker on deliverer order updates.
-- Improved product image matching across all product photos.
+Version 1.0.3
+- Added verified phone number change with OTP confirmation for the new number.
+- Added seller shop registration fees through ClickPesa USSD.
+- Added configurable checkout service fee percentage from products total.
+- Improved payment and fee visibility in the backend dashboard.
