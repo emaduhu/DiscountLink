@@ -1,5 +1,5 @@
-Version 1.0.3
-- Added verified phone number change with OTP confirmation for the new number.
-- Added seller shop registration fees through ClickPesa USSD.
-- Added configurable checkout service fee percentage from products total.
-- Improved payment and fee visibility in the backend dashboard.
+Version 1.0.4
+- Added deliverer availability toggle for new delivery requests.
+- Assigns new delivery requests to the nearest available deliverer when location is available.
+- Added delivery completion confirmation and loading state while payments are released.
+- Improved delivery list refresh and updating indicators.

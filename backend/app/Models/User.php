@@ -12,7 +12,7 @@ use Illuminate\Notifications\Notifiable;
 
 #[Fillable([
     'role', 'name', 'email', 'google_id', 'email_verified_at', 'password', 'phone', 'pending_phone', 'phone_verified_at',
-    'nida_number', 'address', 'latitude', 'longitude', 'fcm_token', 'is_active',
+    'nida_number', 'address', 'latitude', 'longitude', 'fcm_token', 'is_active', 'is_available',
 ])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
@@ -27,6 +27,7 @@ class User extends Authenticatable
             'phone_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'is_available' => 'boolean',
         ];
     }
 

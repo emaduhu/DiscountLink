@@ -52,6 +52,7 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
     Route::get('/orders/active', [OrderController::class, 'active']);
 
     Route::get('/deliveries', [DeliveryController::class, 'available']);
+    Route::post('/deliverer/availability', [DeliveryController::class, 'updateAvailability']);
     Route::post('/deliveries/{assignment}/accept', [DeliveryController::class, 'accept']);
     Route::post('/deliveries/{assignment}/location', [DeliveryController::class, 'updateLocation']);
     Route::post('/deliveries/{assignment}/complete', [DeliveryController::class, 'complete']);

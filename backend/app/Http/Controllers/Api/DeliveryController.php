@@ -16,9 +16,18 @@ class DeliveryController extends Controller
     public function available(Request $request): JsonResponse
     {
         abort_unless($request->user()->role === 'deliverer', 403);
+        $isAvailable = (bool) $request->user()->is_available;
         $jobs = DeliveryAssignment::with('order.items', 'order.buyer', 'order.shop', 'deliverer')
             ->whereIn('status', ['broadcast', 'accepted'])
-            ->where(fn ($query) => $query->whereNull('deliverer_id')->orWhere('deliverer_id', $request->user()->id))
+            ->where(function ($query) use ($request, $isAvailable) {
+                $query->where(fn ($builder) => $builder->where('status', 'accepted')->where('deliverer_id', $request->user()->id));
+
+                if ($isAvailable) {
+                    $query->orWhere(fn ($builder) => $builder
+                        ->where('status', 'broadcast')
+                        ->where(fn ($nested) => $nested->whereNull('deliverer_id')->orWhere('deliverer_id', $request->user()->id)));
+                }
+            })
             ->latest()
             ->get();
 
@@ -37,7 +46,27 @@ class DeliveryController extends Controller
             $buyer->makeHidden(['phone', 'email']);
         });
 
-        return response()->json(['jobs' => $jobs]);
+        return response()->json([
+            'jobs' => $jobs,
+            'is_available' => $isAvailable,
+        ]);
+    }
+
+    public function updateAvailability(Request $request): JsonResponse
+    {
+        abort_unless($request->user()->role === 'deliverer', 403);
+
+        $data = $request->validate([
+            'is_available' => ['required', 'boolean'],
+        ]);
+
+        $request->user()->update(['is_available' => $data['is_available']]);
+
+        return response()->json([
+            'message' => $data['is_available'] ? 'You are available for delivery jobs.' : 'You are unavailable for new delivery jobs.',
+            'user' => $request->user()->fresh(),
+            'is_available' => (bool) $request->user()->fresh()->is_available,
+        ]);
     }
 
     public function accept(Request $request, DeliveryAssignment $assignment): JsonResponse
@@ -45,6 +74,7 @@ class DeliveryController extends Controller
         abort_unless($request->user()->role === 'deliverer', 403);
         abort_if($assignment->deliverer_id && $assignment->deliverer_id !== $request->user()->id, 409, 'Delivery already accepted.');
         abort_unless($request->user()->phone_verified_at, 422, 'Verify your phone before accepting delivery jobs.');
+        abort_unless($request->user()->is_available || $assignment->deliverer_id === $request->user()->id, 422, 'Turn on availability before accepting new delivery jobs.');
         $assignment->update(['deliverer_id' => $request->user()->id, 'status' => 'accepted', 'accepted_at' => now()]);
         $assignment->order->update(['status' => 'out_for_delivery']);
         $assignment->load('order.items', 'order.buyer', 'deliverer');

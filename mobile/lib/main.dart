@@ -1296,7 +1296,12 @@ class _HomePageState extends State<HomePage> {
       if (role == 'buyer') OrdersPage(client: widget.client),
       if (role == 'seller')
         SellerPage(client: widget.client, user: widget.user),
-      if (role == 'deliverer') DeliveryPage(client: widget.client),
+      if (role == 'deliverer')
+        DeliveryPage(
+          client: widget.client,
+          user: widget.user,
+          onUserChanged: widget.onUserChanged,
+        ),
       ChatPage(
         client: widget.client,
         user: widget.user,
@@ -3777,8 +3782,15 @@ class _ProductEditDraft {
 }
 
 class DeliveryPage extends StatefulWidget {
-  const DeliveryPage({super.key, required this.client});
+  const DeliveryPage({
+    super.key,
+    required this.client,
+    required this.user,
+    required this.onUserChanged,
+  });
   final ApiClient client;
+  final Map<String, dynamic> user;
+  final ValueChanged<Map<String, dynamic>> onUserChanged;
   @override
   State<DeliveryPage> createState() => _DeliveryPageState();
 }
@@ -3789,10 +3801,17 @@ class _DeliveryPageState extends State<DeliveryPage> {
   Timer? locationTimer;
   bool sharingLocation = false;
   bool loading = true;
+  bool refreshing = false;
+  bool updatingAvailability = false;
+  bool isAvailable = true;
+  int? acceptingJobId;
+  int? completingJobId;
+  DateTime? lastRefreshedAt;
 
   @override
   void initState() {
     super.initState();
+    isAvailable = widget.user['is_available'] != false;
     load(showLoading: true);
     locationTimer = Timer.periodic(
       const Duration(seconds: 20),
@@ -3810,14 +3829,119 @@ class _DeliveryPageState extends State<DeliveryPage> {
   Future<void> load({bool showLoading = false, bool silent = false}) async {
     if (showLoading && mounted) {
       setState(() => loading = true);
+    } else if (!silent && mounted) {
+      setState(() => refreshing = true);
     }
     try {
       final r = await widget.client.get('/deliveries');
-      if (mounted) setState(() => jobs = r['jobs'] as List);
+      if (mounted) {
+        setState(() {
+          jobs = r['jobs'] as List;
+          isAvailable = r['is_available'] != false;
+          lastRefreshedAt = DateTime.now();
+        });
+      }
     } catch (error) {
       if (mounted && !silent) showError(context, error);
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted) {
+        setState(() {
+          loading = false;
+          refreshing = false;
+        });
+      }
+    }
+  }
+
+  Future<void> setAvailability(bool value) async {
+    setState(() {
+      updatingAvailability = true;
+      isAvailable = value;
+    });
+    try {
+      final r = await widget.client.post('/deliverer/availability', {
+        'is_available': value,
+      });
+      if (r['user'] is Map<String, dynamic>) {
+        widget.onUserChanged(r['user'] as Map<String, dynamic>);
+      }
+      if (!mounted) return;
+      setState(() => isAvailable = r['is_available'] != false);
+      await load(silent: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${r['message'] ?? 'Availability updated.'}')),
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() => isAvailable = !value);
+        showError(context, error);
+      }
+    } finally {
+      if (mounted) setState(() => updatingAvailability = false);
+    }
+  }
+
+  Future<void> acceptDelivery(Map<String, dynamic> job) async {
+    final id = job['id'] as int?;
+    if (id == null) return;
+    setState(() => acceptingJobId = id);
+    try {
+      await widget.client.post('/deliveries/$id/accept', {});
+      await load();
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => acceptingJobId = null);
+    }
+  }
+
+  Future<void> completeDelivery(Map<String, dynamic> job) async {
+    final id = job['id'] as int?;
+    if (id == null) return;
+    final deliveryCode = code.text.trim();
+    if (deliveryCode.length != 4 ||
+        deliveryCode.split('').toSet().length != 4) {
+      showError(context, 'Enter exactly 4 different digits from the buyer.');
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Complete delivery?'),
+        content: Text(
+          'Confirm buyer code $deliveryCode for order ${job['order']?['reference'] ?? ''}. This will mark the delivery complete and trigger seller and delivery payments.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Complete delivery'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => completingJobId = id);
+    try {
+      final r = await widget.client.post('/deliveries/$id/complete', {
+        'delivery_code': deliveryCode,
+      });
+      code.clear();
+      await load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${r['message'] ?? 'Delivery completed.'}')),
+      );
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => completingJobId = null);
     }
   }
 
@@ -3887,6 +4011,34 @@ class _DeliveryPageState extends State<DeliveryPage> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          SurfacePanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: isAvailable,
+                  onChanged: updatingAvailability ? null : setAvailability,
+                  title: const Text('Available for deliveries'),
+                  subtitle: Text(
+                    isAvailable
+                        ? 'New nearby delivery requests can be assigned to you.'
+                        : 'You will not receive new delivery requests.',
+                  ),
+                ),
+                if (updatingAvailability || refreshing || sharingLocation)
+                  const LinearProgressIndicator(minHeight: 3),
+                if (lastRefreshedAt != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Updated ${DateFormat('HH:mm:ss').format(lastRefreshedAt!)}',
+                    style: const TextStyle(color: kTextColor, fontSize: 12),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
           if (loading)
             const ListLoadingIndicator()
           else if (jobs.isEmpty)
@@ -3913,15 +4065,23 @@ class _DeliveryPageState extends State<DeliveryPage> {
                       ),
                       if (j['status'] == 'broadcast')
                         FilledButton.icon(
-                          onPressed: () async {
-                            await widget.client.post(
-                              '/deliveries/${j['id']}/accept',
-                              {},
-                            );
-                            await load();
-                          },
-                          icon: const Icon(Icons.check),
-                          label: const Text('Accept delivery'),
+                          onPressed: acceptingJobId == j['id']
+                              ? null
+                              : () => acceptDelivery(j),
+                          icon: acceptingJobId == j['id']
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.check),
+                          label: Text(
+                            acceptingJobId == j['id']
+                                ? 'Accepting...'
+                                : 'Accept delivery',
+                          ),
                         ),
                       if (j['status'] == 'accepted') ...[
                         const SizedBox(height: 8),
@@ -3994,25 +4154,22 @@ class _DeliveryPageState extends State<DeliveryPage> {
                           ],
                         ),
                         FilledButton.icon(
-                          onPressed: () async {
-                            final deliveryCode = code.text.trim();
-                            if (deliveryCode.length != 4 ||
-                                deliveryCode.split('').toSet().length != 4) {
-                              showError(
-                                context,
-                                'Enter exactly 4 different digits from the buyer.',
-                              );
-                              return;
-                            }
-                            await widget.client.post(
-                              '/deliveries/${j['id']}/complete',
-                              {'delivery_code': deliveryCode},
-                            );
-                            await load();
-                          },
-                          icon: const Icon(Icons.payments),
-                          label: const Text(
-                            'Confirm code and release payments',
+                          onPressed: completingJobId == j['id']
+                              ? null
+                              : () => completeDelivery(j),
+                          icon: completingJobId == j['id']
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.payments),
+                          label: Text(
+                            completingJobId == j['id']
+                                ? 'Completing delivery...'
+                                : 'Confirm code and release payments',
                           ),
                         ),
                       ],

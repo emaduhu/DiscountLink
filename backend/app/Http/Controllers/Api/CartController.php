@@ -171,12 +171,24 @@ class CartController extends Controller
         DiscountLink::whereIn('id', $items->pluck('discount_link_id')->filter()->all())->update(['used_at' => now()]);
         Cart::where('buyer_id', $request->user()->id)->delete();
 
+        $order->loadMissing('shop');
+        $assignment = $order->deliveryAssignment;
+        $nearestDeliverer = $this->nearestAvailableDeliverer($order);
+        if ($nearestDeliverer && $assignment) {
+            $assignment->update(['deliverer_id' => $nearestDeliverer->id]);
+            $order->setRelation('deliveryAssignment', $assignment->fresh('deliverer'));
+        }
+
         $assignmentId = (string) $order->deliveryAssignment?->id;
-        User::where('role', 'deliverer')
-            ->where('is_active', true)
-            ->whereNotNull('fcm_token')
-            ->get()
-            ->each(fn ($deliverer) => $fcm->sendToUser($deliverer, 'New delivery request', 'Open DiscountLink to accept order '.$order->reference.'.', [
+        $deliverers = $nearestDeliverer
+            ? collect([$nearestDeliverer])
+            : User::where('role', 'deliverer')
+                ->where('is_active', true)
+                ->where('is_available', true)
+                ->whereNotNull('fcm_token')
+                ->get();
+
+        $deliverers->each(fn ($deliverer) => $fcm->sendToUser($deliverer, 'New delivery request', 'Open DiscountLink to accept order '.$order->reference.'.', [
                 'type' => 'delivery_request',
                 'order_id' => (string) $order->id,
                 'delivery_assignment_id' => $assignmentId,
@@ -220,5 +232,34 @@ class CartController extends Controller
     private function serviceFeeTotal(float $subtotal, float $rate): float
     {
         return round($subtotal * ($rate / 100), 2);
+    }
+
+    private function nearestAvailableDeliverer(Order $order): ?User
+    {
+        $shopLatitude = $order->shop?->latitude;
+        $shopLongitude = $order->shop?->longitude;
+        if ($shopLatitude === null || $shopLongitude === null) {
+            return null;
+        }
+
+        return User::where('role', 'deliverer')
+            ->where('is_active', true)
+            ->where('is_available', true)
+            ->whereNotNull('fcm_token')
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->get()
+            ->sortBy(fn (User $deliverer) => $this->distanceSquared(
+                (float) $shopLatitude,
+                (float) $shopLongitude,
+                (float) $deliverer->latitude,
+                (float) $deliverer->longitude,
+            ))
+            ->first();
+    }
+
+    private function distanceSquared(float $latA, float $lngA, float $latB, float $lngB): float
+    {
+        return (($latA - $latB) ** 2) + (($lngA - $lngB) ** 2);
     }
 }
