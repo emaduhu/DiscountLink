@@ -9,11 +9,13 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:upgrader/upgrader.dart';
 
@@ -35,11 +37,86 @@ const kTextColor = Color(0xff757575);
 const kSurfaceColor = Color(0xfff6f7fb);
 const kDefaultPadding = 16.0;
 final appLanguage = ValueNotifier<AppLanguage>(AppLanguage.en);
+const biometricAuth = BiometricAuthService();
 
 enum AppLanguage { en, sw }
 
 String tx(String english, String swahili) =>
     appLanguage.value == AppLanguage.sw ? swahili : english;
+
+class BiometricAuthService {
+  const BiometricAuthService();
+
+  static const _storage = FlutterSecureStorage();
+  static const _tokenKey = 'discountlink.biometric.token';
+  static const _emailKey = 'discountlink.biometric.email';
+  static const _nameKey = 'discountlink.biometric.name';
+
+  Future<bool> canUseBiometrics() async {
+    if (kIsWeb) return false;
+    final auth = LocalAuthentication();
+    try {
+      return await auth.isDeviceSupported() && await auth.canCheckBiometrics;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<bool> hasSavedLogin() async {
+    return await _storage.read(key: _tokenKey) != null;
+  }
+
+  Future<String?> savedAccountLabel() async {
+    return await _storage.read(key: _nameKey) ??
+        await _storage.read(key: _emailKey);
+  }
+
+  Future<bool> isEnabledFor(Map<String, dynamic> user) async {
+    final token = await _storage.read(key: _tokenKey);
+    final savedEmail = await _storage.read(key: _emailKey);
+    final userEmail = '${user['email'] ?? ''}';
+
+    return token != null && savedEmail != null && savedEmail == userEmail;
+  }
+
+  Future<void> enable({
+    required String token,
+    required Map<String, dynamic> user,
+  }) async {
+    await _storage.write(key: _tokenKey, value: token);
+    await _storage.write(key: _emailKey, value: '${user['email'] ?? ''}');
+    await _storage.write(key: _nameKey, value: '${user['name'] ?? ''}');
+  }
+
+  Future<void> disable() async {
+    await _storage.delete(key: _tokenKey);
+    await _storage.delete(key: _emailKey);
+    await _storage.delete(key: _nameKey);
+  }
+
+  Future<bool> authenticate(String reason) async {
+    final auth = LocalAuthentication();
+    return auth.authenticate(
+      localizedReason: reason,
+      biometricOnly: false,
+      persistAcrossBackgrounding: true,
+    );
+  }
+
+  Future<String?> unlockToken() async {
+    final available = await canUseBiometrics();
+    if (!available) {
+      throw Exception(
+        'Biometric unlock is not available on this device. Set up fingerprint or face unlock first.',
+      );
+    }
+
+    final ok = await authenticate('Unlock DiscountLink');
+    if (!ok) return null;
+
+    return _storage.read(key: _tokenKey);
+  }
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -159,6 +236,11 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
       client.token = token;
       user = signedUser;
     });
+    biometricAuth.isEnabledFor(signedUser).then((enabled) {
+      if (enabled) {
+        biometricAuth.enable(token: token, user: signedUser);
+      }
+    });
     registerNotifications();
   }
 
@@ -270,6 +352,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
               ? LoginPage(client: client, onSignedIn: signedIn)
               : HomePage(
                   client: client,
+                  token: client.token ?? '',
                   user: user!,
                   onUserChanged: (u) => setState(() => user = u),
                   onSignOut: signedOut,
@@ -419,10 +502,28 @@ class ApiClient {
   Future<Map<String, dynamic>> _request(
     Future<http.Response> Function() call,
   ) async {
-    final response = await call();
-    final data = response.body.isEmpty
-        ? <String, dynamic>{}
-        : jsonDecode(response.body) as Map<String, dynamic>;
+    late final http.Response response;
+    try {
+      response = await call().timeout(const Duration(seconds: 30));
+    } on SocketException {
+      throw Exception(
+        'We could not reach DiscountLink. Check your internet connection and try again.',
+      );
+    } on IOException {
+      throw Exception(
+        'We could not reach DiscountLink. Check your internet connection and try again.',
+      );
+    } on TimeoutException {
+      throw Exception(
+        'DiscountLink is taking too long to respond. Please try again in a moment.',
+      );
+    } on http.ClientException {
+      throw Exception(
+        'We could not connect to DiscountLink right now. Please try again shortly.',
+      );
+    }
+
+    final data = decodeResponse(response);
     if (response.statusCode >= 400) {
       final errors = data['errors'];
       if (errors is Map && errors.isNotEmpty) {
@@ -437,6 +538,25 @@ class ApiClient {
       );
     }
     return data;
+  }
+
+  Map<String, dynamic> decodeResponse(http.Response response) {
+    if (response.body.isEmpty) return <String, dynamic>{};
+
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return <String, dynamic>{};
+    } on FormatException {
+      if (response.statusCode >= 500) {
+        throw Exception(
+          'DiscountLink is temporarily unavailable. Please try again shortly.',
+        );
+      }
+      throw Exception(
+        'DiscountLink returned an unexpected response. Please try again.',
+      );
+    }
   }
 
   Map<String, String> _headers({bool includeContentType = true}) => {
@@ -459,6 +579,27 @@ class _LoginPageState extends State<LoginPage> {
   final password = TextEditingController(text: 'password');
   String role = 'buyer';
   bool loading = false;
+  bool biometricAvailable = false;
+  bool biometricSaved = false;
+  String? biometricAccountLabel;
+
+  @override
+  void initState() {
+    super.initState();
+    loadBiometricState();
+  }
+
+  Future<void> loadBiometricState() async {
+    final available = await biometricAuth.canUseBiometrics();
+    final saved = await biometricAuth.hasSavedLogin();
+    final label = await biometricAuth.savedAccountLabel();
+    if (!mounted) return;
+    setState(() {
+      biometricAvailable = available;
+      biometricSaved = saved;
+      biometricAccountLabel = label;
+    });
+  }
 
   Future<String?> fcmToken() async {
     try {
@@ -565,6 +706,24 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> biometricLogin() async {
+    setState(() => loading = true);
+    try {
+      final token = await biometricAuth.unlockToken();
+      if (token == null || token.isEmpty) {
+        throw Exception('Biometric unlock was cancelled.');
+      }
+      widget.client.token = token;
+      final response = await widget.client.get('/me');
+      widget.onSignedIn(token, response['user'] as Map<String, dynamic>);
+    } catch (error) {
+      widget.client.token = null;
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -630,6 +789,25 @@ class _LoginPageState extends State<LoginPage> {
                           : tx('Login', 'Ingia'),
                     ),
                   ),
+                  if (biometricAvailable && biometricSaved) ...[
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: loading ? null : biometricLogin,
+                      icon: const Icon(Icons.fingerprint),
+                      label: Text(
+                        biometricAccountLabel == null ||
+                                biometricAccountLabel!.isEmpty
+                            ? tx(
+                                'Unlock with biometrics',
+                                'Fungua kwa alama ya kidole/uso',
+                              )
+                            : tx(
+                                'Unlock ${biometricAccountLabel!}',
+                                'Fungua ${biometricAccountLabel!}',
+                              ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -1226,11 +1404,13 @@ class HomePage extends StatefulWidget {
   const HomePage({
     super.key,
     required this.client,
+    required this.token,
     required this.user,
     required this.onUserChanged,
     required this.onSignOut,
   });
   final ApiClient client;
+  final String token;
   final Map<String, dynamic> user;
   final ValueChanged<Map<String, dynamic>> onUserChanged;
   final Future<void> Function() onSignOut;
@@ -1309,6 +1489,7 @@ class _HomePageState extends State<HomePage> {
       ),
       ProfilePage(
         client: widget.client,
+        token: widget.token,
         user: widget.user,
         onUserChanged: widget.onUserChanged,
         onSignOut: widget.onSignOut,
@@ -1408,11 +1589,13 @@ class ProfilePage extends StatefulWidget {
   const ProfilePage({
     super.key,
     required this.client,
+    required this.token,
     required this.user,
     required this.onUserChanged,
     required this.onSignOut,
   });
   final ApiClient client;
+  final String token;
   final Map<String, dynamic> user;
   final ValueChanged<Map<String, dynamic>> onUserChanged;
   final Future<void> Function() onSignOut;
@@ -1429,6 +1612,9 @@ class _ProfilePageState extends State<ProfilePage> {
   bool loading = false;
   bool phoneChangeLoading = false;
   bool emailLoading = false;
+  bool biometricAvailable = false;
+  bool biometricEnabled = false;
+  bool biometricLoading = false;
   String otpProvider = 'beem';
   String? firebaseVerificationId;
   String? visiblePhoneCode;
@@ -1449,6 +1635,7 @@ class _ProfilePageState extends State<ProfilePage> {
         '${widget.user['pending_phone'] ?? widget.user['phone'] ?? ''}'.trim();
     localPendingPhone = '${widget.user['pending_phone'] ?? ''}'.trim();
     loadProvider();
+    loadBiometricState();
   }
 
   @override
@@ -1478,6 +1665,47 @@ class _ProfilePageState extends State<ProfilePage> {
       final r = await widget.client.get('/otp/provider');
       if (mounted) setState(() => otpProvider = r['provider'] as String);
     } catch (_) {}
+  }
+
+  Future<void> loadBiometricState() async {
+    final available = await biometricAuth.canUseBiometrics();
+    final enabled = await biometricAuth.isEnabledFor(widget.user);
+    if (!mounted) return;
+    setState(() {
+      biometricAvailable = available;
+      biometricEnabled = enabled;
+    });
+  }
+
+  Future<void> setBiometricEnabled(bool value) async {
+    setState(() => biometricLoading = true);
+    try {
+      if (value) {
+        if (widget.token.isEmpty) {
+          throw Exception('Sign in again before enabling biometric login.');
+        }
+        final ok = await biometricAuth.authenticate(
+          'Confirm to enable biometric login for DiscountLink',
+        );
+        if (!ok) return;
+        await biometricAuth.enable(token: widget.token, user: widget.user);
+      } else {
+        await biometricAuth.disable();
+      }
+      if (!mounted) return;
+      setState(() => biometricEnabled = value);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            value ? 'Biometric login enabled.' : 'Biometric login disabled.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => biometricLoading = false);
+    }
   }
 
   Future<void> sendOtp() async {
@@ -1792,6 +2020,30 @@ class _ProfilePageState extends State<ProfilePage> {
                 title: tx('Address', 'Anwani'),
                 value: widget.user['address'] ?? '',
               ),
+              const Divider(height: 24),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                value: biometricEnabled,
+                onChanged: biometricAvailable && !biometricLoading
+                    ? setBiometricEnabled
+                    : null,
+                secondary: const Icon(Icons.fingerprint),
+                title: Text(
+                  tx('Biometric login', 'Kuingia kwa alama ya kidole/uso'),
+                ),
+                subtitle: Text(
+                  biometricAvailable
+                      ? tx(
+                          'Use fingerprint or face unlock on this device.',
+                          'Tumia alama ya kidole au uso kwenye kifaa hiki.',
+                        )
+                      : tx(
+                          'Set up fingerprint or face unlock on this device first.',
+                          'Sanidi alama ya kidole au uso kwenye kifaa hiki kwanza.',
+                        ),
+                ),
+              ),
+              if (biometricLoading) const LinearProgressIndicator(minHeight: 3),
             ],
           ),
         ),

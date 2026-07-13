@@ -1,5 +1,5 @@
-Version 1.0.4
-- Added deliverer availability toggle for new delivery requests.
-- Assigns new delivery requests to the nearest available deliverer when location is available.
-- Added delivery completion confirmation and loading state while payments are released.
-- Improved delivery list refresh and updating indicators.
+Version 1.0.5
+- Added optional biometric login with fingerprint or face unlock.
+- Added biometric setup and removal from the Profile screen.
+- Improved login recovery when the backend is temporarily unreachable.
+- Keeps saved biometric login tied to the enabled account on the device.
