@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -9,11 +10,9 @@ return new class extends Migration
     public function up(): void
     {
         if (Schema::getConnection()->getDriverName() === 'sqlite') {
-            Schema::table('conversations', function (Blueprint $table) {
-                $table->unsignedBigInteger('blocked_by_id')->nullable();
-                $table->timestamp('blocked_at')->nullable();
-                $table->text('block_reason')->nullable();
-            });
+            DB::statement('ALTER TABLE conversations ADD COLUMN blocked_by_id INTEGER NULL');
+            DB::statement('ALTER TABLE conversations ADD COLUMN blocked_at DATETIME NULL');
+            DB::statement('ALTER TABLE conversations ADD COLUMN block_reason TEXT NULL');
         } else {
             Schema::table('conversations', function (Blueprint $table) {
                 $table->foreignId('blocked_by_id')->nullable()->after('user_two_id')->constrained('users')->nullOnDelete();
