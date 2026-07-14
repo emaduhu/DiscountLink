@@ -1867,12 +1867,24 @@ class _ProfilePageState extends State<ProfilePage> {
           .trim();
 
   Future<void> startPhoneChange() async {
-    final phone = newPhone.text.trim();
+    final phone = newPhone.text.trim().replaceAll(RegExp(r'[\s-]+'), '');
     if (phone.isEmpty) {
       showError(
         context,
         Exception(
           tx('Enter the new phone number.', 'Weka namba mpya ya simu.'),
+        ),
+      );
+      return;
+    }
+    if (!RegExp(r'^\d{12}$').hasMatch(phone)) {
+      showError(
+        context,
+        Exception(
+          tx(
+            'Phone number must contain exactly 12 digits, for example 255700000001.',
+            'Namba ya simu lazima iwe na tarakimu 12, mfano 255700000001.',
+          ),
         ),
       );
       return;

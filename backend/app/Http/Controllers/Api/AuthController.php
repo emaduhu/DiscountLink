@@ -31,14 +31,14 @@ class AuthController extends Controller
             'role' => ['required', Rule::in(['seller', 'deliverer', 'buyer'])],
             'full_name' => ['required', 'string', 'max:160'],
             'email' => ['required', 'email', 'max:190', Rule::unique('users', 'email')],
-            'phone' => ['required', 'string', 'max:30', Rule::unique('users', 'phone')],
+            'phone' => ['required', 'string', 'regex:/^\d{12}$/', Rule::unique('users', 'phone')],
             'nida_number' => ['required', 'string', 'min:8', 'max:40', Rule::unique('users', 'nida_number')],
             'password' => ['required', 'string', 'min:6', 'max:120'],
             'address' => ['required', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'fcm_token' => ['nullable', 'string', 'max:255'],
-        ]);
+        ], $this->phoneValidationMessages());
 
         $user = User::create([
             'role' => $data['role'],
@@ -191,13 +191,13 @@ class AuthController extends Controller
             'firebase_id_token' => ['required_without_all:google_id_token,google_access_token', 'string'],
             'role' => ['required', Rule::in(['seller', 'deliverer', 'buyer'])],
             'full_name' => ['nullable', 'string', 'max:160'],
-            'phone' => ['nullable', 'string', 'max:30'],
+            'phone' => ['nullable', 'string', 'regex:/^\d{12}$/'],
             'nida_number' => ['nullable', 'string', 'min:8', 'max:40'],
             'address' => ['nullable', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'fcm_token' => ['nullable', 'string', 'max:255'],
-        ]);
+        ], $this->phoneValidationMessages());
 
         $profile = match (true) {
             ! empty($data['firebase_id_token']) => $firebase->verifyAuthToken($data['firebase_id_token']),
@@ -304,7 +304,9 @@ class AuthController extends Controller
             'phone' => $this->normalizePhone((string) $request->input('phone', '')),
         ]);
 
-        $data = $request->validate(['phone' => ['required', 'string', 'max:30']]);
+        $data = $request->validate([
+            'phone' => ['required', 'string', 'regex:/^\d{12}$/'],
+        ], $this->phoneValidationMessages());
         $this->abortUnlessVerifiablePhone($request->user(), $data['phone']);
         if (! $otp->shouldCreateBackendOtp()) {
             return response()->json([
@@ -353,14 +355,14 @@ class AuthController extends Controller
             'code' => $this->normalizeVerificationCode((string) $request->input('code', '')),
         ]);
 
-        $rules = ['phone' => ['required', 'string']];
+        $rules = ['phone' => ['required', 'string', 'regex:/^\d{12}$/']];
         if ($otp->activeProvider() === 'firebase') {
             $rules['firebase_id_token'] = ['required', 'string'];
         } else {
             $rules['code'] = ['required', 'string', 'size:6'];
         }
 
-        $data = $request->validate($rules);
+        $data = $request->validate($rules, $this->phoneValidationMessages());
 
         if ($otp->activeProvider() === 'firebase') {
             $firebase->verifyPhoneToken($data['firebase_id_token'], $data['phone']);
@@ -396,10 +398,10 @@ class AuthController extends Controller
         $data = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:160'],
             'address' => ['nullable', 'string', 'max:255'],
-            'phone' => ['nullable', 'string', 'max:30'],
+            'phone' => ['nullable', 'string', 'regex:/^\d{12}$/'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
-        ]);
+        ], $this->phoneValidationMessages());
 
         $user = $request->user();
         $phoneOtp = ['sent' => false, 'code' => null];
@@ -541,6 +543,16 @@ class AuthController extends Controller
     private function normalizePhone(string $phone): string
     {
         return preg_replace('/[\s-]+/', '', trim($phone)) ?? '';
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function phoneValidationMessages(): array
+    {
+        return [
+            'phone.regex' => 'Phone number must contain exactly 12 digits, for example 255700000001.',
+        ];
     }
 
     private function abortUnlessVerifiablePhone(User $user, string $phone): void

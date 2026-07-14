@@ -11,10 +11,12 @@ return new class extends Migration
             ['key' => 'beem_sender_id'],
             ['value' => 'VIGOURTECH', 'updated_at' => now(), 'created_at' => now()],
         );
+        cache()->forget('app_setting:beem_sender_id');
     }
 
     public function down(): void
     {
         DB::table('app_settings')->where('key', 'beem_sender_id')->delete();
+        cache()->forget('app_setting:beem_sender_id');
     }
 };
