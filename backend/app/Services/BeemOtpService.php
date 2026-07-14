@@ -36,7 +36,7 @@ class BeemOtpService
         $response = Http::withBasicAuth($apiKey, $secretKey)
             ->timeout(15)
             ->acceptJson()
-            ->post(rtrim($baseUrl, '/').'/sms/v1/send', [
+            ->post(rtrim($baseUrl, '/').'/v1/send', [
                 'source_addr' => $senderId,
                 'encoding' => 0,
                 'schedule_time' => '',

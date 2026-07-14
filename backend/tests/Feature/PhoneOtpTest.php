@@ -21,7 +21,7 @@ class PhoneOtpTest extends TestCase
         Config::set('services.discountlink.show_verification_codes', true);
 
         Http::fake([
-            'https://apisms.beem.africa/sms/v1/send' => Http::response(['request_id' => 'test-request'], 200),
+            'https://apisms.beem.africa/v1/send' => Http::response(['request_id' => 'test-request'], 200),
         ]);
 
         $user = User::factory()->create([
@@ -42,7 +42,7 @@ class PhoneOtpTest extends TestCase
             ->assertJsonPath('phone_otp_sent', true);
 
         Http::assertSent(function ($request) {
-            return $request->url() === 'https://apisms.beem.africa/sms/v1/send'
+            return $request->url() === 'https://apisms.beem.africa/v1/send'
                 && $request['source_addr'] === 'VIGOURTECH'
                 && $request['recipients'][0]['dest_addr'] === '255700000001';
         });
