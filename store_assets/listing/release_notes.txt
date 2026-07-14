@@ -1,11 +1,7 @@
-Version 1.0.9
-- Updated Beem Africa OTP SMS to use the VIGOURTECH sender ID.
-- Hardened Beem OTP delivery checks for real 12-digit phone destinations.
-- Improved phone verification code entry and phone number verification flow.
-- Added 12-digit phone number validation across app phone inputs.
-- Opened the phone verification flow immediately after registration.
-- Added profile name editing from the app.
-- Added frontend pagination support for products, orders, seller shops, deliveries, chats, contacts, and messages.
-- Added load-more controls and visible item totals where paginated lists are shown.
-- Improved the login screen layout and biometric login experience.
-- Kept the login screen full size while still allowing keyboard-friendly scrolling.
+Version 1.0.10
+- Enabled phone verification during registration.
+- Added six-digit OTP entry and verification for phone numbers.
+- Enforced exact 12-digit phone number validation across app phone inputs.
+- Improved OTP resend spacing to prevent overlap with the verification code input.
+- Updated Beem Africa SMS/OTP delivery to use the VIGOURTECH sender ID.
+- Hardened SMS delivery checks for real 12-digit phone destinations.
