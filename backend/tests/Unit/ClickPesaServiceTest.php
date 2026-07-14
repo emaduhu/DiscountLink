@@ -8,6 +8,7 @@ use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class ClickPesaServiceTest extends TestCase
@@ -50,5 +51,23 @@ class ClickPesaServiceTest extends TestCase
             && $request['currency'] === 'TZS'
             && $request['orderReference'] === 'DLPAY0000000025'
             && $request['phoneNumber'] === '255700000001');
+    }
+
+    public function test_it_rejects_production_ussd_push_when_clickpesa_is_not_configured(): void
+    {
+        app()->detectEnvironment(fn () => 'production');
+        Config::set('services.clickpesa.client_id', null);
+        Config::set('services.clickpesa.api_key', null);
+
+        $payment = Payment::forceCreate([
+            'type' => 'collection',
+            'status' => 'pending',
+            'amount' => 1500,
+            'phone' => '255700000001',
+        ]);
+
+        $this->expectException(ValidationException::class);
+
+        app(ClickPesaService::class)->requestUssdPush($payment);
     }
 }

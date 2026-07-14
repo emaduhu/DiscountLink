@@ -35,7 +35,9 @@ class ShopController extends Controller
             'address' => ['nullable', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
-            'registration_payment_phone' => ['nullable', 'string', 'max:30'],
+            'registration_payment_phone' => ['nullable', 'string', 'regex:/^\d{12}$/'],
+        ], [
+            'registration_payment_phone.regex' => 'Payment phone number must contain exactly 12 digits, for example 255700000001.',
         ]);
         $categories = collect($data['categories'] ?? [$data['category'] ?? null])
             ->filter()

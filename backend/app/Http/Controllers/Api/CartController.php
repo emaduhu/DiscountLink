@@ -132,7 +132,12 @@ class CartController extends Controller
     {
         abort_unless($request->user()->role === 'buyer', 403);
         abort_unless($request->user()->phone_verified_at, 422, 'Verify your phone before payment.');
-        $data = $request->validate(['delivery_address' => ['nullable', 'string', 'max:255'], 'phone' => ['nullable', 'string', 'max:30']]);
+        $data = $request->validate([
+            'delivery_address' => ['nullable', 'string', 'max:255'],
+            'phone' => ['nullable', 'string', 'regex:/^\d{12}$/'],
+        ], [
+            'phone.regex' => 'Payment phone number must contain exactly 12 digits, for example 255700000001.',
+        ]);
         $items = Cart::with(['product.shop', 'discountLink'])->where('buyer_id', $request->user()->id)->get();
         abort_if($items->isEmpty(), 422, 'Cart is empty.');
 

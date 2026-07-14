@@ -17,7 +17,11 @@ class ClickPesaService
     {
         $prefix = $payment->type === 'shop_registration_fee' ? 'DLSHOP' : 'DLPAY';
 
-        if (! $this->isConfigured() || app()->environment('local')) {
+        if (! $this->isConfigured()) {
+            $this->abortUnlessLocalFallbackAllowed('ClickPesa payment push is not configured. Set CLICKPESA_CLIENT_ID and CLICKPESA_API_KEY.');
+        }
+
+        if (! $this->isConfigured()) {
             $orderReference = $this->orderReference($payment, $prefix);
             $payment->update([
                 'provider_reference' => 'local-'.$payment->id,
@@ -91,6 +95,16 @@ class ClickPesaService
             'payload' => $storedPayload,
         ]);
 
+        Log::info('ClickPesa USSD push requested.', [
+            'payment_id' => $payment->id,
+            'order_reference' => $orderReference,
+            'provider_reference' => $payment->provider_reference,
+            'status' => $status,
+            'phone' => $payload['phoneNumber'],
+            'amount' => $payload['amount'],
+            'channel' => $this->firstData($initiate, ['channel', 'data.channel']),
+        ]);
+
         return [
             'reference' => $payment->provider_reference,
             'orderReference' => $orderReference,
@@ -102,7 +116,11 @@ class ClickPesaService
 
     public function disburse(Payment $payment, string $currency = 'TZS'): array
     {
-        if (! $this->isConfigured() || app()->environment('local')) {
+        if (! $this->isConfigured()) {
+            $this->abortUnlessLocalFallbackAllowed('ClickPesa disbursement is not configured. Set CLICKPESA_CLIENT_ID and CLICKPESA_API_KEY.');
+        }
+
+        if (! $this->isConfigured()) {
             $orderReference = $this->orderReference($payment, 'DLDISB');
             $payment->update([
                 'provider_reference' => 'local-disburse-'.$payment->id,
@@ -351,8 +369,24 @@ class ClickPesaService
     private function phone(string $phone): string
     {
         $phone = preg_replace('/[\s-]+/', '', trim($phone)) ?? '';
+        $phone = ltrim($phone, '+');
 
-        return ltrim($phone, '+');
+        if (! preg_match('/^\d{12}$/', $phone)) {
+            throw ValidationException::withMessages([
+                'phone' => 'Payment phone number must contain exactly 12 digits, for example 255700000001.',
+            ]);
+        }
+
+        return $phone;
+    }
+
+    private function abortUnlessLocalFallbackAllowed(string $message): void
+    {
+        if (app()->environment('local', 'testing')) {
+            return;
+        }
+
+        throw ValidationException::withMessages(['payment' => $message]);
     }
 
     private function orderReference(Payment $payment, string $prefix): string
