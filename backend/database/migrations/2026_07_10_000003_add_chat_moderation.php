@@ -21,17 +21,31 @@ return new class extends Migration
             });
         }
 
-        Schema::create('conversation_reports', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('conversation_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('reporter_id')->constrained('users')->cascadeOnDelete();
-            $table->foreignId('reported_user_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->string('reason');
-            $table->text('details')->nullable();
-            $table->string('status')->default('open')->index();
-            $table->timestamp('reviewed_at')->nullable();
-            $table->timestamps();
-        });
+        if (Schema::getConnection()->getDriverName() === 'sqlite') {
+            Schema::create('conversation_reports', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('conversation_id')->index();
+                $table->unsignedBigInteger('reporter_id')->index();
+                $table->unsignedBigInteger('reported_user_id')->nullable()->index();
+                $table->string('reason');
+                $table->text('details')->nullable();
+                $table->string('status')->default('open')->index();
+                $table->timestamp('reviewed_at')->nullable();
+                $table->timestamps();
+            });
+        } else {
+            Schema::create('conversation_reports', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('conversation_id')->constrained()->cascadeOnDelete();
+                $table->foreignId('reporter_id')->constrained('users')->cascadeOnDelete();
+                $table->foreignId('reported_user_id')->nullable()->constrained('users')->nullOnDelete();
+                $table->string('reason');
+                $table->text('details')->nullable();
+                $table->string('status')->default('open')->index();
+                $table->timestamp('reviewed_at')->nullable();
+                $table->timestamps();
+            });
+        }
     }
 
     public function down(): void
