@@ -14,6 +14,13 @@ class Payment extends Model
         return ['payload' => 'array'];
     }
 
+    public function canReceiveUssdPrompt(): bool
+    {
+        return in_array($this->type, ['collection', 'shop_registration_fee'], true)
+            && ! in_array($this->status, ['paid', 'success', 'completed'], true)
+            && filled($this->phone);
+    }
+
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);

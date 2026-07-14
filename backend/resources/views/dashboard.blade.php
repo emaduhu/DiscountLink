@@ -26,7 +26,9 @@
         </form>
     </div>
     @if(session('status'))<div class="flash">{{ session('status') }}</div>@endif
-    @php($pageOptions = [10, 25, 50, 100])
+    @php
+        $pageOptions = [10, 25, 50, 100];
+    @endphp
     <div class="layout">
         <aside class="side-menu" aria-label="Dashboard pages">
             <div class="side-title"><span class="label">Pages</span></div>
@@ -72,7 +74,9 @@
             <div class="chart-title"><h3>Users by Role</h3><div class="muted">{{ $stats['users'] }} total</div></div>
             <div class="segment-list">
                 @foreach($charts['usersByRole'] as $item)
-                    @php($percent = $stats['users'] ? round(($item['value'] / $stats['users']) * 100, 1) : 0)
+                    @php
+                        $percent = $stats['users'] ? round(($item['value'] / $stats['users']) * 100, 1) : 0;
+                    @endphp
                     <div class="segment-row"><div><div class="segment-meta"><span>{{ $item['label'] }}</span><span>{{ $percent }}%</span></div><div class="segment-track"><span class="segment-fill" style="width:{{ $percent }}%"></span></div></div><strong>{{ $item['value'] }}</strong></div>
                 @endforeach
             </div>
@@ -242,11 +246,6 @@
             <table>
                 <tr><th>Order / Shop</th><th>Type</th><th>Status</th><th>Amount</th><th>Phone</th><th>Provider Ref</th><th>Action</th></tr>
                 @forelse($payments as $payment)
-                @php
-                    $canResendPrompt = in_array($payment->type, ['collection', 'shop_registration_fee'], true)
-                        && ! in_array($payment->status, ['paid', 'success', 'completed'], true)
-                        && filled($payment->phone);
-                @endphp
                 <tr>
                     <td>{{ $payment->order?->reference ?? $payment->shop?->name ?? '-' }}@if($payment->shop)<div class="muted">Shop registration</div>@endif</td>
                     <td>{{ $payment->type }}</td>
@@ -255,7 +254,7 @@
                     <td>{{ $payment->phone }}</td>
                     <td>{{ $payment->provider_reference }}</td>
                     <td>
-                        @if($canResendPrompt)
+                        @if($payment->canReceiveUssdPrompt())
                         <form method="post" action="{{ route('dashboard.payments.ussd-push', $payment) }}">
                             @csrf
                             <button class="primary" type="submit">Resend prompt</button>
