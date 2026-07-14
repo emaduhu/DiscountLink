@@ -243,6 +243,24 @@ class DashboardController extends Controller
             return redirect()->guest(route('admin.login'));
         }
 
+        $usersPerPage = $this->perPage($request, 'users_per_page', 25);
+        $productsPerPage = $this->perPage($request, 'products_per_page', 25);
+        $reportsPerPage = $this->perPage($request, 'reports_per_page', 25);
+        $chatsPerPage = $this->perPage($request, 'chats_per_page', 25);
+        $notificationsPerPage = $this->perPage($request, 'notifications_per_page', 10);
+        $ordersPerPage = $this->perPage($request, 'orders_per_page', 25);
+        $deliveriesPerPage = $this->perPage($request, 'deliveries_per_page', 25);
+        $paymentsPerPage = $this->perPage($request, 'payments_per_page', 25);
+
+        $usersSearch = $this->search($request, 'users_q');
+        $productsSearch = $this->search($request, 'products_q');
+        $reportsSearch = $this->search($request, 'reports_q');
+        $chatsSearch = $this->search($request, 'chats_q');
+        $notificationsSearch = $this->search($request, 'notifications_q');
+        $ordersSearch = $this->search($request, 'orders_q');
+        $deliveriesSearch = $this->search($request, 'deliveries_q');
+        $paymentsSearch = $this->search($request, 'payments_q');
+
         return view('dashboard', [
             'stats' => [
                 'users' => User::count(),
@@ -256,14 +274,88 @@ class DashboardController extends Controller
                 'registration_fee' => 'TZS '.number_format((float) AppSetting::get('shop_registration_fee_amount', '0'), 2),
                 'service_fee' => number_format((float) AppSetting::get('service_fee_percentage', '0'), 2).'%',
             ],
-            'orders' => Order::with('buyer', 'seller', 'shop', 'deliveryAssignment.deliverer')->latest()->limit(25)->get(),
-            'deliveries' => DeliveryAssignment::with('order', 'deliverer')->latest()->limit(25)->get(),
-            'payments' => Payment::with('order', 'shop')->latest()->limit(25)->get(),
-            'users' => User::whereIn('role', ['buyer', 'seller', 'deliverer'])->latest()->limit(50)->get(),
-            'products' => Product::with(['shop', 'seller'])->latest()->limit(100)->get(),
-            'conversations' => Conversation::with(['userOne', 'userTwo', 'product', 'blocker'])->latest()->limit(50)->get(),
-            'conversationReports' => ConversationReport::with(['conversation.userOne', 'conversation.userTwo', 'reporter', 'reportedUser'])->latest()->limit(50)->get(),
-            'notifications' => NotificationBroadcast::latest()->limit(10)->get(),
+            'orders' => Order::with('buyer', 'seller', 'shop', 'deliveryAssignment.deliverer')
+                ->when($ordersSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
+                    ->where('reference', 'like', "%{$search}%")
+                    ->orWhere('status', 'like', "%{$search}%")
+                    ->orWhere('delivery_address', 'like', "%{$search}%")
+                    ->orWhereHas('buyer', fn ($userQuery) => $this->userSearch($userQuery, $search))
+                    ->orWhereHas('seller', fn ($userQuery) => $this->userSearch($userQuery, $search))
+                    ->orWhereHas('shop', fn ($shopQuery) => $shopQuery->where('name', 'like', "%{$search}%"))
+                    ->orWhereHas('deliveryAssignment.deliverer', fn ($userQuery) => $this->userSearch($userQuery, $search))))
+                ->latest()
+                ->paginate($ordersPerPage, ['*'], 'orders_page')
+                ->withQueryString(),
+            'deliveries' => DeliveryAssignment::with('order', 'deliverer')
+                ->when($deliveriesSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
+                    ->where('status', 'like', "%{$search}%")
+                    ->orWhereHas('order', fn ($orderQuery) => $orderQuery
+                        ->where('reference', 'like', "%{$search}%")
+                        ->orWhere('status', 'like', "%{$search}%")
+                        ->orWhere('delivery_address', 'like', "%{$search}%"))
+                    ->orWhereHas('deliverer', fn ($userQuery) => $this->userSearch($userQuery, $search))))
+                ->latest()
+                ->paginate($deliveriesPerPage, ['*'], 'deliveries_page')
+                ->withQueryString(),
+            'payments' => Payment::with('order', 'shop')
+                ->when($paymentsSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
+                    ->where('type', 'like', "%{$search}%")
+                    ->orWhere('status', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%")
+                    ->orWhere('provider_reference', 'like', "%{$search}%")
+                    ->orWhereHas('order', fn ($orderQuery) => $orderQuery->where('reference', 'like', "%{$search}%"))
+                    ->orWhereHas('shop', fn ($shopQuery) => $shopQuery->where('name', 'like', "%{$search}%"))))
+                ->latest()
+                ->paginate($paymentsPerPage, ['*'], 'payments_page')
+                ->withQueryString(),
+            'users' => User::whereIn('role', ['buyer', 'seller', 'deliverer'])
+                ->when($usersSearch, fn ($query, string $search) => $query->where(fn ($builder) => $this->userSearch($builder, $search)->orWhere('role', 'like', "%{$search}%")))
+                ->latest()
+                ->paginate($usersPerPage, ['*'], 'users_page')
+                ->withQueryString(),
+            'products' => Product::with(['shop', 'seller'])
+                ->when($productsSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
+                    ->where('name', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%")
+                    ->orWhereHas('shop', fn ($shopQuery) => $shopQuery
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhere('category', 'like', "%{$search}%"))
+                    ->orWhereHas('seller', fn ($userQuery) => $this->userSearch($userQuery, $search))))
+                ->latest()
+                ->paginate($productsPerPage, ['*'], 'products_page')
+                ->withQueryString(),
+            'conversations' => Conversation::with(['userOne', 'userTwo', 'product', 'blocker'])
+                ->when($chatsSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
+                    ->where('id', is_numeric($search) ? (int) $search : 0)
+                    ->orWhere('block_reason', 'like', "%{$search}%")
+                    ->orWhereHas('product', fn ($productQuery) => $productQuery->where('name', 'like', "%{$search}%"))
+                    ->orWhereHas('userOne', fn ($userQuery) => $this->userSearch($userQuery, $search))
+                    ->orWhereHas('userTwo', fn ($userQuery) => $this->userSearch($userQuery, $search))))
+                ->latest()
+                ->paginate($chatsPerPage, ['*'], 'chats_page')
+                ->withQueryString(),
+            'conversationReports' => ConversationReport::with(['conversation.userOne', 'conversation.userTwo', 'reporter', 'reportedUser'])
+                ->when($reportsSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
+                    ->where('reason', 'like', "%{$search}%")
+                    ->orWhere('details', 'like', "%{$search}%")
+                    ->orWhere('status', 'like', "%{$search}%")
+                    ->orWhereHas('reporter', fn ($userQuery) => $this->userSearch($userQuery, $search))
+                    ->orWhereHas('reportedUser', fn ($userQuery) => $this->userSearch($userQuery, $search))
+                    ->orWhereHas('conversation.userOne', fn ($userQuery) => $this->userSearch($userQuery, $search))
+                    ->orWhereHas('conversation.userTwo', fn ($userQuery) => $this->userSearch($userQuery, $search)))
+                )
+                ->latest()
+                ->paginate($reportsPerPage, ['*'], 'reports_page')
+                ->withQueryString(),
+            'notifications' => NotificationBroadcast::query()
+                ->when($notificationsSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
+                    ->where('type', 'like', "%{$search}%")
+                    ->orWhere('target_role', 'like', "%{$search}%")
+                    ->orWhere('title', 'like', "%{$search}%")
+                    ->orWhere('body', 'like', "%{$search}%")))
+                ->latest()
+                ->paginate($notificationsPerPage, ['*'], 'notifications_page')
+                ->withQueryString(),
             'settings' => [
                 'otp_provider' => AppSetting::get('otp_provider', config('services.otp.provider', 'beem')),
                 'beem_sender_id' => AppSetting::get('beem_sender_id', config('services.beem.sender_id')),
@@ -275,11 +367,53 @@ class DashboardController extends Controller
                 'service_fee_percentage' => AppSetting::get('service_fee_percentage', '0.00'),
             ],
             'shopCategories' => AppSetting::get('shop_categories', "Electronics\nFashion\nGroceries\nBooks\nArt\nHome\nOther"),
+            'filters' => [
+                'users_q' => $usersSearch,
+                'products_q' => $productsSearch,
+                'reports_q' => $reportsSearch,
+                'chats_q' => $chatsSearch,
+                'notifications_q' => $notificationsSearch,
+                'orders_q' => $ordersSearch,
+                'deliveries_q' => $deliveriesSearch,
+                'payments_q' => $paymentsSearch,
+            ],
+            'perPage' => [
+                'users_per_page' => $usersPerPage,
+                'products_per_page' => $productsPerPage,
+                'reports_per_page' => $reportsPerPage,
+                'chats_per_page' => $chatsPerPage,
+                'notifications_per_page' => $notificationsPerPage,
+                'orders_per_page' => $ordersPerPage,
+                'deliveries_per_page' => $deliveriesPerPage,
+                'payments_per_page' => $paymentsPerPage,
+            ],
         ]);
     }
 
     private function authorizeAdmin(): void
     {
         abort_unless(Auth::check() && Auth::user()->role === 'admin', 403);
+    }
+
+    private function perPage(Request $request, string $key, int $default): int
+    {
+        $value = (int) $request->query($key, $default);
+
+        return min(max($value, 5), 100);
+    }
+
+    private function search(Request $request, string $key): ?string
+    {
+        $value = trim((string) $request->query($key));
+
+        return $value === '' ? null : $value;
+    }
+
+    private function userSearch($query, string $search)
+    {
+        return $query
+            ->where('name', 'like', "%{$search}%")
+            ->orWhere('email', 'like', "%{$search}%")
+            ->orWhere('phone', 'like', "%{$search}%");
     }
 }

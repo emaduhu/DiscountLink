@@ -105,7 +105,15 @@ class ChatController extends Controller
                 $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role']),
                 $request->user()->id,
             ),
-            'messages' => $conversation->messages()->latest()->paginate($this->perPage($request, 50, 100)),
+            'messages' => $conversation->messages()
+                ->when(trim((string) $request->query('q')), fn ($query, string $search) => $query
+                    ->where(fn ($builder) => $builder
+                        ->where('body', 'like', "%{$search}%")
+                        ->orWhereHas('sender', fn ($senderQuery) => $senderQuery
+                            ->where('name', 'like', "%{$search}%")
+                            ->orWhere('email', 'like', "%{$search}%"))))
+                ->latest()
+                ->paginate($this->perPage($request, 50, 100)),
         ]);
     }
 

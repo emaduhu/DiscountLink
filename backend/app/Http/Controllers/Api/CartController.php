@@ -36,9 +36,23 @@ class CartController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $items = Cart::with(['product.shop', 'discountLink'])->where('buyer_id', $request->user()->id)->get();
-        $subtotal = $items->sum(fn ($item) => $this->cartUnitPrice($item) * $item->quantity);
-        $delivery = $items->sum(fn ($item) => $item->product->delivery_price * $item->quantity);
+        $itemsQuery = Cart::with(['product.shop', 'discountLink'])
+            ->where('buyer_id', $request->user()->id)
+            ->when(trim((string) $request->query('q')), fn ($query, string $search) => $query
+                ->where(fn ($builder) => $builder
+                    ->whereHas('product', fn ($productQuery) => $productQuery
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhere('description', 'like', "%{$search}%")
+                        ->orWhereHas('shop', fn ($shopQuery) => $shopQuery->where('name', 'like', "%{$search}%")))
+                    ->orWhereHas('discountLink', fn ($discountQuery) => $discountQuery->where('token', 'like', "%{$search}%"))));
+
+        $summaryItems = (clone $itemsQuery)->get();
+        $items = $this->shouldPaginate($request)
+            ? $itemsQuery->latest()->paginate($this->perPage($request))
+            : $summaryItems;
+
+        $subtotal = $summaryItems->sum(fn ($item) => $this->cartUnitPrice($item) * $item->quantity);
+        $delivery = $summaryItems->sum(fn ($item) => $item->product->delivery_price * $item->quantity);
         $serviceFeeRate = $this->serviceFeeRate();
         $serviceFee = $this->serviceFeeTotal($subtotal, $serviceFeeRate);
 
@@ -264,5 +278,15 @@ class CartController extends Controller
     private function distanceSquared(float $latA, float $lngA, float $latB, float $lngB): float
     {
         return (($latA - $latB) ** 2) + (($lngA - $lngB) ** 2);
+    }
+
+    private function shouldPaginate(Request $request): bool
+    {
+        return $request->hasAny(['page', 'per_page', 'paginate', 'q']);
+    }
+
+    private function perPage(Request $request, int $default = 20, int $max = 50): int
+    {
+        return min($max, max(1, (int) $request->query('per_page', $default)));
     }
 }
