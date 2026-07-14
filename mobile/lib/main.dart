@@ -2216,6 +2216,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         : tx('Send OTP', 'Tuma OTP'),
                   ),
                 ),
+                const SizedBox(height: 10),
                 Field(
                   controller: code,
                   label: tx(
