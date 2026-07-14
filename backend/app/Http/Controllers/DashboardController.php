@@ -266,6 +266,10 @@ class DashboardController extends Controller
         $ordersSearch = $this->search($request, 'orders_q');
         $deliveriesSearch = $this->search($request, 'deliveries_q');
         $paymentsSearch = $this->search($request, 'payments_q');
+        $serviceFeeRevenue = (float) Order::whereNotNull('paid_at')->sum('service_fee_total');
+        $registrationFeeRevenue = (float) Payment::where('type', 'shop_registration_fee')
+            ->whereIn('status', ['paid', 'success', 'completed'])
+            ->sum('amount');
 
         return view('dashboard', [
             'stats' => [
@@ -279,8 +283,10 @@ class DashboardController extends Controller
                 'gmv' => Order::whereNotNull('paid_at')->sum('grand_total'),
                 'registration_fee' => 'TZS '.number_format((float) AppSetting::get('shop_registration_fee_amount', '0'), 2),
                 'service_fee' => number_format((float) AppSetting::get('service_fee_percentage', '0'), 2).'%',
+                'service_fee_revenue' => 'TZS '.number_format($serviceFeeRevenue, 2),
+                'registration_fee_revenue' => 'TZS '.number_format($registrationFeeRevenue, 2),
             ],
-            'charts' => $this->dashboardCharts(),
+            'charts' => $this->dashboardCharts($serviceFeeRevenue, $registrationFeeRevenue),
             'orders' => Order::with('buyer', 'seller', 'shop', 'deliveryAssignment.deliverer')
                 ->when($ordersSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
                     ->where('reference', 'like', "%{$search}%")
@@ -425,7 +431,7 @@ class DashboardController extends Controller
             ->orWhere('phone', 'like', "%{$search}%");
     }
 
-    private function dashboardCharts(): array
+    private function dashboardCharts(float $serviceFeeRevenue, float $registrationFeeRevenue): array
     {
         $start = now()->subDays(13)->startOfDay();
         $orderRows = Order::query()
@@ -483,6 +489,10 @@ class DashboardController extends Controller
             'orderStatuses' => $this->chartSegments($orderStatuses),
             'deliveryStatuses' => $this->chartSegments($deliveryStatuses),
             'paymentStatuses' => $this->chartSegments($paymentStatuses),
+            'feeRevenue' => [
+                ['label' => 'Service fees', 'value' => $serviceFeeRevenue],
+                ['label' => 'Registration fees', 'value' => $registrationFeeRevenue],
+            ],
             'lowStock' => Product::query()
                 ->where('stock', '<=', 5)
                 ->orderBy('stock')
