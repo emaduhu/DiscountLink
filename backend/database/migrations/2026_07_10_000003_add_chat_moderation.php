@@ -8,11 +8,19 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('conversations', function (Blueprint $table) {
-            $table->foreignId('blocked_by_id')->nullable()->after('user_two_id')->constrained('users')->nullOnDelete();
-            $table->timestamp('blocked_at')->nullable()->after('blocked_by_id');
-            $table->text('block_reason')->nullable()->after('blocked_at');
-        });
+        if (Schema::getConnection()->getDriverName() === 'sqlite') {
+            Schema::table('conversations', function (Blueprint $table) {
+                $table->unsignedBigInteger('blocked_by_id')->nullable();
+                $table->timestamp('blocked_at')->nullable();
+                $table->text('block_reason')->nullable();
+            });
+        } else {
+            Schema::table('conversations', function (Blueprint $table) {
+                $table->foreignId('blocked_by_id')->nullable()->after('user_two_id')->constrained('users')->nullOnDelete();
+                $table->timestamp('blocked_at')->nullable()->after('blocked_by_id');
+                $table->text('block_reason')->nullable()->after('blocked_at');
+            });
+        }
 
         Schema::create('conversation_reports', function (Blueprint $table) {
             $table->id();
