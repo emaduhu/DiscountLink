@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -9,10 +10,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('orders', function (Blueprint $table) {
-            if (! Schema::hasColumn('orders', 'service_fee_rate')) {
+            if (! $this->hasColumn('orders', 'service_fee_rate')) {
                 $table->decimal('service_fee_rate', 5, 2)->default(0)->after('delivery_total');
             }
-            if (! Schema::hasColumn('orders', 'service_fee_total')) {
+            if (! $this->hasColumn('orders', 'service_fee_total')) {
                 $table->decimal('service_fee_total', 14, 2)->default(0)->after('service_fee_rate');
             }
         });
@@ -21,12 +22,22 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('orders', function (Blueprint $table) {
-            if (Schema::hasColumn('orders', 'service_fee_total')) {
+            if ($this->hasColumn('orders', 'service_fee_total')) {
                 $table->dropColumn('service_fee_total');
             }
-            if (Schema::hasColumn('orders', 'service_fee_rate')) {
+            if ($this->hasColumn('orders', 'service_fee_rate')) {
                 $table->dropColumn('service_fee_rate');
             }
         });
+    }
+
+    private function hasColumn(string $table, string $column): bool
+    {
+        if (Schema::getConnection()->getDriverName() !== 'sqlite') {
+            return Schema::hasColumn($table, $column);
+        }
+
+        return collect(DB::select("PRAGMA table_info({$table})"))
+            ->contains(fn (object $row): bool => $row->name === $column);
     }
 };

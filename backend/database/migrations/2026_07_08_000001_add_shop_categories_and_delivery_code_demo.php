@@ -10,7 +10,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('shops', function (Blueprint $table) {
-            if (! Schema::hasColumn('shops', 'categories')) {
+            if (! $this->hasColumn('shops', 'categories')) {
                 $table->json('categories')->nullable()->after('category');
             }
         });
@@ -27,7 +27,7 @@ return new class extends Migration
             });
 
         Schema::table('orders', function (Blueprint $table) {
-            if (! Schema::hasColumn('orders', 'delivery_code_demo')) {
+            if (! $this->hasColumn('orders', 'delivery_code_demo')) {
                 $table->string('delivery_code_demo', 12)->nullable()->after('delivery_code_hash');
             }
         });
@@ -36,15 +36,25 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('orders', function (Blueprint $table) {
-            if (Schema::hasColumn('orders', 'delivery_code_demo')) {
+            if ($this->hasColumn('orders', 'delivery_code_demo')) {
                 $table->dropColumn('delivery_code_demo');
             }
         });
 
         Schema::table('shops', function (Blueprint $table) {
-            if (Schema::hasColumn('shops', 'categories')) {
+            if ($this->hasColumn('shops', 'categories')) {
                 $table->dropColumn('categories');
             }
         });
+    }
+
+    private function hasColumn(string $table, string $column): bool
+    {
+        if (Schema::getConnection()->getDriverName() !== 'sqlite') {
+            return Schema::hasColumn($table, $column);
+        }
+
+        return collect(DB::select("PRAGMA table_info({$table})"))
+            ->contains(fn (object $row): bool => $row->name === $column);
     }
 };
