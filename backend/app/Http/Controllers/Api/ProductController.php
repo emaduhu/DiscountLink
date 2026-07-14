@@ -13,14 +13,26 @@ class ProductController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = Product::with('shop')->withAvg('ratings', 'rating')->withCount('ratings')->where('is_active', true)->where('stock', '>', 0);
-        if ($search = $request->query('q')) {
-            $query->where(fn ($builder) => $builder->where('name', 'like', "%{$search}%")->orWhere('description', 'like', "%{$search}%"));
+        $query = Product::with('shop')
+            ->withAvg('ratings', 'rating')
+            ->withCount('ratings')
+            ->where('is_active', true)
+            ->where('stock', '>', 0);
+
+        if ($search = trim((string) $request->query('q'))) {
+            $query->where(fn ($builder) => $builder
+                ->where('name', 'like', "%{$search}%")
+                ->orWhere('description', 'like', "%{$search}%")
+                ->orWhereHas('shop', fn ($shopQuery) => $shopQuery
+                    ->where('name', 'like', "%{$search}%")
+                    ->orWhere('category', 'like', "%{$search}%")));
         }
+
         if ($category = $request->query('category')) {
             $query->whereHas('shop', fn ($builder) => $builder->where('category', $category)->orWhereJsonContains('categories', $category));
         }
-        return response()->json(['products' => $query->latest()->paginate(20)]);
+
+        return response()->json(['products' => $query->latest()->paginate($this->perPage($request))]);
     }
 
     public function imageSearch(Request $request, ProductImageMatcher $matcher): JsonResponse
@@ -77,5 +89,10 @@ class ProductController extends Controller
         return response()->json([
             'product' => $product->fresh('shop')->loadAvg('ratings', 'rating')->loadCount('ratings'),
         ]);
+    }
+
+    private function perPage(Request $request, int $default = 20, int $max = 50): int
+    {
+        return min($max, max(1, (int) $request->query('per_page', $default)));
     }
 }

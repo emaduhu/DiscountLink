@@ -19,10 +19,26 @@ class ChatController extends Controller
     public function conversations(Request $request): JsonResponse
     {
         $conversations = Conversation::with(['messages', 'product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role'])
-            ->where('user_one_id', $request->user()->id)
-            ->orWhere('user_two_id', $request->user()->id)
-            ->latest('updated_at')
-            ->get();
+            ->where(fn ($query) => $query
+                ->where('user_one_id', $request->user()->id)
+                ->orWhere('user_two_id', $request->user()->id))
+            ->when(trim((string) $request->query('q')), function ($query, string $search) {
+                $query->where(fn ($builder) => $builder
+                    ->whereHas('product', fn ($productQuery) => $productQuery->where('name', 'like', "%{$search}%"))
+                    ->orWhereHas('userOne', fn ($userQuery) => $userQuery->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"))
+                    ->orWhereHas('userTwo', fn ($userQuery) => $userQuery->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"))
+                    ->orWhereHas('messages', fn ($messageQuery) => $messageQuery->where('body', 'like', "%{$search}%")));
+            })
+            ->latest('updated_at');
+
+        if ($this->shouldPaginate($request)) {
+            $conversations = $conversations->paginate($this->perPage($request));
+            $conversations->setCollection($this->withUnreadCounts($conversations->getCollection(), $request->user()->id));
+
+            return response()->json(['conversations' => $conversations]);
+        }
+
+        $conversations = $conversations->get();
 
         return response()->json(['conversations' => $this->withUnreadCounts($conversations, $request->user()->id)]);
     }
@@ -33,13 +49,20 @@ class ChatController extends Controller
             ->where('id', '!=', $request->user()->id)
             ->where('is_active', true)
             ->when($request->query('role'), fn ($query, $role) => $query->where('role', $role))
+            ->when(trim((string) $request->query('q')), fn ($query, string $search) => $query
+                ->where(fn ($builder) => $builder
+                    ->where('name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%")))
             ->select('id', 'name', 'role', 'email', 'phone')
             ->orderBy('role')
-            ->orderBy('name')
-            ->limit(50)
-            ->get();
+            ->orderBy('name');
 
-        return response()->json(['contacts' => $contacts]);
+        return response()->json([
+            'contacts' => $this->shouldPaginate($request)
+                ? $contacts->paginate($this->perPage($request))
+                : $contacts->limit(50)->get(),
+        ]);
     }
 
     public function start(Request $request): JsonResponse
@@ -82,7 +105,7 @@ class ChatController extends Controller
                 $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role']),
                 $request->user()->id,
             ),
-            'messages' => $conversation->messages()->latest()->paginate(50),
+            'messages' => $conversation->messages()->latest()->paginate($this->perPage($request, 50, 100)),
         ]);
     }
 
@@ -279,5 +302,15 @@ class ChatController extends Controller
             ->where('sender_id', '!=', $userId)
             ->whereNull('read_at')
             ->count();
+    }
+
+    private function shouldPaginate(Request $request): bool
+    {
+        return $request->hasAny(['page', 'per_page', 'paginate', 'q']);
+    }
+
+    private function perPage(Request $request, int $default = 20, int $max = 50): int
+    {
+        return min($max, max(1, (int) $request->query('per_page', $default)));
     }
 }

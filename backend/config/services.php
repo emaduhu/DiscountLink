@@ -35,7 +35,6 @@ return [
         ],
     ],
 
-
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
     ],
@@ -68,6 +67,8 @@ return [
         'base_url' => env('CLICKPESA_BASE_URL', 'https://api.clickpesa.com'),
         'webhook_secret' => env('CLICKPESA_WEBHOOK_SECRET'),
         'timeout' => env('CLICKPESA_TIMEOUT', 30),
+        'queue' => env('CLICKPESA_QUEUE', 'payments'),
+        'queue_tries' => env('CLICKPESA_QUEUE_TRIES', 5),
     ],
 
     'fcm' => [

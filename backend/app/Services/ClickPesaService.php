@@ -35,20 +35,30 @@ class ClickPesaService
             'orderReference' => $orderReference,
             'phoneNumber' => $this->phone($payment->phone),
         ];
+        $existingPayload = is_array($payment->payload) ? $payment->payload : [];
+        $payment->update([
+            'provider' => 'clickpesa',
+            'status' => 'processing',
+            'payload' => array_merge($existingPayload, [
+                'orderReference' => $orderReference,
+                'request' => $payload,
+            ]),
+        ]);
 
         try {
             $preview = $this->postClickPesa('/third-parties/payments/preview-ussd-push-request', $payload);
             $initiate = $this->postClickPesa('/third-parties/payments/initiate-ussd-push-request', $payload);
         } catch (ValidationException $error) {
+            $existingPayload = is_array($payment->payload) ? $payment->payload : [];
             $payment->update([
                 'provider' => 'clickpesa',
                 'provider_reference' => $orderReference,
                 'status' => 'failed',
-                'payload' => [
+                'payload' => array_merge($existingPayload, [
                     'orderReference' => $orderReference,
                     'request' => $payload,
                     'error' => $error->errors(),
-                ],
+                ]),
             ]);
 
             throw $error;
@@ -68,11 +78,11 @@ class ClickPesaService
             'data.status',
         ], 'processing'));
 
-        $storedPayload = [
+        $storedPayload = array_merge(is_array($payment->payload) ? $payment->payload : [], [
             'orderReference' => $orderReference,
             'preview' => $preview,
             'initiate' => $initiate,
-        ];
+        ]);
 
         $payment->update([
             'provider' => 'clickpesa',
@@ -111,6 +121,15 @@ class ClickPesaService
             'phoneNumber' => $this->phone($payment->phone),
             'reason' => 'DiscountLink '.$payment->type,
         ];
+        $existingPayload = is_array($payment->payload) ? $payment->payload : [];
+        $payment->update([
+            'provider' => 'clickpesa',
+            'status' => 'processing',
+            'payload' => array_merge($existingPayload, [
+                'orderReference' => $orderReference,
+                'request' => $payload,
+            ]),
+        ]);
 
         $response = $this->postClickPesa('/third-parties/payouts/mobile-money', $payload);
 
@@ -132,10 +151,10 @@ class ClickPesaService
             'provider' => 'clickpesa',
             'provider_reference' => $transactionId ?: $orderReference,
             'status' => $status,
-            'payload' => [
+            'payload' => array_merge(is_array($payment->payload) ? $payment->payload : [], [
                 'orderReference' => $orderReference,
                 'payout' => $response,
-            ],
+            ]),
         ]);
 
         return [

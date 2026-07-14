@@ -6,7 +6,7 @@ Set these values in `backend/.env` before launch:
 
 - `GOOGLE_CLIENT_ID` for Google sign-in token audience validation.
 - `BEEM_API_KEY`, `BEEM_SECRET_KEY`, `BEEM_SENDER_ID`, `BEEM_BASE_URL` for OTP SMS.
-- `CLICKPESA_API_KEY`, `CLICKPESA_BASE_URL`, `CLICKPESA_WEBHOOK_SECRET` for collections and disbursements.
+- `CLICKPESA_API_KEY`, `CLICKPESA_BASE_URL`, `CLICKPESA_WEBHOOK_SECRET`, `CLICKPESA_QUEUE`, and `CLICKPESA_QUEUE_TRIES` for queued collections and disbursements.
 - `FCM_SERVER_KEY` for delivery notifications.
 - `DISCOUNTLINK_ADMIN_TOKEN` for the management dashboard.
 
@@ -19,10 +19,10 @@ php artisan migrate --force
 php artisan storage:link
 php artisan config:cache
 php artisan route:cache
-php artisan queue:work --tries=3 --timeout=90
+php artisan queue:work --queue=payments,default --tries=5 --timeout=90
 ```
 
-Use MySQL or PostgreSQL in production. Run Laravel behind HTTPS, configure queue workers with Supervisor/systemd, and point ClickPesa webhooks to `/api/webhooks/clickpesa`.
+Use MySQL or PostgreSQL in production. The default `database` queue persists ClickPesa payment and disbursement jobs before provider calls, so failed requests can retry and later land in `failed_jobs` instead of being lost. Run Laravel behind HTTPS, configure queue workers with Supervisor/systemd, and point ClickPesa webhooks to `/api/webhooks/clickpesa`.
 
 ## Mobile release
 
@@ -41,8 +41,8 @@ flutter build appbundle --release \
 
 ## Payment flow
 
-1. Buyer checks out and receives ClickPesa USSD push.
+1. Buyer checks out and the ClickPesa USSD push is queued for retryable processing.
 2. ClickPesa callback updates the collection payment and order status.
 3. Deliverer accepts delivery after FCM broadcast.
 4. Buyer gives the six-digit delivery code to the deliverer.
-5. Deliverer enters the code; backend marks delivery complete and creates ClickPesa disbursement to the verified phone number.
+5. Deliverer enters the code; backend marks delivery complete and queues ClickPesa disbursements to the verified phone numbers.

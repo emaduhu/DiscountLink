@@ -20,8 +20,17 @@ class OrderController extends Controller
         ])
             ->where('buyer_id', $request->user()->id)
             ->whereNotIn('status', ['delivered', 'cancelled'])
-            ->latest()
-            ->get();
+            ->when(trim((string) $request->query('q')), function ($query, string $search) {
+                $query->where(fn ($builder) => $builder
+                    ->where('reference', 'like', "%{$search}%")
+                    ->orWhere('status', 'like', "%{$search}%")
+                    ->orWhereHas('shop', fn ($shopQuery) => $shopQuery->where('name', 'like', "%{$search}%")));
+            })
+            ->latest();
+
+        $orders = $this->shouldPaginate($request)
+            ? $orders->paginate($this->perPage($request))
+            : $orders->get();
 
         $orders->each(function (Order $order) {
             $order->setAttribute('delivery_code', $order->delivery_code_demo);
@@ -32,5 +41,15 @@ class OrderController extends Controller
         });
 
         return response()->json(['orders' => $orders]);
+    }
+
+    private function shouldPaginate(Request $request): bool
+    {
+        return $request->hasAny(['page', 'per_page', 'paginate', 'q']);
+    }
+
+    private function perPage(Request $request, int $default = 20, int $max = 50): int
+    {
+        return min($max, max(1, (int) $request->query('per_page', $default)));
     }
 }

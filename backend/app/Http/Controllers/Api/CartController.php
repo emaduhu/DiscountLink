@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ProcessClickPesaPayment;
 use App\Models\AppSetting;
 use App\Models\Cart;
 use App\Models\DeliveryAssignment;
@@ -12,7 +13,6 @@ use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
-use App\Services\ClickPesaService;
 use App\Services\FcmService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -64,6 +64,7 @@ class CartController extends Controller
         abort_unless($request->user()->role === 'buyer', 403, 'Only buyers can add to cart.');
         $data = $request->validate(['quantity' => ['required', 'integer', 'min:1']]);
         $item = Cart::updateOrCreate(['buyer_id' => $request->user()->id, 'product_id' => $product->id], ['quantity' => $data['quantity']]);
+
         return response()->json(['item' => $item->load('product')], 201);
     }
 
@@ -109,10 +110,11 @@ class CartController extends Controller
     {
         abort_unless($request->user()->role === 'buyer', 403, 'Only buyers can remove cart items.');
         Cart::where('buyer_id', $request->user()->id)->where('product_id', $product->id)->delete();
+
         return response()->json(['message' => 'Item removed from cart.']);
     }
 
-    public function checkout(Request $request, ClickPesaService $clickPesa, FcmService $fcm): JsonResponse
+    public function checkout(Request $request, FcmService $fcm): JsonResponse
     {
         abort_unless($request->user()->role === 'buyer', 403);
         abort_unless($request->user()->phone_verified_at, 422, 'Verify your phone before payment.');
@@ -156,6 +158,7 @@ class CartController extends Controller
             $assignment = DeliveryAssignment::create(['order_id' => $order->id]);
             $order->setAttribute('plain_delivery_code', $code);
             $order->setRelation('deliveryAssignment', $assignment);
+
             return $order;
         });
 
@@ -166,7 +169,7 @@ class CartController extends Controller
             'amount' => $order->grand_total,
             'phone' => $data['phone'] ?? $request->user()->phone,
         ]);
-        $push = $clickPesa->requestUssdPush($payment);
+        ProcessClickPesaPayment::queueUssdPush($payment);
 
         DiscountLink::whereIn('id', $items->pluck('discount_link_id')->filter()->all())->update(['used_at' => now()]);
         Cart::where('buyer_id', $request->user()->id)->delete();
@@ -189,11 +192,11 @@ class CartController extends Controller
                 ->get();
 
         $deliverers->each(fn ($deliverer) => $fcm->sendToUser($deliverer, 'New delivery request', 'Open DiscountLink to accept order '.$order->reference.'.', [
-                'type' => 'delivery_request',
-                'order_id' => (string) $order->id,
-                'delivery_assignment_id' => $assignmentId,
-                'reference' => $order->reference,
-            ]));
+            'type' => 'delivery_request',
+            'order_id' => (string) $order->id,
+            'delivery_assignment_id' => $assignmentId,
+            'reference' => $order->reference,
+        ]));
 
         $deliveryCode = $order->plain_delivery_code;
         $loadedOrder = $order->load('items');
@@ -202,10 +205,10 @@ class CartController extends Controller
         return response()->json([
             'order' => $loadedOrder,
             'payment' => $payment->fresh(),
-            'ussd_push' => $push,
+            'ussd_push' => ['status' => 'queued'],
             'delivery_code' => $deliveryCode,
             'delivery_code_demo' => $deliveryCode,
-            'message' => 'Keep this buyer delivery code. Share it only after receiving the order to release seller and delivery payments.',
+            'message' => 'Payment request queued. Keep this buyer delivery code. Share it only after receiving the order to release seller and delivery payments.',
         ], 201);
     }
 

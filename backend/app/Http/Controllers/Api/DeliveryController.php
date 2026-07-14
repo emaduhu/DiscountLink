@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ProcessClickPesaPayment;
 use App\Models\DeliveryAssignment;
 use App\Models\Payment;
-use App\Services\ClickPesaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -28,8 +28,20 @@ class DeliveryController extends Controller
                         ->where(fn ($nested) => $nested->whereNull('deliverer_id')->orWhere('deliverer_id', $request->user()->id)));
                 }
             })
-            ->latest()
-            ->get();
+            ->when(trim((string) $request->query('q')), function ($query, string $search) {
+                $query->where(fn ($builder) => $builder
+                    ->where('status', 'like', "%{$search}%")
+                    ->orWhereHas('order', fn ($orderQuery) => $orderQuery
+                        ->where('reference', 'like', "%{$search}%")
+                        ->orWhere('delivery_address', 'like', "%{$search}%")
+                        ->orWhereHas('shop', fn ($shopQuery) => $shopQuery->where('name', 'like', "%{$search}%"))
+                        ->orWhereHas('buyer', fn ($buyerQuery) => $buyerQuery->where('name', 'like', "%{$search}%"))));
+            })
+            ->latest();
+
+        $jobs = $this->shouldPaginate($request)
+            ? $jobs->paginate($this->perPage($request))
+            : $jobs->get();
 
         $jobs->each(function (DeliveryAssignment $assignment) use ($request) {
             $buyer = $assignment->order?->buyer;
@@ -108,7 +120,7 @@ class DeliveryController extends Controller
         return response()->json(['assignment' => $assignment->fresh('order.items', 'deliverer')]);
     }
 
-    public function complete(Request $request, DeliveryAssignment $assignment, ClickPesaService $clickPesa): JsonResponse
+    public function complete(Request $request, DeliveryAssignment $assignment): JsonResponse
     {
         abort_unless($assignment->deliverer_id === $request->user()->id, 403);
         $data = $request->validate([
@@ -147,16 +159,26 @@ class DeliveryController extends Controller
             return [$sellerPayment, $deliveryPayment];
         });
 
-        $sellerDisbursement = $clickPesa->disburse($sellerPayment);
-        $deliveryDisbursement = $clickPesa->disburse($deliveryPayment);
+        ProcessClickPesaPayment::queueDisbursement($sellerPayment);
+        ProcessClickPesaPayment::queueDisbursement($deliveryPayment);
 
         return response()->json([
             'assignment' => $assignment->fresh('order'),
             'seller_payment' => $sellerPayment->fresh(),
             'delivery_payment' => $deliveryPayment->fresh(),
-            'seller_disbursement' => $sellerDisbursement,
-            'delivery_disbursement' => $deliveryDisbursement,
-            'message' => 'Delivery code confirmed. Seller and delivery payments have been triggered.',
+            'seller_disbursement' => ['status' => 'queued'],
+            'delivery_disbursement' => ['status' => 'queued'],
+            'message' => 'Delivery code confirmed. Seller and delivery payments have been queued.',
         ]);
+    }
+
+    private function shouldPaginate(Request $request): bool
+    {
+        return $request->hasAny(['page', 'per_page', 'paginate', 'q']);
+    }
+
+    private function perPage(Request $request, int $default = 20, int $max = 50): int
+    {
+        return min($max, max(1, (int) $request->query('per_page', $default)));
     }
 }

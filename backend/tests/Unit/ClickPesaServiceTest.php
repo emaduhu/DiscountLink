@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Models\Payment;
 use App\Services\ClickPesaService;
+use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
@@ -11,6 +12,8 @@ use Tests\TestCase;
 
 class ClickPesaServiceTest extends TestCase
 {
+    use DatabaseMigrations;
+
     public function test_it_generates_token_previews_and_initiates_ussd_push(): void
     {
         app()->detectEnvironment(fn () => 'production');

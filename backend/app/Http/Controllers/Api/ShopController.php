@@ -3,19 +3,19 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ProcessClickPesaPayment;
 use App\Models\AppSetting;
 use App\Models\DelivererInvitation;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Shop;
-use App\Services\ClickPesaService;
 use App\Services\OtpProviderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Validation\ValidationException;
 
 class ShopController extends Controller
 {
@@ -24,7 +24,7 @@ class ShopController extends Controller
         return response()->json(['categories' => $this->configuredCategories()]);
     }
 
-    public function store(Request $request, ClickPesaService $clickPesa): JsonResponse
+    public function store(Request $request): JsonResponse
     {
         abort_unless($request->user()->role === 'seller', 403, 'Only sellers can open shops.');
         $data = $request->validate([
@@ -87,45 +87,48 @@ class ShopController extends Controller
         ]);
         $shop->update(['registration_fee_payment_id' => $payment->id]);
 
-        try {
-            $push = $clickPesa->requestUssdPush($payment);
-        } catch (ValidationException $error) {
-            $shop->update(['registration_fee_status' => 'failed']);
-
-            return response()->json([
-                'message' => 'Shop saved, but ClickPesa could not send the registration fee USSD push.',
-                'errors' => $error->errors(),
-                'shop' => $shop->fresh('registrationFeePayment'),
-                'payment' => $payment->fresh(),
-                'registration_fee' => $this->registrationFeePayload(),
-            ], 422);
-        }
-
+        ProcessClickPesaPayment::queueUssdPush($payment);
         $shop->update(['registration_fee_status' => 'processing']);
 
         return response()->json([
-            'message' => 'Shop saved. Approve the ClickPesa USSD prompt to activate this shop.',
+            'message' => 'Shop saved. The ClickPesa registration fee request has been queued.',
             'shop' => $shop->fresh('registrationFeePayment'),
             'payment' => $payment->fresh(),
-            'ussd_push' => $push,
+            'ussd_push' => ['status' => 'queued'],
             'registration_fee' => $this->registrationFeePayload(),
         ], 202);
     }
 
     public function mine(Request $request): JsonResponse
     {
+        $shops = $request->user()->shops()
+            ->with([
+                'registrationFeePayment',
+                'products' => fn ($query) => $query
+                    ->withAvg('ratings', 'rating')
+                    ->withCount('ratings')
+                    ->where('is_active', true)
+                    ->when(trim((string) $request->query('product_q')), fn ($productQuery, string $search) => $productQuery
+                        ->where(fn ($builder) => $builder
+                            ->where('name', 'like', "%{$search}%")
+                            ->orWhere('description', 'like', "%{$search}%")))
+                    ->latest(),
+            ])
+            ->when(trim((string) $request->query('q')), function ($query, string $search) {
+                $query->where(fn ($builder) => $builder
+                    ->where('name', 'like', "%{$search}%")
+                    ->orWhere('category', 'like', "%{$search}%")
+                    ->orWhere('address', 'like', "%{$search}%")
+                    ->orWhereHas('products', fn ($productQuery) => $productQuery
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhere('description', 'like', "%{$search}%")));
+            })
+            ->latest();
+
         return response()->json([
-            'shops' => $request->user()->shops()
-                ->with([
-                    'registrationFeePayment',
-                    'products' => fn ($query) => $query
-                        ->withAvg('ratings', 'rating')
-                        ->withCount('ratings')
-                        ->where('is_active', true)
-                        ->latest(),
-                ])
-                ->latest()
-                ->get(),
+            'shops' => $this->shouldPaginate($request)
+                ? $shops->paginate($this->perPage($request))
+                : $shops->get(),
             'registration_fee' => $this->registrationFeePayload(),
             'deliverer_invitations' => DelivererInvitation::where('seller_id', $request->user()->id)
                 ->latest()
@@ -203,6 +206,7 @@ class ShopController extends Controller
         $data['category'] = $categories->first();
         $data['categories'] = $categories->all();
         $shop->update($data);
+
         return response()->json(['shop' => $shop->fresh('products')]);
     }
 
@@ -231,6 +235,7 @@ class ShopController extends Controller
         $effective = $data['discount_price'] ?? round($data['price'] * (1 - (($data['discount_percent'] ?? 0) / 100)), 2);
         $data['auto_total'] = $effective + $data['delivery_price'];
         $product = Product::create($data + ['shop_id' => $shop->id, 'seller_id' => $request->user()->id]);
+
         return response()->json(['product' => $product], 201);
     }
 
@@ -261,6 +266,7 @@ class ShopController extends Controller
             unset($data['images']);
         }
         $product->update($data);
+
         return response()->json(['product' => $product->fresh('shop')]);
     }
 
@@ -305,7 +311,7 @@ class ShopController extends Controller
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, string>  $categories
+     * @param  Collection<int, string>  $categories
      */
     private function abortForUnknownCategories($categories): void
     {
@@ -336,5 +342,15 @@ class ShopController extends Controller
     private function defaultCategories(): array
     {
         return ['Electronics', 'Fashion', 'Groceries', 'Books', 'Art', 'Home', 'Other'];
+    }
+
+    private function shouldPaginate(Request $request): bool
+    {
+        return $request->hasAny(['page', 'per_page', 'paginate', 'q', 'product_q']);
+    }
+
+    private function perPage(Request $request, int $default = 20, int $max = 50): int
+    {
+        return min($max, max(1, (int) $request->query('per_page', $default)));
     }
 }
