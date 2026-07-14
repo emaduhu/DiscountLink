@@ -40,10 +40,11 @@ return [
     ],
 
     'beem' => [
-        'api_key' => env('BEEM_API_KEY'),
+        'api_key' => env('BEEM_ACCESS_KEY', env('BEEM_API_KEY')),
         'secret_key' => env('BEEM_SECRET_KEY'),
-        'sender_id' => env('BEEM_SENDER_ID', 'VIGOURTECH'),
-        'base_url' => env('BEEM_BASE_URL', 'https://apisms.beem.africa'),
+        'sender_id' => env('BEEM_SENDER', env('BEEM_SENDER_ID', 'VIGOURTECH')),
+        'base_url' => env('BEEM_SMS_URL', env('BEEM_BASE_URL', 'https://apisms.beem.africa/v1/send')),
+        'otp_app_id' => env('BEEM_OTP_APP_ID'),
     ],
 
     'infobip' => [
@@ -58,7 +59,7 @@ return [
     ],
 
     'otp' => [
-        'provider' => env('OTP_PROVIDER', 'beem'),
+        'provider' => env('SMS_PROVIDER', env('OTP_PROVIDER', 'beem')),
     ],
 
     'clickpesa' => [

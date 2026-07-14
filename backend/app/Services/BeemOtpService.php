@@ -31,12 +31,12 @@ class BeemOtpService
             throw new RuntimeException('Beem SMS destination phone must contain exactly 12 digits.');
         }
         $senderId = AppSetting::get('beem_sender_id', config('services.beem.sender_id'));
-        $baseUrl = AppSetting::get('beem_base_url', config('services.beem.base_url'));
+        $sendUrl = $this->sendUrl(AppSetting::get('beem_base_url', config('services.beem.base_url')));
 
         $response = Http::withBasicAuth($apiKey, $secretKey)
             ->timeout(15)
             ->acceptJson()
-            ->post(rtrim($baseUrl, '/').'/v1/send', [
+            ->post($sendUrl, [
                 'source_addr' => $senderId,
                 'encoding' => 0,
                 'schedule_time' => '',
@@ -73,5 +73,12 @@ class BeemOtpService
         ]);
 
         return $requestId;
+    }
+
+    private function sendUrl(?string $configuredUrl): string
+    {
+        $url = rtrim($configuredUrl ?: 'https://apisms.beem.africa/v1/send', '/');
+
+        return str_ends_with($url, '/v1/send') ? $url : $url.'/v1/send';
     }
 }

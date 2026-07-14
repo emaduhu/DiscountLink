@@ -14,7 +14,9 @@ class OtpProviderService
 
     public function activeProvider(): string
     {
-        return AppSetting::get('otp_provider', config('services.otp.provider', 'beem')) ?: 'beem';
+        $provider = AppSetting::get('otp_provider', config('services.otp.provider', 'beem')) ?: 'beem';
+
+        return $provider === 'beem_africa' ? 'beem' : $provider;
     }
 
     public function send(string $phone, string $code): ?string
