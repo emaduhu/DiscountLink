@@ -243,7 +243,7 @@ class DashboardController extends Controller
             return redirect()->guest(route('admin.login'));
         }
 
-        $dashboardPages = ['settings', 'users', 'products', 'reports', 'chats', 'notifications', 'orders', 'deliveries', 'payments'];
+        $dashboardPages = ['settings', 'charts', 'users', 'products', 'reports', 'chats', 'notifications', 'orders', 'deliveries', 'payments'];
         $activePage = $request->query('page', 'settings');
         if (! in_array($activePage, $dashboardPages, true)) {
             $activePage = 'settings';
@@ -280,6 +280,7 @@ class DashboardController extends Controller
                 'registration_fee' => 'TZS '.number_format((float) AppSetting::get('shop_registration_fee_amount', '0'), 2),
                 'service_fee' => number_format((float) AppSetting::get('service_fee_percentage', '0'), 2).'%',
             ],
+            'charts' => $this->dashboardCharts(),
             'orders' => Order::with('buyer', 'seller', 'shop', 'deliveryAssignment.deliverer')
                 ->when($ordersSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
                     ->where('reference', 'like', "%{$search}%")
@@ -422,5 +423,83 @@ class DashboardController extends Controller
             ->where('name', 'like', "%{$search}%")
             ->orWhere('email', 'like', "%{$search}%")
             ->orWhere('phone', 'like', "%{$search}%");
+    }
+
+    private function dashboardCharts(): array
+    {
+        $start = now()->subDays(13)->startOfDay();
+        $orderRows = Order::query()
+            ->selectRaw('DATE(created_at) as day, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total')
+            ->where('created_at', '>=', $start)
+            ->groupBy('day')
+            ->orderBy('day')
+            ->get()
+            ->keyBy('day');
+
+        $dailyOrders = collect(range(13, 0))->map(function (int $offset) use ($orderRows) {
+            $date = now()->subDays($offset);
+            $key = $date->format('Y-m-d');
+            $row = $orderRows->get($key);
+
+            return [
+                'label' => $date->format('M j'),
+                'orders' => (int) ($row->orders_count ?? 0),
+                'revenue' => (float) ($row->revenue_total ?? 0),
+            ];
+        });
+
+        $roleCounts = User::query()
+            ->whereIn('role', ['buyer', 'seller', 'deliverer'])
+            ->selectRaw('role, COUNT(*) as total')
+            ->groupBy('role')
+            ->pluck('total', 'role');
+
+        $orderStatuses = Order::query()
+            ->selectRaw('status, COUNT(*) as total')
+            ->groupBy('status')
+            ->orderByDesc('total')
+            ->pluck('total', 'status');
+
+        $deliveryStatuses = DeliveryAssignment::query()
+            ->selectRaw('status, COUNT(*) as total')
+            ->groupBy('status')
+            ->orderByDesc('total')
+            ->pluck('total', 'status');
+
+        $paymentStatuses = Payment::query()
+            ->selectRaw('status, COUNT(*) as total')
+            ->groupBy('status')
+            ->orderByDesc('total')
+            ->pluck('total', 'status');
+
+        return [
+            'dailyOrders' => $dailyOrders,
+            'dailyOrdersMax' => max(1, (int) $dailyOrders->max('orders')),
+            'dailyRevenueMax' => max(1, (float) $dailyOrders->max('revenue')),
+            'usersByRole' => collect(['buyer', 'seller', 'deliverer'])->map(fn (string $role) => [
+                'label' => ucfirst($role),
+                'value' => (int) ($roleCounts[$role] ?? 0),
+            ]),
+            'orderStatuses' => $this->chartSegments($orderStatuses),
+            'deliveryStatuses' => $this->chartSegments($deliveryStatuses),
+            'paymentStatuses' => $this->chartSegments($paymentStatuses),
+            'lowStock' => Product::query()
+                ->where('stock', '<=', 5)
+                ->orderBy('stock')
+                ->orderBy('name')
+                ->limit(8)
+                ->get(['name', 'stock']),
+        ];
+    }
+
+    private function chartSegments($values)
+    {
+        $total = max(1, (int) $values->sum());
+
+        return $values->map(fn ($value, string $label) => [
+            'label' => Str::of($label)->replace('_', ' ')->title()->toString(),
+            'value' => (int) $value,
+            'percent' => round(((int) $value / $total) * 100, 1),
+        ])->values();
     }
 }
