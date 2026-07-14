@@ -46,7 +46,10 @@ return new class extends Migration
             $table->unsignedInteger('stock')->default(0);
             $table->boolean('is_active')->default(true);
             $table->timestamps();
-            $table->fullText(['name', 'description']);
+
+            if (Schema::getConnection()->getDriverName() !== 'sqlite') {
+                $table->fullText(['name', 'description']);
+            }
         });
 
         Schema::create('carts', function (Blueprint $table) {
