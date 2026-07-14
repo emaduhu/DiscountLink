@@ -9,14 +9,23 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('orders', function (Blueprint $table) {
+        if (Schema::getConnection()->getDriverName() === 'sqlite') {
             if (! $this->hasColumn('orders', 'service_fee_rate')) {
-                $table->decimal('service_fee_rate', 5, 2)->default(0)->after('delivery_total');
+                DB::statement('ALTER TABLE orders ADD COLUMN service_fee_rate NUMERIC NOT NULL DEFAULT 0');
             }
             if (! $this->hasColumn('orders', 'service_fee_total')) {
-                $table->decimal('service_fee_total', 14, 2)->default(0)->after('service_fee_rate');
+                DB::statement('ALTER TABLE orders ADD COLUMN service_fee_total NUMERIC NOT NULL DEFAULT 0');
             }
-        });
+        } else {
+            Schema::table('orders', function (Blueprint $table) {
+                if (! $this->hasColumn('orders', 'service_fee_rate')) {
+                    $table->decimal('service_fee_rate', 5, 2)->default(0)->after('delivery_total');
+                }
+                if (! $this->hasColumn('orders', 'service_fee_total')) {
+                    $table->decimal('service_fee_total', 14, 2)->default(0)->after('service_fee_rate');
+                }
+            });
+        }
     }
 
     public function down(): void

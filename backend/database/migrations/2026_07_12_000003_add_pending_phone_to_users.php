@@ -9,11 +9,18 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
+        if (Schema::getConnection()->getDriverName() === 'sqlite') {
             if (! $this->hasColumn('users', 'pending_phone')) {
-                $table->string('pending_phone')->nullable()->unique()->after('phone');
+                DB::statement('ALTER TABLE users ADD COLUMN pending_phone VARCHAR NULL');
+                DB::statement('CREATE UNIQUE INDEX users_pending_phone_unique ON users (pending_phone)');
             }
-        });
+        } else {
+            Schema::table('users', function (Blueprint $table) {
+                if (! $this->hasColumn('users', 'pending_phone')) {
+                    $table->string('pending_phone')->nullable()->unique()->after('phone');
+                }
+            });
+        }
     }
 
     public function down(): void
