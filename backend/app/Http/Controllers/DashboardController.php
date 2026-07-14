@@ -243,6 +243,12 @@ class DashboardController extends Controller
             return redirect()->guest(route('admin.login'));
         }
 
+        $dashboardPages = ['settings', 'users', 'products', 'reports', 'chats', 'notifications', 'orders', 'deliveries', 'payments'];
+        $activePage = $request->query('page', 'settings');
+        if (! in_array($activePage, $dashboardPages, true)) {
+            $activePage = 'settings';
+        }
+
         $usersPerPage = $this->perPage($request, 'users_per_page', 25);
         $productsPerPage = $this->perPage($request, 'products_per_page', 25);
         $reportsPerPage = $this->perPage($request, 'reports_per_page', 25);
@@ -387,6 +393,7 @@ class DashboardController extends Controller
                 'deliveries_per_page' => $deliveriesPerPage,
                 'payments_per_page' => $paymentsPerPage,
             ],
+            'activePage' => $activePage,
         ]);
     }
 
