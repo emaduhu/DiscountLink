@@ -24,6 +24,7 @@ class BeemOtpService
         $baseUrl = AppSetting::get('beem_base_url', config('services.beem.base_url'));
 
         $response = Http::withBasicAuth(config('services.beem.api_key'), config('services.beem.secret_key'))
+            ->timeout(15)
             ->acceptJson()
             ->post(rtrim($baseUrl, '/').'/sms/v1/send', [
                 'source_addr' => $senderId,
@@ -34,6 +35,13 @@ class BeemOtpService
             ]);
 
         $response->throw();
-        return (string) data_get($response->json(), 'request_id');
+        $requestId = (string) data_get($response->json(), 'request_id');
+        Log::info('DiscountLink Beem SMS accepted.', [
+            'phone' => $phone,
+            'sender_id' => $senderId,
+            'request_id' => $requestId,
+        ]);
+
+        return $requestId;
     }
 }
