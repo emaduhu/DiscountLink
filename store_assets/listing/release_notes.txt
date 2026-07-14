@@ -1,5 +1,6 @@
-Version 1.0.5
-- Added optional biometric login with fingerprint or face unlock.
-- Added biometric setup and removal from the Profile screen.
-- Improved login recovery when the backend is temporarily unreachable.
-- Keeps saved biometric login tied to the enabled account on the device.
+Version 1.0.9
+- Added profile name editing from the app.
+- Added frontend pagination support for products, orders, seller shops, deliveries, chats, contacts, and messages.
+- Added load-more controls and visible item totals where paginated lists are shown.
+- Improved the login screen layout and biometric login experience.
+- Kept the login screen full size while still allowing keyboard-friendly scrolling.
