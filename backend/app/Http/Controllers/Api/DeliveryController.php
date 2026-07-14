@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\ProcessClickPesaPayment;
 use App\Models\DeliveryAssignment;
 use App\Models\Payment;
+use App\Models\Product;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -136,23 +137,48 @@ class DeliveryController extends Controller
         abort_unless($request->user()->phone && $request->user()->phone_verified_at, 422, 'Verify the deliverer payout phone before completing delivery.');
         abort_unless($order->seller?->phone && $order->seller?->phone_verified_at, 422, 'Seller payout phone is not verified.');
 
-        [$sellerPayment, $deliveryPayment] = DB::transaction(function () use ($assignment, $order, $request) {
-            $assignment->update(['status' => 'completed', 'completed_at' => now()]);
-            $order->update(['status' => 'delivered', 'delivered_at' => now()]);
+        [$sellerPayment, $deliveryPayment] = DB::transaction(function () use ($assignment, $request) {
+            $lockedAssignment = DeliveryAssignment::query()
+                ->whereKey($assignment->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $lockedOrder = $lockedAssignment->order()
+                ->with('seller', 'items')
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            abort_if($lockedAssignment->status === 'completed' || $lockedOrder->status === 'delivered', 409, 'Delivery is already completed.');
+
+            $lockedAssignment->update(['status' => 'completed', 'completed_at' => now()]);
+            $lockedOrder->update(['status' => 'delivered', 'delivered_at' => now()]);
+
+            $lockedOrder->items
+                ->groupBy('product_id')
+                ->each(function ($items, int $productId) {
+                    $product = Product::query()->whereKey($productId)->lockForUpdate()->first();
+                    if (! $product) {
+                        return;
+                    }
+
+                    $quantitySold = (int) $items->sum('quantity');
+                    $product->forceFill([
+                        'stock' => max(0, (int) $product->stock - $quantitySold),
+                    ])->save();
+                });
 
             $sellerPayment = Payment::create([
-                'order_id' => $order->id,
-                'user_id' => $order->seller_id,
+                'order_id' => $lockedOrder->id,
+                'user_id' => $lockedOrder->seller_id,
                 'type' => 'seller_disbursement',
-                'amount' => $order->subtotal,
-                'phone' => $order->seller->phone,
+                'amount' => $lockedOrder->subtotal,
+                'phone' => $lockedOrder->seller->phone,
             ]);
 
             $deliveryPayment = Payment::create([
-                'order_id' => $order->id,
+                'order_id' => $lockedOrder->id,
                 'user_id' => $request->user()->id,
                 'type' => 'deliverer_disbursement',
-                'amount' => $order->delivery_total,
+                'amount' => $lockedOrder->delivery_total,
                 'phone' => $request->user()->phone,
             ]);
 
