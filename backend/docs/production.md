@@ -12,6 +12,14 @@ Set these values in `backend/.env` before launch:
 
 ## Backend deployment
 
+For cPanel deployment on `dl.vigourtech.net`, place the Laravel application in:
+
+```text
+dl.vigourtech.net/laravel
+```
+
+The domain document root should route requests to `laravel/public/index.php`.
+
 ```bash
 composer install --no-dev --optimize-autoloader
 php artisan key:generate --force
