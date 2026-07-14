@@ -243,10 +243,13 @@ class DashboardController extends Controller
             return redirect()->guest(route('admin.login'));
         }
 
-        $dashboardPages = ['settings', 'charts', 'users', 'products', 'reports', 'chats', 'notifications', 'orders', 'deliveries', 'payments'];
-        $activePage = $request->query('page', 'settings');
+        $dashboardPages = ['dashboard', 'charts', 'settings', 'users', 'products', 'reports', 'chats', 'notifications', 'orders', 'deliveries', 'payments'];
+        $activePage = $request->query('page', 'dashboard');
         if (! in_array($activePage, $dashboardPages, true)) {
-            $activePage = 'settings';
+            $activePage = 'dashboard';
+        }
+        if ($activePage === 'charts') {
+            $activePage = 'dashboard';
         }
 
         $usersPerPage = $this->perPage($request, 'users_per_page', 25);

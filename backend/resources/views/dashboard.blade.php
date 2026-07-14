@@ -31,8 +31,8 @@
         <aside class="side-menu" aria-label="Dashboard pages">
             <div class="side-title"><span class="label">Pages</span></div>
             <nav class="nav" aria-label="Dashboard sections">
+                <a class="{{ $activePage === 'dashboard' ? 'active' : '' }}" href="{{ route('dashboard', ['page' => 'dashboard']) }}">Dashboard</a>
                 <a class="{{ $activePage === 'settings' ? 'active' : '' }}" href="{{ route('dashboard', ['page' => 'settings']) }}">Settings</a>
-                <a class="{{ $activePage === 'charts' ? 'active' : '' }}" href="{{ route('dashboard', ['page' => 'charts']) }}">Charts</a>
                 <a class="{{ $activePage === 'users' ? 'active' : '' }}" href="{{ route('dashboard', ['page' => 'users']) }}">Users</a>
                 <a class="{{ $activePage === 'products' ? 'active' : '' }}" href="{{ route('dashboard', ['page' => 'products']) }}">Products</a>
                 <a class="{{ $activePage === 'reports' ? 'active' : '' }}" href="{{ route('dashboard', ['page' => 'reports']) }}">Chat reports</a>
@@ -49,8 +49,8 @@
             <div class="card"><div class="label">{{ str_replace('_', ' ', $label) }}</div><div class="value">{{ is_numeric($value) ? number_format($value, 2) : $value }}</div></div>
         @endforeach
     </div>
-    @if($activePage === 'charts')
-    <div id="charts" class="section charts">
+    @if($activePage === 'dashboard')
+    <div id="dashboard" class="section charts">
         <div class="chart-card wide">
             <div class="chart-title">
                 <div><h3>Orders and GMV</h3><div class="muted">Last 14 days</div></div>
