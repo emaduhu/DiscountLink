@@ -12,6 +12,7 @@ use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Shop;
 use App\Models\User;
+use App\Services\ClickPesaService;
 use App\Services\FcmService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -215,6 +216,24 @@ class DashboardController extends Controller
         AppSetting::put('service_fee_percentage', number_format((float) $data['service_fee_percentage'], 2, '.', ''));
 
         return redirect()->route('dashboard')->with('status', 'Checkout service fee updated.');
+    }
+
+    public function resendPaymentPrompt(Payment $payment, ClickPesaService $clickPesa): RedirectResponse
+    {
+        $this->authorizeAdmin();
+        abort_unless(in_array($payment->type, ['collection', 'shop_registration_fee'], true), 422, 'This payment cannot receive a phone prompt.');
+        abort_if(in_array($payment->status, ['paid', 'success', 'completed'], true), 422, 'This payment is already complete.');
+        abort_unless($payment->phone, 422, 'This payment does not have a phone number.');
+
+        $clickPesa->requestUssdPush($payment);
+
+        if ($payment->type === 'shop_registration_fee') {
+            $payment->shop?->update(['registration_fee_status' => 'processing']);
+        }
+
+        return redirect()
+            ->route('dashboard', ['page' => 'payments'])
+            ->with('status', 'ClickPesa payment prompt sent again.');
     }
 
     public function updateOtpSettings(Request $request): RedirectResponse

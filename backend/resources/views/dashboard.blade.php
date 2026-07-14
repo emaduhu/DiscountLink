@@ -230,7 +230,48 @@
     <div id="deliveries" class="section"><div class="section-head"><h2>Dispatch Follow Ups</h2><form class="tools" method="get" action="{{ route('dashboard', ['page' => 'deliveries']) }}"><input name="deliveries_q" value="{{ $filters['deliveries_q'] }}" placeholder="Search deliveries"><select name="deliveries_per_page">@foreach($pageOptions as $option)<option value="{{ $option }}" @selected($perPage['deliveries_per_page'] === $option)>{{ $option }} per page</option>@endforeach</select></form></div><div class="table-wrap"><table><tr><th>Order</th><th>Status</th><th>Deliverer</th><th>Tracking</th><th>Accepted</th><th>Completed</th></tr>@forelse($deliveries as $delivery)<tr><td>{{ $delivery->order?->reference }}</td><td class="status">{{ $delivery->status }}</td><td>{{ $delivery->deliverer?->name ?? 'Broadcast' }}</td><td>@if($delivery->deliverer_latitude && $delivery->deliverer_longitude)<div>{{ $delivery->deliverer_latitude }}, {{ $delivery->deliverer_longitude }}</div><div class="muted">Updated {{ $delivery->location_updated_at?->diffForHumans() ?? 'just now' }}</div>@else<span class="muted">No location shared</span>@endif</td><td>{{ $delivery->accepted_at }}</td><td>{{ $delivery->completed_at }}</td></tr>@empty<tr><td colspan="6">No deliveries found.</td></tr>@endforelse</table></div><div class="pagination"><span>{{ $deliveries->total() }} result(s)</span>{{ $deliveries->links() }}</div></div>
     @endif
     @if($activePage === 'payments')
-    <div id="payments" class="section"><div class="section-head"><h2>Payments and Disbursements</h2><form class="tools" method="get" action="{{ route('dashboard', ['page' => 'payments']) }}"><input name="payments_q" value="{{ $filters['payments_q'] }}" placeholder="Search payments"><select name="payments_per_page">@foreach($pageOptions as $option)<option value="{{ $option }}" @selected($perPage['payments_per_page'] === $option)>{{ $option }} per page</option>@endforeach</select></form></div><div class="table-wrap"><table><tr><th>Order / Shop</th><th>Type</th><th>Status</th><th>Amount</th><th>Phone</th><th>Provider Ref</th></tr>@forelse($payments as $payment)<tr><td>{{ $payment->order?->reference ?? $payment->shop?->name ?? '-' }}@if($payment->shop)<div class="muted">Shop registration</div>@endif</td><td>{{ $payment->type }}</td><td class="{{ $payment->status === 'failed' ? 'blocked' : 'status' }}">{{ $payment->status }}</td><td>{{ number_format($payment->amount,2) }}</td><td>{{ $payment->phone }}</td><td>{{ $payment->provider_reference }}</td></tr>@empty<tr><td colspan="6">No payments found.</td></tr>@endforelse</table></div><div class="pagination"><span>{{ $payments->total() }} result(s)</span>{{ $payments->links() }}</div></div>
+    <div id="payments" class="section">
+        <div class="section-head">
+            <h2>Payments and Disbursements</h2>
+            <form class="tools" method="get" action="{{ route('dashboard', ['page' => 'payments']) }}">
+                <input name="payments_q" value="{{ $filters['payments_q'] }}" placeholder="Search payments">
+                <select name="payments_per_page">@foreach($pageOptions as $option)<option value="{{ $option }}" @selected($perPage['payments_per_page'] === $option)>{{ $option }} per page</option>@endforeach</select>
+            </form>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <tr><th>Order / Shop</th><th>Type</th><th>Status</th><th>Amount</th><th>Phone</th><th>Provider Ref</th><th>Action</th></tr>
+                @forelse($payments as $payment)
+                @php
+                    $canResendPrompt = in_array($payment->type, ['collection', 'shop_registration_fee'], true)
+                        && ! in_array($payment->status, ['paid', 'success', 'completed'], true)
+                        && filled($payment->phone);
+                @endphp
+                <tr>
+                    <td>{{ $payment->order?->reference ?? $payment->shop?->name ?? '-' }}@if($payment->shop)<div class="muted">Shop registration</div>@endif</td>
+                    <td>{{ $payment->type }}</td>
+                    <td class="{{ $payment->status === 'failed' ? 'blocked' : 'status' }}">{{ $payment->status }}</td>
+                    <td>{{ number_format($payment->amount,2) }}</td>
+                    <td>{{ $payment->phone }}</td>
+                    <td>{{ $payment->provider_reference }}</td>
+                    <td>
+                        @if($canResendPrompt)
+                        <form method="post" action="{{ route('dashboard.payments.ussd-push', $payment) }}">
+                            @csrf
+                            <button class="primary" type="submit">Resend prompt</button>
+                        </form>
+                        @else
+                        <span class="muted">No prompt action</span>
+                        @endif
+                    </td>
+                </tr>
+                @empty
+                <tr><td colspan="7">No payments found.</td></tr>
+                @endforelse
+            </table>
+        </div>
+        <div class="pagination"><span>{{ $payments->total() }} result(s)</span>{{ $payments->links() }}</div>
+    </div>
     @endif
         </main>
     </div>
