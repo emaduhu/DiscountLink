@@ -44,6 +44,25 @@ enum AppLanguage { en, sw }
 String tx(String english, String swahili) =>
     appLanguage.value == AppLanguage.sw ? swahili : english;
 
+String normalizePhoneInput(String value) =>
+    value.trim().replaceAll(RegExp(r'[\s-]+'), '');
+
+bool isTwelveDigitPhone(String value) =>
+    RegExp(r'^\d{12}$').hasMatch(normalizePhoneInput(value));
+
+String requireTwelveDigitPhone(String value) {
+  final phone = normalizePhoneInput(value);
+  if (!RegExp(r'^\d{12}$').hasMatch(phone)) {
+    throw Exception(
+      tx(
+        'Phone number must contain exactly 12 digits, for example 255700000001.',
+        'Namba ya simu lazima iwe na tarakimu 12, mfano 255700000001.',
+      ),
+    );
+  }
+  return phone;
+}
+
 class BiometricAuthService {
   const BiometricAuthService();
 
@@ -613,6 +632,7 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => loading = true);
     try {
       final auth = await googleBackendAuthPayload();
+      final socialPhone = normalizePhoneInput('${auth['_phone'] ?? ''}');
       final response = await widget.client.post('/auth/google', {
         if (auth['firebase_id_token'] != null)
           'firebase_id_token': auth['firebase_id_token'],
@@ -620,7 +640,9 @@ class _LoginPageState extends State<LoginPage> {
           'google_access_token': auth['google_access_token'],
         'role': role,
         'full_name': auth['_display_name'] ?? 'Google user',
-        'phone': auth['_phone'] ?? '',
+        'phone': socialPhone.isEmpty
+            ? ''
+            : requireTwelveDigitPhone(socialPhone),
         'address': '',
         'fcm_token': await fcmToken(),
       });
@@ -644,11 +666,14 @@ class _LoginPageState extends State<LoginPage> {
       if (token == null) {
         throw Exception('Firebase did not return an ID token.');
       }
+      final socialPhone = normalizePhoneInput(firebaseUser?.phoneNumber ?? '');
       final response = await widget.client.post('/auth/google', {
         'firebase_id_token': token,
         'role': role,
         'full_name': firebaseUser?.displayName ?? 'Apple user',
-        'phone': firebaseUser?.phoneNumber ?? '',
+        'phone': socialPhone.isEmpty
+            ? ''
+            : requireTwelveDigitPhone(socialPhone),
         'address': '',
         'fcm_token': await fcmToken(),
       });
@@ -1071,6 +1096,7 @@ class _RegisterPageState extends State<RegisterPage> {
     if (codes is Map<String, dynamic>) {
       user['_verification_codes'] = codes;
     }
+    user['_open_phone_verification'] = true;
     widget.onSignedIn(response['token'] as String, user);
     if (mounted) Navigator.of(context).pop();
   }
@@ -1095,17 +1121,19 @@ class _RegisterPageState extends State<RegisterPage> {
         '${tx('Complete these fields first:', 'Kamilisha taarifa hizi kwanza:')} ${missing.join(', ')}.',
       );
     }
+    requireTwelveDigitPhone(phone.text);
   }
 
   Future<void> register() async {
     setState(() => loading = true);
     try {
       requireRegistrationDetails(includeEmailPassword: true);
+      final normalizedPhone = requireTwelveDigitPhone(phone.text);
       final response = await widget.client.post('/auth/register', {
         'role': role,
         'full_name': name.text.trim(),
         'email': email.text.trim(),
-        'phone': phone.text.trim(),
+        'phone': normalizedPhone,
         'nida_number': nida.text.trim(),
         'password': password.text,
         'address': address.text.trim(),
@@ -1123,6 +1151,7 @@ class _RegisterPageState extends State<RegisterPage> {
     setState(() => loading = true);
     try {
       requireRegistrationDetails(includeEmailPassword: false);
+      final normalizedPhone = requireTwelveDigitPhone(phone.text);
       final auth = await googleBackendAuthPayload();
       final response = await widget.client.post('/auth/google', {
         if (auth['firebase_id_token'] != null)
@@ -1133,9 +1162,7 @@ class _RegisterPageState extends State<RegisterPage> {
         'full_name': name.text.trim().isEmpty
             ? (auth['_display_name'] ?? 'Google user')
             : name.text.trim(),
-        'phone': phone.text.trim().isEmpty
-            ? (auth['_phone'] ?? '')
-            : phone.text.trim(),
+        'phone': normalizedPhone,
         'nida_number': nida.text.trim(),
         'address': address.text.trim(),
         'fcm_token': await fcmToken(),
@@ -1152,6 +1179,7 @@ class _RegisterPageState extends State<RegisterPage> {
     setState(() => loading = true);
     try {
       requireRegistrationDetails(includeEmailPassword: false);
+      final normalizedPhone = requireTwelveDigitPhone(phone.text);
       final credential = await signInWithAppleFirebase();
       final firebaseUser = credential.user;
       final token = await firebaseUser?.getIdToken();
@@ -1164,9 +1192,7 @@ class _RegisterPageState extends State<RegisterPage> {
         'full_name': name.text.trim().isEmpty
             ? (firebaseUser?.displayName ?? 'Apple user')
             : name.text.trim(),
-        'phone': phone.text.trim().isEmpty
-            ? (firebaseUser?.phoneNumber ?? '')
-            : phone.text.trim(),
+        'phone': normalizedPhone,
         'nida_number': nida.text.trim(),
         'address': address.text.trim(),
         'fcm_token': await fcmToken(),
@@ -1426,7 +1452,8 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    if (widget.user['email_verified_at'] == null ||
+    if (widget.user['_open_phone_verification'] == true ||
+        widget.user['email_verified_at'] == null ||
         widget.user['phone_verified_at'] == null) {
       index = profileIndexForRole(widget.user['role'] as String);
     }
@@ -1746,7 +1773,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> sendOtp() async {
     setState(() => loading = true);
     try {
-      final phone = verificationPhone();
+      final phone = requireTwelveDigitPhone(verificationPhone());
       if (phone.isEmpty) {
         throw Exception(
           tx('Add a phone number first.', 'Weka namba ya simu kwanza.'),
@@ -1760,7 +1787,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 .signInWithCredential(credential);
             final idToken = await firebaseUser.user?.getIdToken();
             if (idToken != null) {
-              await verifyFirebaseToken(idToken);
+              await verifyFirebaseToken(idToken, phone);
             }
           },
           verificationFailed: (error) {
@@ -1806,9 +1833,9 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  Future<void> verifyFirebaseToken(String idToken) async {
+  Future<void> verifyFirebaseToken(String idToken, [String? verifiedPhone]) async {
     final r = await widget.client.post('/otp/verify', {
-      'phone': verificationPhone(),
+      'phone': verifiedPhone ?? requireTwelveDigitPhone(verificationPhone()),
       'firebase_id_token': idToken,
     });
     widget.onUserChanged(r['user'] as Map<String, dynamic>);
@@ -1825,6 +1852,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> verifyOtp() async {
     setState(() => loading = true);
     try {
+      final phone = requireTwelveDigitPhone(verificationPhone());
       if (otpProvider == 'firebase') {
         final verificationId = firebaseVerificationId;
         if (verificationId == null) {
@@ -1839,10 +1867,10 @@ class _ProfilePageState extends State<ProfilePage> {
         );
         final idToken = await firebaseUser.user?.getIdToken();
         if (idToken == null) throw Exception('Firebase token was not issued.');
-        await verifyFirebaseToken(idToken);
+        await verifyFirebaseToken(idToken, phone);
       } else {
         final r = await widget.client.post('/otp/verify', {
-          'phone': verificationPhone(),
+          'phone': phone,
           'code': code.text.trim(),
         });
         widget.onUserChanged(r['user'] as Map<String, dynamic>);
@@ -1867,7 +1895,7 @@ class _ProfilePageState extends State<ProfilePage> {
           .trim();
 
   Future<void> startPhoneChange() async {
-    final phone = newPhone.text.trim().replaceAll(RegExp(r'[\s-]+'), '');
+    final phone = normalizePhoneInput(newPhone.text);
     if (phone.isEmpty) {
       showError(
         context,
@@ -1877,16 +1905,10 @@ class _ProfilePageState extends State<ProfilePage> {
       );
       return;
     }
-    if (!RegExp(r'^\d{12}$').hasMatch(phone)) {
-      showError(
-        context,
-        Exception(
-          tx(
-            'Phone number must contain exactly 12 digits, for example 255700000001.',
-            'Namba ya simu lazima iwe na tarakimu 12, mfano 255700000001.',
-          ),
-        ),
-      );
+    try {
+      requireTwelveDigitPhone(phone);
+    } catch (error) {
+      showError(context, error);
       return;
     }
 
@@ -2485,15 +2507,16 @@ class _CartPageState extends State<CartPage> {
       );
     });
     try {
+      final paymentPhone = requireTwelveDigitPhone(checkoutPhone.text);
       setState(() {
         checkoutPaymentStatus = tx(
-          'Sending a USSD payment push to ${checkoutPhone.text.trim()}...',
-          'Inatuma ombi la malipo ya USSD kwenda ${checkoutPhone.text.trim()}...',
+          'Sending a USSD payment push to $paymentPhone...',
+          'Inatuma ombi la malipo ya USSD kwenda $paymentPhone...',
         );
       });
       final r = await widget.client.post('/checkout', {
         'delivery_address': checkoutAddress(),
-        'phone': checkoutPhone.text.trim(),
+        'phone': paymentPhone,
       });
       if (!mounted) return;
       setState(() {
@@ -2511,7 +2534,7 @@ class _CartPageState extends State<CartPage> {
           content: Text(
             '${tx('Order', 'Oda')}: ${r['order']['reference']}\n'
             '${tx('Amount', 'Kiasi')}: TZS ${money.format(num.tryParse('${r['order']['grand_total'] ?? cartGrandTotal()}') ?? cartGrandTotal())}\n'
-            '${tx('Phone', 'Simu')}: ${checkoutPhone.text.trim()}\n'
+            '${tx('Phone', 'Simu')}: $paymentPhone\n'
             '${tx('Payment status', 'Hali ya malipo')}: ${payment?['status'] ?? push?['status'] ?? 'processing'}\n'
             '${tx('Reference', 'Kumbukumbu')}: ${push?['orderReference'] ?? payment?['provider_reference'] ?? '-'}\n\n'
             '${tx('Approve the USSD prompt on your phone. Keep this buyer delivery code:', 'Kubali ombi la USSD kwenye simu yako. Hifadhi kodi hii ya kupokea mzigo:')} '
@@ -3413,8 +3436,15 @@ class _SellerPageState extends State<SellerPage> {
   }
 
   Future<void> inviteDeliverer() async {
-    if (delivererPhone.text.trim().isEmpty) {
+    final phone = normalizePhoneInput(delivererPhone.text);
+    if (phone.isEmpty) {
       showError(context, Exception('Enter the deliverer phone number.'));
+      return;
+    }
+    try {
+      requireTwelveDigitPhone(phone);
+    } catch (error) {
+      showError(context, error);
       return;
     }
 
@@ -3422,7 +3452,7 @@ class _SellerPageState extends State<SellerPage> {
     try {
       final r = await widget.client.post('/seller/deliverer-invitations', {
         'name': delivererName.text.trim(),
-        'phone': delivererPhone.text.trim(),
+        'phone': phone,
       });
       delivererName.clear();
       delivererPhone.clear();
