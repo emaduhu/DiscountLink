@@ -23,6 +23,10 @@ class AuthController extends Controller
 {
     public function register(Request $request, ApiTokenService $tokens, OtpProviderService $otp): JsonResponse
     {
+        $request->merge([
+            'phone' => $this->normalizePhone((string) $request->input('phone', '')),
+        ]);
+
         $data = $request->validate([
             'role' => ['required', Rule::in(['seller', 'deliverer', 'buyer'])],
             'full_name' => ['required', 'string', 'max:160'],
@@ -175,6 +179,12 @@ class AuthController extends Controller
 
     public function google(Request $request, GoogleAuthService $google, FirebasePhoneAuthService $firebase, ApiTokenService $tokens, OtpProviderService $otp): JsonResponse
     {
+        if ($request->has('phone')) {
+            $request->merge([
+                'phone' => $this->normalizePhone((string) $request->input('phone', '')),
+            ]);
+        }
+
         $data = $request->validate([
             'google_id_token' => ['required_without_all:firebase_id_token,google_access_token', 'string'],
             'google_access_token' => ['required_without_all:firebase_id_token,google_id_token', 'string'],

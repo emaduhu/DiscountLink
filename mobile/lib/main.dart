@@ -2218,7 +2218,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 Field(
                   controller: code,
-                  label: tx('Six digit OTP', 'OTP ya tarakimu sita'),
+                  label: tx(
+                    'Enter phone verification code',
+                    'Weka kodi ya kuthibitisha simu',
+                  ),
                   icon: Icons.password,
                   keyboard: TextInputType.number,
                 ),
@@ -2238,7 +2241,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   child: Text(
                     loading
                         ? tx('Checking...', 'Inakagua...')
-                        : tx('Verify', 'Thibitisha'),
+                        : tx('Verify phone number', 'Thibitisha namba ya simu'),
                   ),
                 ),
               ],
