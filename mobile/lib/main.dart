@@ -63,6 +63,26 @@ String requireTwelveDigitPhone(String value) {
   return phone;
 }
 
+List<dynamic> responseItems(dynamic value) {
+  if (value is List) return value;
+  if (value is Map && value['data'] is List) return value['data'] as List;
+  return [];
+}
+
+int? responseTotal(dynamic value) {
+  if (value is Map) return int.tryParse('${value['total'] ?? ''}');
+  if (value is List) return value.length;
+  return null;
+}
+
+bool responseHasMore(dynamic value) {
+  if (value is! Map) return false;
+  final current = int.tryParse('${value['current_page'] ?? ''}');
+  final last = int.tryParse('${value['last_page'] ?? ''}');
+  if (current == null || last == null) return false;
+  return current < last;
+}
+
 class BiometricAuthService {
   const BiometricAuthService();
 
@@ -640,9 +660,7 @@ class _LoginPageState extends State<LoginPage> {
           'google_access_token': auth['google_access_token'],
         'role': role,
         'full_name': auth['_display_name'] ?? 'Google user',
-        'phone': socialPhone.isEmpty
-            ? ''
-            : requireTwelveDigitPhone(socialPhone),
+        'phone': socialPhone.isEmpty ? '' : requireTwelveDigitPhone(socialPhone),
         'address': '',
         'fcm_token': await fcmToken(),
       });
@@ -671,9 +689,7 @@ class _LoginPageState extends State<LoginPage> {
         'firebase_id_token': token,
         'role': role,
         'full_name': firebaseUser?.displayName ?? 'Apple user',
-        'phone': socialPhone.isEmpty
-            ? ''
-            : requireTwelveDigitPhone(socialPhone),
+        'phone': socialPhone.isEmpty ? '' : requireTwelveDigitPhone(socialPhone),
         'address': '',
         'fcm_token': await fcmToken(),
       });
@@ -753,153 +769,206 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(kDefaultPadding),
-          children: [
-            const SizedBox(height: 12),
-            Image.asset(
-              'assets/images/welcome_image.png',
-              height: 170,
-              fit: BoxFit.contain,
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'Welcome back',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: Colors.black,
-              ),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Sign in with Google, or use email/phone and password.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: kTextColor),
-            ),
-            const SizedBox(height: 22),
-            SurfacePanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  RoleSelector(
-                    value: role,
-                    onChanged: (value) => setState(() => role = value),
-                  ),
-                  const SizedBox(height: 14),
-                  Field(
-                    controller: email,
-                    label: tx('Email or phone', 'Barua pepe au simu'),
-                    icon: Icons.alternate_email,
-                    keyboard: TextInputType.text,
-                  ),
-                  Field(
-                    controller: password,
-                    label: tx('Password', 'Nenosiri'),
-                    icon: Icons.lock_outline,
-                    obscure: true,
-                  ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: loading ? null : openForgotPasswordPage,
-                      child: Text(tx('Forgot password?', 'Umesahau nenosiri?')),
-                    ),
-                  ),
-                  FilledButton(
-                    onPressed: loading ? null : passwordLogin,
-                    child: Text(
-                      loading
-                          ? tx('Signing in...', 'Inaingia...')
-                          : tx('Login', 'Ingia'),
-                    ),
-                  ),
-                  if (biometricAvailable && biometricSaved) ...[
-                    const SizedBox(height: 10),
-                    OutlinedButton.icon(
-                      onPressed: loading ? null : biometricLogin,
-                      icon: const Icon(Icons.fingerprint),
-                      label: Text(
-                        biometricAccountLabel == null ||
-                                biometricAccountLabel!.isEmpty
-                            ? tx(
-                                'Unlock with biometrics',
-                                'Fungua kwa alama ya kidole/uso',
-                              )
-                            : tx(
-                                'Unlock ${biometricAccountLabel!}',
-                                'Fungua ${biometricAccountLabel!}',
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxHeight < 720;
+            final minContentHeight = constraints.maxHeight > kDefaultPadding * 2
+                ? constraints.maxHeight - kDefaultPadding * 2
+                : 0.0;
+            final contentWidth = constraints.maxWidth > 32
+                ? constraints.maxWidth - 32
+                : constraints.maxWidth;
+
+            return SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.all(kDefaultPadding),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: minContentHeight),
+                child: Center(
+                  child: SizedBox(
+                    width: contentWidth,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(height: compact ? 4 : 10),
+                        Image.asset(
+                          'assets/images/welcome_image.png',
+                          height: compact ? 112 : 145,
+                          fit: BoxFit.contain,
+                        ),
+                        SizedBox(height: compact ? 10 : 14),
+                        Text(
+                          'Welcome back',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: Colors.black,
                               ),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      const Expanded(child: Divider()),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Text(
-                          'or',
-                          style: Theme.of(
-                            context,
-                          ).textTheme.bodySmall?.copyWith(color: kTextColor),
                         ),
-                      ),
-                      const Expanded(child: Divider()),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: loading ? null : googleSignIn,
-                    icon: const Icon(Icons.login),
-                    label: Text(
-                      tx('Continue with Google', 'Endelea na Google'),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                      foregroundColor: Colors.black,
-                      side: BorderSide(
-                        color: Colors.black.withValues(alpha: 0.12),
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                  ),
-                  if (!kIsWeb &&
-                      (defaultTargetPlatform == TargetPlatform.iOS ||
-                          defaultTargetPlatform == TargetPlatform.macOS)) ...[
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: loading ? null : appleSignIn,
-                      icon: const Icon(Icons.apple),
-                      label: Text(
-                        tx('Continue with Apple', 'Endelea na Apple'),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(48),
-                        foregroundColor: Colors.black,
-                        side: BorderSide(
-                          color: Colors.black.withValues(alpha: 0.12),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Sign in with Google, or use email/phone and password.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: kTextColor),
                         ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                        SizedBox(height: compact ? 12 : 16),
+                        SurfacePanel(
+                          padding: EdgeInsets.all(compact ? 10 : 14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              RoleSelector(
+                                value: role,
+                                onChanged: (value) =>
+                                    setState(() => role = value),
+                              ),
+                              const SizedBox(height: 12),
+                              Field(
+                                controller: email,
+                                label: tx(
+                                  'Email or phone',
+                                  'Barua pepe au simu',
+                                ),
+                                icon: Icons.alternate_email,
+                                keyboard: TextInputType.text,
+                              ),
+                              Field(
+                                controller: password,
+                                label: tx('Password', 'Nenosiri'),
+                                icon: Icons.lock_outline,
+                                obscure: true,
+                              ),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: loading
+                                      ? null
+                                      : openForgotPasswordPage,
+                                  child: Text(
+                                    tx(
+                                      'Forgot password?',
+                                      'Umesahau nenosiri?',
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              FilledButton(
+                                onPressed: loading ? null : passwordLogin,
+                                child: Text(
+                                  loading
+                                      ? tx('Signing in...', 'Inaingia...')
+                                      : tx('Login', 'Ingia'),
+                                ),
+                              ),
+                              if (biometricAvailable && biometricSaved) ...[
+                                const SizedBox(height: 8),
+                                OutlinedButton.icon(
+                                  onPressed: loading ? null : biometricLogin,
+                                  icon: const Icon(Icons.fingerprint),
+                                  label: Text(
+                                    biometricAccountLabel == null ||
+                                            biometricAccountLabel!.isEmpty
+                                        ? tx(
+                                            'Unlock with biometrics',
+                                            'Fungua kwa alama ya kidole/uso',
+                                          )
+                                        : tx(
+                                            'Unlock ${biometricAccountLabel!}',
+                                            'Fungua ${biometricAccountLabel!}',
+                                          ),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  const Expanded(child: Divider()),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                    child: Text(
+                                      'or',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(color: kTextColor),
+                                    ),
+                                  ),
+                                  const Expanded(child: Divider()),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              OutlinedButton.icon(
+                                onPressed: loading ? null : googleSignIn,
+                                icon: const Icon(Icons.login),
+                                label: Text(
+                                  tx(
+                                    'Continue with Google',
+                                    'Endelea na Google',
+                                  ),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(48),
+                                  foregroundColor: Colors.black,
+                                  side: BorderSide(
+                                    color: Colors.black.withValues(alpha: 0.12),
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                              ),
+                              if (!kIsWeb &&
+                                  (defaultTargetPlatform ==
+                                          TargetPlatform.iOS ||
+                                      defaultTargetPlatform ==
+                                          TargetPlatform.macOS)) ...[
+                                const SizedBox(height: 8),
+                                OutlinedButton.icon(
+                                  onPressed: loading ? null : appleSignIn,
+                                  icon: const Icon(Icons.apple),
+                                  label: Text(
+                                    tx(
+                                      'Continue with Apple',
+                                      'Endelea na Apple',
+                                    ),
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    minimumSize: const Size.fromHeight(48),
+                                    foregroundColor: Colors.black,
+                                    side: BorderSide(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.12,
+                                      ),
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 6),
+                              TextButton(
+                                onPressed: loading ? null : openRegisterPage,
+                                child: Text(
+                                  tx(
+                                    'No account? Register',
+                                    'Huna akaunti? Jisajili',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: loading ? null : openRegisterPage,
-                    child: Text(
-                      tx('No account? Register', 'Huna akaunti? Jisajili'),
+                      ],
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
@@ -1473,7 +1542,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> loadUnreadChatCount() async {
     try {
       final r = await widget.client.get('/conversations');
-      final conversations = (r['conversations'] as List?) ?? [];
+      final conversations = responseItems(r['conversations']);
       updateUnreadChatCount(unreadCountFromConversations(conversations));
     } catch (_) {}
   }
@@ -1761,7 +1830,9 @@ class _ProfilePageState extends State<ProfilePage> {
       if (!mounted) return;
       FocusScope.of(context).unfocus();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tx('Name updated.', 'Jina limesasishwa.'))),
+        SnackBar(
+          content: Text(tx('Name updated.', 'Jina limesasishwa.')),
+        ),
       );
     } catch (error) {
       if (mounted) showError(context, error);
@@ -2769,6 +2840,10 @@ class _BuyerPageState extends State<BuyerPage> {
   bool loadingCart = true;
   bool imageSearchActive = false;
   bool searchingImage = false;
+  bool loadingMoreProducts = false;
+  int productPage = 1;
+  int? productTotal;
+  bool productHasMore = false;
 
   @override
   void initState() {
@@ -2788,21 +2863,32 @@ class _BuyerPageState extends State<BuyerPage> {
     } catch (_) {}
   }
 
-  Future<void> load() async {
+  Future<void> load({bool append = false}) async {
     setState(() {
-      loadingProducts = true;
-      loadingCart = true;
+      if (append) {
+        loadingMoreProducts = true;
+      } else {
+        loadingProducts = true;
+        loadingCart = true;
+        productPage = 1;
+      }
     });
-    final query = <String, String>{};
+    final page = append ? productPage + 1 : 1;
+    final query = <String, String>{'page': '$page', 'per_page': '20'};
     if (search.text.trim().isNotEmpty) query['q'] = search.text.trim();
     if (selectedCategory != null) query['category'] = selectedCategory!;
     try {
       final r = await widget.client.get('/products', query);
-      final c = await widget.client.get('/cart');
+      final c = append ? null : await widget.client.get('/cart');
+      final productResponse = r['products'];
+      final nextProducts = responseItems(productResponse);
       if (!mounted) return;
       setState(() {
-        products = r['products']['data'] as List;
-        cart = c['items'] as List;
+        products = append ? [...products, ...nextProducts] : nextProducts;
+        productPage = page;
+        productTotal = responseTotal(productResponse);
+        productHasMore = responseHasMore(productResponse);
+        if (c != null) cart = c['items'] as List;
       });
     } catch (error) {
       if (mounted) showError(context, error);
@@ -2811,6 +2897,7 @@ class _BuyerPageState extends State<BuyerPage> {
         setState(() {
           loadingProducts = false;
           loadingCart = false;
+          loadingMoreProducts = false;
         });
       }
     }
@@ -2850,7 +2937,9 @@ class _BuyerPageState extends State<BuyerPage> {
       );
       if (!mounted) return;
       setState(() {
-        products = r['products'] as List;
+        products = responseItems(r['products']);
+        productTotal = products.length;
+        productHasMore = false;
         imageSearchActive = true;
         imageSearchMessage = '${r['message'] ?? 'Image search complete.'}';
         selectedCategory = null;
@@ -2995,6 +3084,16 @@ class _BuyerPageState extends State<BuyerPage> {
                 : tx('Refresh', 'Onyesha upya'),
             onAction: imageSearchActive ? clearImageSearch : load,
           ),
+          if (!loadingProducts && productTotal != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              tx(
+                'Showing ${products.length} of $productTotal products',
+                'Inaonyesha ${products.length} kati ya bidhaa $productTotal',
+              ),
+              style: const TextStyle(color: kTextColor, fontSize: 12),
+            ),
+          ],
           const SizedBox(height: 10),
           if (loadingProducts)
             const ListLoadingIndicator()
@@ -3046,6 +3145,24 @@ class _BuyerPageState extends State<BuyerPage> {
                 );
               },
             ),
+          if (!loadingProducts && productHasMore && !imageSearchActive) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: loadingMoreProducts ? null : () => load(append: true),
+              icon: loadingMoreProducts
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.expand_more),
+              label: Text(
+                loadingMoreProducts
+                    ? tx('Loading...', 'Inapakia...')
+                    : tx('Load more', 'Pakia zaidi'),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -3064,6 +3181,10 @@ class _OrdersPageState extends State<OrdersPage> {
   Timer? refreshTimer;
   bool loading = true;
   bool refreshing = false;
+  bool loadingMore = false;
+  int orderPage = 1;
+  int? orderTotal;
+  bool orderHasMore = false;
   DateTime? lastUpdated;
 
   @override
@@ -3082,17 +3203,32 @@ class _OrdersPageState extends State<OrdersPage> {
     super.dispose();
   }
 
-  Future<void> load({bool showLoading = false, bool silent = false}) async {
-    if (refreshing) return;
-    refreshing = true;
+  Future<void> load({
+    bool showLoading = false,
+    bool silent = false,
+    bool append = false,
+  }) async {
+    if (refreshing || loadingMore) return;
     if (showLoading && mounted) {
       setState(() => loading = true);
+    } else if (append && mounted) {
+      setState(() => loadingMore = true);
     }
+    refreshing = !append;
+    final page = append ? orderPage + 1 : 1;
     try {
-      final r = await widget.client.get('/orders/active');
+      final r = await widget.client.get('/orders/active', {
+        'page': '$page',
+        'per_page': '20',
+      });
+      final orderResponse = r['orders'];
+      final nextOrders = responseItems(orderResponse);
       if (mounted) {
         setState(() {
-          orders = r['orders'] as List;
+          orders = append ? [...orders, ...nextOrders] : nextOrders;
+          orderPage = page;
+          orderTotal = responseTotal(orderResponse);
+          orderHasMore = responseHasMore(orderResponse);
           lastUpdated = DateTime.now();
           loading = false;
         });
@@ -3104,6 +3240,7 @@ class _OrdersPageState extends State<OrdersPage> {
       }
     } finally {
       refreshing = false;
+      if (mounted) setState(() => loadingMore = false);
     }
   }
 
@@ -3126,6 +3263,14 @@ class _OrdersPageState extends State<OrdersPage> {
               style: const TextStyle(color: kTextColor, fontSize: 12),
             ),
           ),
+        if (!loading && orderTotal != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              'Showing ${orders.length} of $orderTotal orders',
+              style: const TextStyle(color: kTextColor, fontSize: 12),
+            ),
+          ),
         const SizedBox(height: 8),
         if (loading)
           const ListLoadingIndicator()
@@ -3139,6 +3284,18 @@ class _OrdersPageState extends State<OrdersPage> {
           Padding(
             padding: const EdgeInsets.only(bottom: 14),
             child: TrackingCard(order: order as Map<String, dynamic>),
+          ),
+        if (!loading && orderHasMore)
+          OutlinedButton.icon(
+            onPressed: loadingMore ? null : () => load(append: true),
+            icon: loadingMore
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.expand_more),
+            label: Text(loadingMore ? 'Loading...' : 'Load more orders'),
           ),
       ],
     ),
@@ -3183,7 +3340,11 @@ class _SellerPageState extends State<SellerPage> {
   _ProductEditDraft? productDraft;
   List<XFile> replacementProductImages = [];
   bool loadingShops = true;
+  bool loadingMoreShops = false;
   bool invitingDeliverer = false;
+  int shopPage = 1;
+  int? shopTotal;
+  bool shopHasMore = false;
 
   @override
   void initState() {
@@ -3209,13 +3370,28 @@ class _SellerPageState extends State<SellerPage> {
     } catch (_) {}
   }
 
-  Future<void> load() async {
-    setState(() => loadingShops = true);
+  Future<void> load({bool append = false}) async {
+    setState(() {
+      if (append) {
+        loadingMoreShops = true;
+      } else {
+        loadingShops = true;
+      }
+    });
+    final page = append ? shopPage + 1 : 1;
     try {
-      final r = await widget.client.get('/seller/shops');
+      final r = await widget.client.get('/seller/shops', {
+        'page': '$page',
+        'per_page': '20',
+      });
+      final shopResponse = r['shops'];
+      final nextShops = responseItems(shopResponse);
       if (!mounted) return;
       setState(() {
-        shops = r['shops'] as List;
+        shops = append ? [...shops, ...nextShops] : nextShops;
+        shopPage = page;
+        shopTotal = responseTotal(shopResponse);
+        shopHasMore = responseHasMore(shopResponse);
         registrationFee =
             (r['registration_fee'] as Map?)?.cast<String, dynamic>() ??
             {'amount': 0, 'currency': 'TZS', 'enabled': false};
@@ -3232,7 +3408,12 @@ class _SellerPageState extends State<SellerPage> {
     } catch (error) {
       if (mounted) showError(context, error);
     } finally {
-      if (mounted) setState(() => loadingShops = false);
+      if (mounted) {
+        setState(() {
+          loadingShops = false;
+          loadingMoreShops = false;
+        });
+      }
     }
   }
 
@@ -3772,6 +3953,13 @@ class _SellerPageState extends State<SellerPage> {
         ),
         const SizedBox(height: 18),
         SectionTitle(title: 'Seller products'),
+        if (!loadingShops && shopTotal != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Showing ${shops.length} of $shopTotal shops',
+            style: const TextStyle(color: kTextColor, fontSize: 12),
+          ),
+        ],
         const SizedBox(height: 8),
         if (loadingShops) const ListLoadingIndicator(),
         for (final s in shops)
@@ -4074,6 +4262,20 @@ class _SellerPageState extends State<SellerPage> {
               ),
             ),
           ),
+        if (!loadingShops && shopHasMore) ...[
+          const SizedBox(height: 4),
+          OutlinedButton.icon(
+            onPressed: loadingMoreShops ? null : () => load(append: true),
+            icon: loadingMoreShops
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.expand_more),
+            label: Text(loadingMoreShops ? 'Loading...' : 'Load more shops'),
+          ),
+        ],
         const SizedBox(height: 48),
       ],
     );
@@ -4150,8 +4352,12 @@ class _DeliveryPageState extends State<DeliveryPage> {
   bool sharingLocation = false;
   bool loading = true;
   bool refreshing = false;
+  bool loadingMoreJobs = false;
   bool updatingAvailability = false;
   bool isAvailable = true;
+  int jobPage = 1;
+  int? jobTotal;
+  bool jobHasMore = false;
   int? acceptingJobId;
   int? completingJobId;
   DateTime? lastRefreshedAt;
@@ -4174,17 +4380,32 @@ class _DeliveryPageState extends State<DeliveryPage> {
     super.dispose();
   }
 
-  Future<void> load({bool showLoading = false, bool silent = false}) async {
+  Future<void> load({
+    bool showLoading = false,
+    bool silent = false,
+    bool append = false,
+  }) async {
     if (showLoading && mounted) {
       setState(() => loading = true);
+    } else if (append && mounted) {
+      setState(() => loadingMoreJobs = true);
     } else if (!silent && mounted) {
       setState(() => refreshing = true);
     }
+    final page = append ? jobPage + 1 : 1;
     try {
-      final r = await widget.client.get('/deliveries');
+      final r = await widget.client.get('/deliveries', {
+        'page': '$page',
+        'per_page': '20',
+      });
+      final jobResponse = r['jobs'];
+      final nextJobs = responseItems(jobResponse);
       if (mounted) {
         setState(() {
-          jobs = r['jobs'] as List;
+          jobs = append ? [...jobs, ...nextJobs] : nextJobs;
+          jobPage = page;
+          jobTotal = responseTotal(jobResponse);
+          jobHasMore = responseHasMore(jobResponse);
           isAvailable = r['is_available'] != false;
           lastRefreshedAt = DateTime.now();
         });
@@ -4196,6 +4417,7 @@ class _DeliveryPageState extends State<DeliveryPage> {
         setState(() {
           loading = false;
           refreshing = false;
+          loadingMoreJobs = false;
         });
       }
     }
@@ -4383,6 +4605,13 @@ class _DeliveryPageState extends State<DeliveryPage> {
                     style: const TextStyle(color: kTextColor, fontSize: 12),
                   ),
                 ],
+                if (!loading && jobTotal != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Showing ${jobs.length} of $jobTotal jobs',
+                    style: const TextStyle(color: kTextColor, fontSize: 12),
+                  ),
+                ],
               ],
             ),
           ),
@@ -4526,6 +4755,18 @@ class _DeliveryPageState extends State<DeliveryPage> {
                 ),
               ),
             ),
+          if (!loading && jobHasMore)
+            OutlinedButton.icon(
+              onPressed: loadingMoreJobs ? null : () => load(append: true),
+              icon: loadingMoreJobs
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.expand_more),
+              label: Text(loadingMoreJobs ? 'Loading...' : 'Load more jobs'),
+            ),
         ],
       ),
     );
@@ -4572,7 +4813,7 @@ class _ChatPageState extends State<ChatPage> {
       final r = await widget.client.get('/conversations');
       if (mounted) {
         setState(() {
-          conversations = r['conversations'] as List;
+          conversations = responseItems(r['conversations']);
           loading = false;
         });
         widget.onUnreadCountChanged(
@@ -4743,10 +4984,13 @@ class _ChatContactsPageState extends State<ChatContactsPage> {
   }
 
   Future<void> load() async {
-    final r = await widget.client.get('/chat/contacts');
+    final r = await widget.client.get('/chat/contacts', {
+      'page': '1',
+      'per_page': '50',
+    });
     if (!mounted) return;
     setState(() {
-      contacts = r['contacts'] as List;
+      contacts = responseItems(r['contacts']);
       loading = false;
     });
   }
@@ -4865,7 +5109,7 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
       if (loadedConversation is Map) {
         conversation = Map<String, dynamic>.from(loadedConversation);
       }
-      messages = (r['messages']['data'] as List?) ?? [];
+      messages = responseItems(r['messages']);
       loading = false;
     });
   }
