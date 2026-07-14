@@ -1604,12 +1604,14 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  final name = TextEditingController();
   final code = TextEditingController();
   final emailCode = TextEditingController();
   final newPhone = TextEditingController();
   bool sent = false;
   bool emailSent = false;
   bool loading = false;
+  bool nameLoading = false;
   bool phoneChangeLoading = false;
   bool emailLoading = false;
   bool biometricAvailable = false;
@@ -1631,6 +1633,7 @@ class _ProfilePageState extends State<ProfilePage> {
         sent = true;
       }
     }
+    name.text = '${widget.user['name'] ?? ''}'.trim();
     newPhone.text =
         '${widget.user['pending_phone'] ?? widget.user['phone'] ?? ''}'.trim();
     localPendingPhone = '${widget.user['pending_phone'] ?? ''}'.trim();
@@ -1640,6 +1643,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   void dispose() {
+    name.dispose();
     code.dispose();
     emailCode.dispose();
     newPhone.dispose();
@@ -1656,6 +1660,11 @@ class _ProfilePageState extends State<ProfilePage> {
             .trim();
     if (nextPhone != previousPhone && newPhone.text.trim() == previousPhone) {
       newPhone.text = nextPhone;
+    }
+    final nextName = '${widget.user['name'] ?? ''}'.trim();
+    final previousName = '${oldWidget.user['name'] ?? ''}'.trim();
+    if (nextName != previousName && name.text.trim() == previousName) {
+      name.text = nextName;
     }
     localPendingPhone = '${widget.user['pending_phone'] ?? ''}'.trim();
   }
@@ -1705,6 +1714,32 @@ class _ProfilePageState extends State<ProfilePage> {
       if (mounted) showError(context, error);
     } finally {
       if (mounted) setState(() => biometricLoading = false);
+    }
+  }
+
+  Future<void> saveName() async {
+    final nextName = name.text.trim();
+    if (nextName.isEmpty) {
+      showError(
+        context,
+        Exception(tx('Enter your full name.', 'Weka jina lako kamili.')),
+      );
+      return;
+    }
+
+    setState(() => nameLoading = true);
+    try {
+      final r = await widget.client.put('/me', {'name': nextName});
+      widget.onUserChanged(r['user'] as Map<String, dynamic>);
+      if (!mounted) return;
+      FocusScope.of(context).unfocus();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tx('Name updated.', 'Jina limesasishwa.'))),
+      );
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => nameLoading = false);
     }
   }
 
@@ -1993,6 +2028,21 @@ class _ProfilePageState extends State<ProfilePage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               LanguageSwitch(),
+              const Divider(height: 24),
+              Field(
+                controller: name,
+                label: tx('Full name', 'Jina kamili'),
+                icon: Icons.person_outline,
+              ),
+              FilledButton.icon(
+                onPressed: nameLoading ? null : saveName,
+                icon: const Icon(Icons.save_outlined),
+                label: Text(
+                  nameLoading
+                      ? tx('Saving...', 'Inahifadhi...')
+                      : tx('Save name', 'Hifadhi jina'),
+                ),
+              ),
               const Divider(height: 24),
               ProfileLine(
                 icon: Icons.email_outlined,

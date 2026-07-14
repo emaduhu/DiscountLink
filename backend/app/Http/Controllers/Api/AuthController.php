@@ -375,11 +375,16 @@ class AuthController extends Controller
 
     public function updateProfile(Request $request, OtpProviderService $otp): JsonResponse
     {
-        $request->merge([
-            'phone' => $request->has('phone') ? $this->normalizePhone((string) $request->input('phone', '')) : null,
-        ]);
+        if ($request->has('phone')) {
+            $request->merge(['phone' => $this->normalizePhone((string) $request->input('phone', ''))]);
+        }
+
+        if ($request->has('name')) {
+            $request->merge(['name' => trim((string) $request->input('name', ''))]);
+        }
 
         $data = $request->validate([
+            'name' => ['sometimes', 'required', 'string', 'max:160'],
             'address' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:30'],
             'latitude' => ['nullable', 'numeric'],
