@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessClickPesaPayment;
 use App\Models\AppSetting;
 use App\Models\Cart;
 use App\Models\DeliveryAssignment;
@@ -13,6 +12,7 @@ use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\ClickPesaService;
 use App\Services\FcmService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -128,7 +128,7 @@ class CartController extends Controller
         return response()->json(['message' => 'Item removed from cart.']);
     }
 
-    public function checkout(Request $request, FcmService $fcm): JsonResponse
+    public function checkout(Request $request, FcmService $fcm, ClickPesaService $clickPesa): JsonResponse
     {
         abort_unless($request->user()->role === 'buyer', 403);
         abort_unless($request->user()->phone_verified_at, 422, 'Verify your phone before payment.');
@@ -180,10 +180,12 @@ class CartController extends Controller
             'order_id' => $order->id,
             'user_id' => $request->user()->id,
             'type' => 'collection',
+            'provider' => 'clickpesa',
+            'status' => 'pending',
             'amount' => $order->grand_total,
             'phone' => $data['phone'] ?? $request->user()->phone,
         ]);
-        ProcessClickPesaPayment::queueUssdPush($payment);
+        $ussdPush = $clickPesa->requestUssdPush($payment);
 
         DiscountLink::whereIn('id', $items->pluck('discount_link_id')->filter()->all())->update(['used_at' => now()]);
         Cart::where('buyer_id', $request->user()->id)->delete();
@@ -219,11 +221,31 @@ class CartController extends Controller
         return response()->json([
             'order' => $loadedOrder,
             'payment' => $payment->fresh(),
-            'ussd_push' => ['status' => 'queued'],
+            'ussd_push' => $ussdPush,
             'delivery_code' => $deliveryCode,
             'delivery_code_demo' => $deliveryCode,
-            'message' => 'Payment request queued. Keep this buyer delivery code. Share it only after receiving the order to release seller and delivery payments.',
+            'message' => 'Payment request sent. Keep this buyer delivery code. Share it only after receiving the order to release seller and delivery payments.',
         ], 201);
+    }
+
+    public function resendPaymentPrompt(Request $request, Payment $payment, ClickPesaService $clickPesa): JsonResponse
+    {
+        abort_unless($payment->user_id === $request->user()->id, 403);
+        abort_unless(in_array($payment->type, ['collection', 'shop_registration_fee'], true), 422, 'This payment cannot receive a phone prompt.');
+        abort_if(in_array($payment->status, ['paid', 'success', 'completed'], true), 422, 'This payment is already complete.');
+        abort_unless($payment->phone, 422, 'This payment does not have a phone number.');
+
+        $ussdPush = $clickPesa->requestUssdPush($payment);
+
+        if ($payment->type === 'shop_registration_fee') {
+            $payment->shop?->update(['registration_fee_status' => 'processing']);
+        }
+
+        return response()->json([
+            'payment' => $payment->fresh(),
+            'ussd_push' => $ussdPush,
+            'message' => 'Payment request sent again.',
+        ]);
     }
 
     private function cartUnitPrice(Cart $item): float

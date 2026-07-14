@@ -49,6 +49,7 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
     Route::post('/cart/{product}', [CartController::class, 'add']);
     Route::delete('/cart/{product}', [CartController::class, 'remove']);
     Route::post('/checkout', [CartController::class, 'checkout']);
+    Route::post('/payments/{payment}/ussd-push', [CartController::class, 'resendPaymentPrompt']);
     Route::get('/orders/active', [OrderController::class, 'active']);
 
     Route::get('/deliveries', [DeliveryController::class, 'available']);

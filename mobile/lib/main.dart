@@ -660,7 +660,9 @@ class _LoginPageState extends State<LoginPage> {
           'google_access_token': auth['google_access_token'],
         'role': role,
         'full_name': auth['_display_name'] ?? 'Google user',
-        'phone': socialPhone.isEmpty ? '' : requireTwelveDigitPhone(socialPhone),
+        'phone': socialPhone.isEmpty
+            ? ''
+            : requireTwelveDigitPhone(socialPhone),
         'address': '',
         'fcm_token': await fcmToken(),
       });
@@ -689,7 +691,9 @@ class _LoginPageState extends State<LoginPage> {
         'firebase_id_token': token,
         'role': role,
         'full_name': firebaseUser?.displayName ?? 'Apple user',
-        'phone': socialPhone.isEmpty ? '' : requireTwelveDigitPhone(socialPhone),
+        'phone': socialPhone.isEmpty
+            ? ''
+            : requireTwelveDigitPhone(socialPhone),
         'address': '',
         'fcm_token': await fcmToken(),
       });
@@ -1830,9 +1834,7 @@ class _ProfilePageState extends State<ProfilePage> {
       if (!mounted) return;
       FocusScope.of(context).unfocus();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(tx('Name updated.', 'Jina limesasishwa.')),
-        ),
+        SnackBar(content: Text(tx('Name updated.', 'Jina limesasishwa.'))),
       );
     } catch (error) {
       if (mounted) showError(context, error);
@@ -1904,7 +1906,10 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  Future<void> verifyFirebaseToken(String idToken, [String? verifiedPhone]) async {
+  Future<void> verifyFirebaseToken(
+    String idToken, [
+    String? verifiedPhone,
+  ]) async {
     final r = await widget.client.post('/otp/verify', {
       'phone': verifiedPhone ?? requireTwelveDigitPhone(verificationPhone()),
       'firebase_id_token': idToken,
@@ -2476,7 +2481,12 @@ class _CartPageState extends State<CartPage> {
   };
   bool loading = true;
   bool checkingOut = false;
+  bool resendingPaymentPrompt = false;
   String? checkoutPaymentStatus;
+  Map<String, dynamic>? lastCheckoutPayment;
+  Map<String, dynamic>? lastCheckoutPush;
+  Map<String, dynamic>? lastCheckoutOrder;
+  String? lastDeliveryCode;
 
   @override
   void initState() {
@@ -2598,6 +2608,12 @@ class _CartPageState extends State<CartPage> {
       });
       final push = r['ussd_push'] as Map<String, dynamic>?;
       final payment = r['payment'] as Map<String, dynamic>?;
+      setState(() {
+        lastCheckoutPayment = payment;
+        lastCheckoutPush = push;
+        lastCheckoutOrder = (r['order'] as Map?)?.cast<String, dynamic>();
+        lastDeliveryCode = '${r['delivery_code'] ?? r['delivery_code_demo']}';
+      });
       await showDialog<void>(
         context: context,
         builder: (_) => AlertDialog(
@@ -2613,6 +2629,15 @@ class _CartPageState extends State<CartPage> {
             '${tx('Share the delivery code only after the order arrives.', 'Toa kodi ya mzigo baada tu ya kupokea oda yako.')}',
           ),
           actions: [
+            if (payment?['id'] != null)
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  resendPaymentPrompt();
+                },
+                icon: const Icon(Icons.refresh_outlined),
+                label: Text(tx('Resend prompt', 'Tuma tena ombi')),
+              ),
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('OK'),
@@ -2630,6 +2655,45 @@ class _CartPageState extends State<CartPage> {
           checkoutPaymentStatus = null;
         });
       }
+    }
+  }
+
+  Future<void> resendPaymentPrompt() async {
+    final paymentId = lastCheckoutPayment?['id'];
+    if (paymentId == null) return;
+    setState(() {
+      resendingPaymentPrompt = true;
+      checkoutPaymentStatus = tx(
+        'Sending the ClickPesa prompt again...',
+        'Inatuma tena ombi la ClickPesa...',
+      );
+    });
+    try {
+      final r = await widget.client.post('/payments/$paymentId/ussd-push', {});
+      if (!mounted) return;
+      setState(() {
+        lastCheckoutPayment =
+            (r['payment'] as Map?)?.cast<String, dynamic>() ??
+            lastCheckoutPayment;
+        lastCheckoutPush =
+            (r['ussd_push'] as Map?)?.cast<String, dynamic>() ??
+            lastCheckoutPush;
+        checkoutPaymentStatus = tx(
+          'USSD push sent again. Approve it on your phone to complete payment.',
+          'Ombi la USSD limetumwa tena. Likubali kwenye simu yako kukamilisha malipo.',
+        );
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            tx('Payment prompt sent again.', 'Ombi la malipo limetumwa tena.'),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) await showPaymentError(context, error);
+    } finally {
+      if (mounted) setState(() => resendingPaymentPrompt = false);
     }
   }
 
@@ -2755,6 +2819,40 @@ class _CartPageState extends State<CartPage> {
                       text: checkoutPaymentStatus!,
                       active: true,
                     ),
+                  ],
+                  if (lastCheckoutPayment?['id'] != null) ...[
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: resendingPaymentPrompt
+                          ? null
+                          : resendPaymentPrompt,
+                      icon: resendingPaymentPrompt
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh_outlined),
+                      label: Text(
+                        resendingPaymentPrompt
+                            ? tx('Resending prompt...', 'Inatuma tena ombi...')
+                            : tx(
+                                'Resend ClickPesa prompt',
+                                'Tuma tena ombi la ClickPesa',
+                              ),
+                      ),
+                    ),
+                    if (lastCheckoutOrder != null || lastDeliveryCode != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          '${tx('Last order', 'Oda ya mwisho')}: ${lastCheckoutOrder?['reference'] ?? '-'}'
+                          '${lastDeliveryCode == null ? '' : '\n${tx('Delivery code', 'Kodi ya mzigo')}: $lastDeliveryCode'}',
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.copyWith(color: kTextColor),
+                        ),
+                      ),
                   ],
                   const SizedBox(height: 16),
                   SectionTitle(

@@ -3,12 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessClickPesaPayment;
 use App\Models\AppSetting;
 use App\Models\DelivererInvitation;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Shop;
+use App\Services\ClickPesaService;
 use App\Services\OtpProviderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,7 +24,7 @@ class ShopController extends Controller
         return response()->json(['categories' => $this->configuredCategories()]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, ClickPesaService $clickPesa): JsonResponse
     {
         abort_unless($request->user()->role === 'seller', 403, 'Only sellers can open shops.');
         $data = $request->validate([
@@ -87,14 +87,14 @@ class ShopController extends Controller
         ]);
         $shop->update(['registration_fee_payment_id' => $payment->id]);
 
-        ProcessClickPesaPayment::queueUssdPush($payment);
+        $ussdPush = $clickPesa->requestUssdPush($payment);
         $shop->update(['registration_fee_status' => 'processing']);
 
         return response()->json([
-            'message' => 'Shop saved. The ClickPesa registration fee request has been queued.',
+            'message' => 'Shop saved. The ClickPesa registration fee request has been sent.',
             'shop' => $shop->fresh('registrationFeePayment'),
             'payment' => $payment->fresh(),
-            'ussd_push' => ['status' => 'queued'],
+            'ussd_push' => $ussdPush,
             'registration_fee' => $this->registrationFeePayload(),
         ], 202);
     }

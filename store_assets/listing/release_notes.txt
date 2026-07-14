@@ -1,7 +1,5 @@
-Version 1.0.10
-- Enabled phone verification during registration.
-- Added six-digit OTP entry and verification for phone numbers.
-- Enforced exact 12-digit phone number validation across app phone inputs.
-- Improved OTP resend spacing to prevent overlap with the verification code input.
-- Updated Beem Africa SMS/OTP delivery to use the VIGOURTECH sender ID.
-- Hardened SMS delivery checks for real 12-digit phone destinations.
+Version 1.0.11
+- Sends ClickPesa checkout prompts instantly instead of waiting on the payment queue.
+- Added a resend ClickPesa prompt action after checkout.
+- Improved checkout payment status messaging for USSD push requests.
+- Updated shop registration fee prompts to send immediately.
