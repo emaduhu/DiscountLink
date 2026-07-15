@@ -3327,7 +3327,7 @@ class _BuyerPageState extends State<BuyerPage> {
                 crossAxisCount: 2,
                 mainAxisSpacing: 12,
                 crossAxisSpacing: 12,
-                childAspectRatio: 0.72,
+                childAspectRatio: 0.58,
               ),
               itemBuilder: (context, index) {
                 final product = products[index] as Map<String, dynamic>;
@@ -6731,146 +6731,209 @@ class ProductDealCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final original = num.tryParse('${product['price']}') ?? 0;
-    final total = num.tryParse('${product['auto_total']}') ?? original;
+    final discounted = num.tryParse('${product['discount_price'] ?? ''}');
+    final itemPrice = discounted ?? original;
     final discount = num.tryParse('${product['discount_percent']}') ?? 0;
     final matchPercent = productImageMatchPercent(product);
-    return InkWell(
+    return Material(
+      color: Colors.white,
+      elevation: 0,
       borderRadius: BorderRadius.circular(18),
-      onTap: () => showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
-        builder: (_) => ProductQuickView(
-          product: product,
-          money: money,
-          imageAsset: imageAsset,
-          onAdd: onAdd,
-          onStartChat: onStartChat,
-          onShare: onShare,
-          onRate: onRate,
-        ),
-      ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Stack(
-                  children: [
-                    Center(child: ProductImage(source: imageAsset)),
-                    if (matchPercent != null)
-                      Align(
-                        alignment: Alignment.topLeft,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.72),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            '$matchPercent% match',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ),
-                    if (discount > 0)
-                      Align(
-                        alignment: Alignment.topRight,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: kPrimaryColor,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            '${discount.toStringAsFixed(0)}% off',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                product['name'] ?? 'Product',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                product['shop']?['name'] ?? '',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: kTextColor, fontSize: 12),
-              ),
-              const SizedBox(height: 4),
-              RatingSummary(product: product, compact: true),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'TZS ${money.format(total)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: kPrimaryColor,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: tx('Share product', 'Shiriki bidhaa'),
-                    onPressed: onShare,
-                    icon: const Icon(Icons.ios_share_outlined, size: 18),
-                    style: IconButton.styleFrom(fixedSize: const Size(36, 36)),
-                  ),
-                  IconButton.filled(
-                    onPressed: onAdd,
-                    icon: const Icon(Icons.add_shopping_cart, size: 18),
-                    style: IconButton.styleFrom(
-                      backgroundColor: kPrimaryColor,
-                      fixedSize: const Size(36, 36),
-                    ),
-                  ),
-                ],
-              ),
-              if (original > total)
-                Text(
-                  'TZS ${money.format(original)}',
-                  style: const TextStyle(
-                    color: kTextColor,
-                    decoration: TextDecoration.lineThrough,
-                    fontSize: 11,
-                  ),
-                ),
-            ],
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          showDragHandle: true,
+          builder: (_) => ProductQuickView(
+            product: product,
+            money: money,
+            imageAsset: imageAsset,
+            onAdd: onAdd,
+            onStartChat: onStartChat,
+            onShare: onShare,
+            onRate: onRate,
           ),
         ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 7,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: DecoratedBox(
+                      decoration: const BoxDecoration(color: kSurfaceColor),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: ProductImage(
+                              source: imageAsset,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                          if (matchPercent != null)
+                            Align(
+                              alignment: Alignment.topLeft,
+                              child: _ProductBadge(
+                                label: '$matchPercent% match',
+                                color: Colors.black87,
+                              ),
+                            ),
+                          if (discount > 0)
+                            Align(
+                              alignment: Alignment.topRight,
+                              child: _ProductBadge(
+                                label: '${discount.toStringAsFixed(0)}% off',
+                                color: kPrimaryColor,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  product['name'] ?? 'Product',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    height: 1.16,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  product['shop']?['name'] ?? '',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: kTextColor, fontSize: 12),
+                ),
+                const SizedBox(height: 4),
+                RatingSummary(product: product, compact: true),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'TZS ${money.format(itemPrice)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: kPrimaryColor,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    _ProductIconAction(
+                      tooltip: tx('Share product', 'Shiriki bidhaa'),
+                      onPressed: onShare,
+                      icon: Icons.ios_share_outlined,
+                    ),
+                    const SizedBox(width: 8),
+                    _ProductIconAction(
+                      tooltip: tx('Add to cart', 'Weka kikapuni'),
+                      onPressed: onAdd,
+                      icon: Icons.add_shopping_cart,
+                      filled: true,
+                    ),
+                  ],
+                ),
+                if (original > itemPrice)
+                  Text(
+                    'TZS ${money.format(original)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: kTextColor,
+                      decoration: TextDecoration.lineThrough,
+                      fontSize: 11,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProductBadge extends StatelessWidget {
+  const _ProductBadge({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.all(7),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _ProductIconAction extends StatelessWidget {
+  const _ProductIconAction({
+    required this.tooltip,
+    required this.onPressed,
+    required this.icon,
+    this.filled = false,
+  });
+
+  final String tooltip;
+  final VoidCallback onPressed;
+  final IconData icon;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      style: IconButton.styleFrom(
+        fixedSize: const Size(38, 38),
+        backgroundColor: filled ? kPrimaryColor : Colors.white,
+        foregroundColor: filled ? Colors.white : Colors.black87,
+        side: filled
+            ? BorderSide.none
+            : BorderSide(color: Colors.black.withValues(alpha: 0.08)),
+        shape: const CircleBorder(),
       ),
     );
   }
