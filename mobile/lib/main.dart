@@ -2617,17 +2617,18 @@ class _CartPageState extends State<CartPage> {
       await showDialog<void>(
         context: context,
         builder: (_) => AlertDialog(
-          title: Text(tx('Payment push sent', 'Ombi la malipo limetumwa')),
-          content: Text(
-            '${tx('Order', 'Oda')}: ${r['order']['reference']}\n'
-            '${tx('Amount', 'Kiasi')}: TZS ${money.format(num.tryParse('${r['order']['grand_total'] ?? cartGrandTotal()}') ?? cartGrandTotal())}\n'
-            '${tx('Phone', 'Simu')}: $paymentPhone\n'
-            '${tx('Payment status', 'Hali ya malipo')}: ${payment?['status'] ?? push?['status'] ?? 'processing'}\n'
-            '${tx('Reference', 'Kumbukumbu')}: ${push?['orderReference'] ?? payment?['provider_reference'] ?? '-'}\n\n'
-            '${tx('Approve the USSD prompt on your phone. Keep this buyer delivery code:', 'Kubali ombi la USSD kwenye simu yako. Hifadhi kodi hii ya kupokea mzigo:')} '
-            '${r['delivery_code'] ?? r['delivery_code_demo']}\n\n'
-            '${tx('Share the delivery code only after the order arrives.', 'Toa kodi ya mzigo baada tu ya kupokea oda yako.')}',
+          title: Text(tx('Payment request sent', 'Ombi la malipo limetumwa')),
+          content: SingleChildScrollView(
+            child: Text(
+              '${tx('Order', 'Oda')}: ${r['order']['reference']}\n'
+              '${tx('Amount', 'Kiasi')}: TZS ${money.format(num.tryParse('${r['order']['grand_total'] ?? cartGrandTotal()}') ?? cartGrandTotal())}\n'
+              '${paymentRequestDetails(payment: payment, push: push, fallbackPhone: paymentPhone)}\n\n'
+              '${tx('Approve the USSD prompt on your phone. Keep this buyer delivery code:', 'Kubali ombi la USSD kwenye simu yako. Hifadhi kodi hii ya kupokea mzigo:')} '
+              '${r['delivery_code'] ?? r['delivery_code_demo']}\n\n'
+              '${tx('Share the delivery code only after the order arrives.', 'Toa kodi ya mzigo baada tu ya kupokea oda yako.')}',
+            ),
           ),
+          actionsOverflowButtonSpacing: 8,
           actions: [
             if (payment?['id'] != null)
               TextButton.icon(
@@ -2636,7 +2637,9 @@ class _CartPageState extends State<CartPage> {
                   resendPaymentPrompt();
                 },
                 icon: const Icon(Icons.refresh_outlined),
-                label: Text(tx('Resend prompt', 'Tuma tena ombi')),
+                label: Text(
+                  tx('Resend Payment request', 'Tuma tena ombi la malipo'),
+                ),
               ),
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -2671,25 +2674,39 @@ class _CartPageState extends State<CartPage> {
     try {
       final r = await widget.client.post('/payments/$paymentId/ussd-push', {});
       if (!mounted) return;
+      final payment =
+          (r['payment'] as Map?)?.cast<String, dynamic>() ??
+          lastCheckoutPayment;
+      final push =
+          (r['ussd_push'] as Map?)?.cast<String, dynamic>() ?? lastCheckoutPush;
+      final message =
+          '${r['message'] ?? tx('Payment request sent. Check your phone and approve the USSD prompt.', 'Ombi la malipo limetumwa. Angalia simu yako na ukubali ombi la USSD.')}';
       setState(() {
-        lastCheckoutPayment =
-            (r['payment'] as Map?)?.cast<String, dynamic>() ??
-            lastCheckoutPayment;
-        lastCheckoutPush =
-            (r['ussd_push'] as Map?)?.cast<String, dynamic>() ??
-            lastCheckoutPush;
-        checkoutPaymentStatus = tx(
-          'USSD push sent again. Approve it on your phone to complete payment.',
-          'Ombi la USSD limetumwa tena. Likubali kwenye simu yako kukamilisha malipo.',
-        );
+        lastCheckoutPayment = payment;
+        lastCheckoutPush = push;
+        checkoutPaymentStatus = message;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            tx('Payment prompt sent again.', 'Ombi la malipo limetumwa tena.'),
-          ),
-        ),
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+      await showPaymentRequestSentDialog(
+        payment: payment,
+        push: push,
+        fallbackPhone: '${payment?['phone'] ?? checkoutPhone.text}',
+        message: message,
       );
+    } on TimeoutException {
+      if (mounted) {
+        await showPaymentError(
+          context,
+          Exception(
+            tx(
+              'The payment provider took too long to respond. Check your phone for a USSD request, then tap Resend Payment request if nothing appears.',
+              'Mtoa huduma ya malipo amechelewa kujibu. Angalia simu yako kwa ombi la USSD, kisha bonyeza Tuma tena ombi la malipo kama hakuna kinachoonekana.',
+            ),
+          ),
+        );
+      }
     } catch (error) {
       if (mounted) await showPaymentError(context, error);
     } finally {
@@ -2697,17 +2714,73 @@ class _CartPageState extends State<CartPage> {
     }
   }
 
+  String paymentRequestDetails({
+    required Map<String, dynamic>? payment,
+    required Map<String, dynamic>? push,
+    required String fallbackPhone,
+  }) {
+    final initiate = (push?['initiate'] as Map?)?.cast<String, dynamic>();
+    final phone = '${payment?['phone'] ?? fallbackPhone}';
+    final status = '${payment?['status'] ?? push?['status'] ?? 'processing'}';
+    final reference =
+        '${push?['reference'] ?? payment?['provider_reference'] ?? push?['orderReference'] ?? '-'}';
+    final channel = '${initiate?['channel'] ?? push?['channel'] ?? ''}'.trim();
+
+    return [
+      '${tx('Phone', 'Simu')}: $phone',
+      '${tx('Payment status', 'Hali ya malipo')}: $status',
+      '${tx('Reference', 'Kumbukumbu')}: $reference',
+      if (channel.isNotEmpty) '${tx('Channel', 'Mtandao')}: $channel',
+    ].join('\n');
+  }
+
+  Future<void> showPaymentRequestSentDialog({
+    required Map<String, dynamic>? payment,
+    required Map<String, dynamic>? push,
+    required String fallbackPhone,
+    required String message,
+  }) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(tx('Payment request sent', 'Ombi la malipo limetumwa')),
+        content: SingleChildScrollView(
+          child: Text(
+            '$message\n\n'
+            '${paymentRequestDetails(payment: payment, push: push, fallbackPhone: fallbackPhone)}\n\n'
+            '${tx('Approve the USSD prompt on the payment phone. If no prompt appears, wait a moment and use Resend Payment request.', 'Kubali ombi la USSD kwenye simu ya malipo. Kama ombi halionekani, subiri kidogo kisha tumia Tuma tena ombi la malipo.')}',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(tx('OK', 'Sawa')),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> showPaymentError(BuildContext context, Object error) async {
     final message = error.toString().replaceFirst('Exception: ', '');
+    final mPesaInactive = message.toLowerCase().contains(
+      'm-pesa payment method is not active',
+    );
+    final providerNote = mPesaInactive
+        ? '${tx('M-Pesa collections must be activated on the ClickPesa account before Vodacom numbers can receive the request.', 'Malipo ya M-Pesa lazima yawashwe kwenye akaunti ya ClickPesa kabla namba za Vodacom hazijapokea ombi.')}\n\n'
+        : '';
     await showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
         title: Text(
-          tx('Payment push was not sent', 'Ombi la malipo halikutumwa'),
+          tx('Payment request was not sent', 'Ombi la malipo halikutumwa'),
         ),
-        content: Text(
-          '$message\n\n'
-          '${tx('Your cart is still saved. Check that the payment phone is correct, then try again after the payment provider issue is resolved.', 'Kikapu chako bado kimehifadhiwa. Hakiki namba ya malipo, kisha jaribu tena baada ya tatizo la mtoa huduma kutatuliwa.')}',
+        content: SingleChildScrollView(
+          child: Text(
+            '$message\n\n'
+            '$providerNote'
+            '${tx('Your cart is still saved. Check that the payment phone has exactly 12 digits, then try Resend Payment request after the provider issue is resolved.', 'Kikapu chako bado kimehifadhiwa. Hakiki namba ya malipo iwe na tarakimu 12, kisha jaribu Tuma tena ombi la malipo baada ya tatizo la mtoa huduma kutatuliwa.')}',
+          ),
         ),
         actions: [
           TextButton(
@@ -2822,24 +2895,35 @@ class _CartPageState extends State<CartPage> {
                   ],
                   if (lastCheckoutPayment?['id'] != null) ...[
                     const SizedBox(height: 10),
-                    OutlinedButton.icon(
-                      onPressed: resendingPaymentPrompt
-                          ? null
-                          : resendPaymentPrompt,
-                      icon: resendingPaymentPrompt
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.refresh_outlined),
-                      label: Text(
-                        resendingPaymentPrompt
-                            ? tx('Resending prompt...', 'Inatuma tena ombi...')
-                            : tx(
-                                'Resend ClickPesa prompt',
-                                'Tuma tena ombi la ClickPesa',
-                              ),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: resendingPaymentPrompt
+                            ? null
+                            : resendPaymentPrompt,
+                        icon: resendingPaymentPrompt
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.refresh_outlined),
+                        label: Text(
+                          resendingPaymentPrompt
+                              ? tx(
+                                  'Sending payment request...',
+                                  'Inatuma ombi la malipo...',
+                                )
+                              : tx(
+                                  'Resend Payment request',
+                                  'Tuma tena ombi la malipo',
+                                ),
+                          textAlign: TextAlign.center,
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
                       ),
                     ),
                     if (lastCheckoutOrder != null || lastDeliveryCode != null)

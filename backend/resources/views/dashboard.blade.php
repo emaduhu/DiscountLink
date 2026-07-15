@@ -257,7 +257,7 @@
                         @if($payment->canReceiveUssdPrompt())
                         <form method="post" action="{{ route('dashboard.payments.ussd-push', $payment) }}">
                             @csrf
-                            <button class="primary" type="submit">Resend prompt</button>
+                            <button class="primary" type="submit">Resend Payment request</button>
                         </form>
                         @else
                         <span class="muted">No prompt action</span>

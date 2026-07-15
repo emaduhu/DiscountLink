@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class DashboardController extends Controller
 {
@@ -225,15 +226,41 @@ class DashboardController extends Controller
         abort_if(in_array($payment->status, ['paid', 'success', 'completed'], true), 422, 'This payment is already complete.');
         abort_unless($payment->phone, 422, 'This payment does not have a phone number.');
 
-        $clickPesa->requestUssdPush($payment);
+        try {
+            $ussdPush = $clickPesa->requestUssdPush($payment);
+        } catch (Throwable $error) {
+            if (! $error instanceof ValidationException) {
+                report($error);
+            }
+
+            return redirect()
+                ->route('dashboard', ['page' => 'payments'])
+                ->with('status', $this->paymentRequestErrorMessage($error));
+        }
 
         if ($payment->type === 'shop_registration_fee') {
             $payment->shop?->update(['registration_fee_status' => 'processing']);
         }
 
+        $payment->refresh();
+        $reference = $ussdPush['reference'] ?? $payment->provider_reference ?? $ussdPush['orderReference'] ?? '-';
+        $channel = data_get($ussdPush, 'initiate.channel') ?: data_get($ussdPush, 'channel');
+
         return redirect()
             ->route('dashboard', ['page' => 'payments'])
-            ->with('status', 'ClickPesa payment prompt sent again.');
+            ->with(
+                'status',
+                trim('Payment request sent to '.$payment->phone.'. Reference: '.$reference.($channel ? '. Channel: '.$channel : '').'.')
+            );
+    }
+
+    private function paymentRequestErrorMessage(Throwable $error): string
+    {
+        if ($error instanceof ValidationException) {
+            return collect($error->errors())->flatten()->first() ?: 'Payment request could not be sent.';
+        }
+
+        return 'Payment request could not be sent right now. Check the ClickPesa credentials and try again.';
     }
 
     public function updateOtpSettings(Request $request): RedirectResponse

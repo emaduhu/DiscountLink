@@ -19,6 +19,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class CartController extends Controller
 {
@@ -190,7 +192,11 @@ class CartController extends Controller
             'amount' => $order->grand_total,
             'phone' => $data['phone'] ?? $request->user()->phone,
         ]);
-        $ussdPush = $clickPesa->requestUssdPush($payment);
+        try {
+            $ussdPush = $clickPesa->requestUssdPush($payment);
+        } catch (Throwable $error) {
+            throw $this->paymentRequestException($error);
+        }
 
         DiscountLink::whereIn('id', $items->pluck('discount_link_id')->filter()->all())->update(['used_at' => now()]);
         Cart::where('buyer_id', $request->user()->id)->delete();
@@ -229,7 +235,7 @@ class CartController extends Controller
             'ussd_push' => $ussdPush,
             'delivery_code' => $deliveryCode,
             'delivery_code_demo' => $deliveryCode,
-            'message' => 'Payment request sent. Keep this buyer delivery code. Share it only after receiving the order to release seller and delivery payments.',
+            'message' => $this->paymentRequestMessage($payment->fresh(), $ussdPush).' Keep this buyer delivery code. Share it only after receiving the order to release seller and delivery payments.',
         ], 201);
     }
 
@@ -240,7 +246,11 @@ class CartController extends Controller
         abort_if(in_array($payment->status, ['paid', 'success', 'completed'], true), 422, 'This payment is already complete.');
         abort_unless($payment->phone, 422, 'This payment does not have a phone number.');
 
-        $ussdPush = $clickPesa->requestUssdPush($payment);
+        try {
+            $ussdPush = $clickPesa->requestUssdPush($payment);
+        } catch (Throwable $error) {
+            throw $this->paymentRequestException($error);
+        }
 
         if ($payment->type === 'shop_registration_fee') {
             $payment->shop?->update(['registration_fee_status' => 'processing']);
@@ -249,7 +259,28 @@ class CartController extends Controller
         return response()->json([
             'payment' => $payment->fresh(),
             'ussd_push' => $ussdPush,
-            'message' => 'Payment request sent again.',
+            'message' => $this->paymentRequestMessage($payment->fresh(), $ussdPush),
+        ]);
+    }
+
+    private function paymentRequestMessage(Payment $payment, array $ussdPush): string
+    {
+        $reference = $ussdPush['reference'] ?? $payment->provider_reference ?? $ussdPush['orderReference'] ?? '-';
+        $channel = data_get($ussdPush, 'initiate.channel') ?: data_get($ussdPush, 'channel');
+
+        return trim('Payment request sent to '.$payment->phone.'. Reference: '.$reference.($channel ? '. Channel: '.$channel : '').'. Check your phone and approve the USSD prompt.');
+    }
+
+    private function paymentRequestException(Throwable $error): ValidationException
+    {
+        if ($error instanceof ValidationException) {
+            return $error;
+        }
+
+        report($error);
+
+        return ValidationException::withMessages([
+            'payment' => 'Payment request could not be sent right now. Check the payment provider configuration and try again.',
         ]);
     }
 
