@@ -33,18 +33,20 @@ class ClickPesaService
         }
 
         $orderReference = $this->orderReference($payment, $prefix);
+        $existingPayload = is_array($payment->payload) ? $payment->payload : [];
+        $orderReferences = $this->orderReferences($existingPayload, $orderReference);
         $payload = [
             'amount' => $this->amount($payment),
             'currency' => $currency,
             'orderReference' => $orderReference,
             'phoneNumber' => $this->phone($payment->phone),
         ];
-        $existingPayload = is_array($payment->payload) ? $payment->payload : [];
         $payment->update([
             'provider' => 'clickpesa',
             'status' => 'processing',
             'payload' => array_merge($existingPayload, [
                 'orderReference' => $orderReference,
+                'orderReferences' => $orderReferences,
                 'request' => $payload,
             ]),
         ]);
@@ -60,6 +62,7 @@ class ClickPesaService
                 'status' => 'failed',
                 'payload' => array_merge($existingPayload, [
                     'orderReference' => $orderReference,
+                    'orderReferences' => $orderReferences,
                     'request' => $payload,
                     'error' => $error->errors(),
                 ]),
@@ -84,6 +87,7 @@ class ClickPesaService
 
         $storedPayload = array_merge(is_array($payment->payload) ? $payment->payload : [], [
             'orderReference' => $orderReference,
+            'orderReferences' => $orderReferences,
             'preview' => $preview,
             'initiate' => $initiate,
         ]);
@@ -391,12 +395,54 @@ class ClickPesaService
 
     private function orderReference(Payment $payment, string $prefix): string
     {
+        $base = $prefix.str_pad((string) $payment->id, 10, '0', STR_PAD_LEFT);
         $existing = data_get($payment->payload, 'orderReference');
-        if (is_string($existing) && $existing !== '') {
+
+        if (is_string($existing) && $existing !== '' && ! $this->needsNewOrderReference($payment)) {
             return $existing;
         }
 
-        return $prefix.str_pad((string) $payment->id, 10, '0', STR_PAD_LEFT);
+        if (! $this->needsNewOrderReference($payment)) {
+            return $base;
+        }
+
+        $references = data_get($payment->payload, 'orderReferences');
+        $references = is_array($references) ? array_filter($references, 'is_string') : [];
+        $nextAttempt = collect($references)
+            ->filter(fn (string $reference) => preg_match('/R\d+$/', $reference) === 1)
+            ->count();
+
+        do {
+            $nextAttempt++;
+            $reference = $base.'R'.str_pad((string) $nextAttempt, 2, '0', STR_PAD_LEFT);
+        } while (in_array($reference, $references, true));
+
+        return $reference;
+    }
+
+    private function needsNewOrderReference(Payment $payment): bool
+    {
+        $payload = is_array($payment->payload) ? $payment->payload : [];
+
+        return filled($payment->provider_reference)
+            || in_array($payment->status, ['failed', 'processing'], true)
+            || filled(data_get($payload, 'request'))
+            || filled(data_get($payload, 'preview'))
+            || filled(data_get($payload, 'initiate'))
+            || filled(data_get($payload, 'error'));
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<int, string>
+     */
+    private function orderReferences(array $payload, string $orderReference): array
+    {
+        $references = data_get($payload, 'orderReferences', []);
+        $references = is_array($references) ? array_filter($references, 'is_string') : [];
+        $references[] = $orderReference;
+
+        return array_values(array_unique($references));
     }
 
     /**
