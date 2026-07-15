@@ -6845,12 +6845,6 @@ class ProductDealCard extends StatelessWidget {
                       ),
                     ),
                     _ProductIconAction(
-                      tooltip: tx('Share product', 'Shiriki bidhaa'),
-                      onPressed: onShare,
-                      icon: Icons.ios_share_outlined,
-                    ),
-                    const SizedBox(width: 8),
-                    _ProductIconAction(
                       tooltip: tx('Add to cart', 'Weka kikapuni'),
                       onPressed: onAdd,
                       icon: Icons.add_shopping_cart,
