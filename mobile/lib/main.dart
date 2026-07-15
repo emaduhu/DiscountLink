@@ -16,6 +16,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:upgrader/upgrader.dart';
 
@@ -26,6 +27,15 @@ const apiBaseUrl = String.fromEnvironment(
   defaultValue: 'https://dl.vigourtech.net/api',
 );
 const kAppName = 'Discount Link';
+const playStoreUrl = String.fromEnvironment(
+  'PLAY_STORE_URL',
+  defaultValue:
+      'https://play.google.com/store/apps/details?id=net.vigourtech.dl',
+);
+const appStoreUrl = String.fromEnvironment(
+  'APP_STORE_URL',
+  defaultValue: 'https://apps.apple.com/search?term=Vigour%20Deals',
+);
 const googleServerClientId = String.fromEnvironment(
   'GOOGLE_SERVER_CLIENT_ID',
   defaultValue: '',
@@ -3194,6 +3204,26 @@ class _BuyerPageState extends State<BuyerPage> {
     );
   }
 
+  Future<void> shareProductDownload(Map<String, dynamic> product) async {
+    final productName = '${product['name'] ?? 'this product'}'.trim();
+    final shopName = '${product['shop']?['name'] ?? ''}'.trim();
+    final total = num.tryParse('${product['auto_total'] ?? product['price']}');
+    final priceLine = total == null
+        ? ''
+        : '\n${tx('Price', 'Bei')}: TZS ${money.format(total)}';
+    final shopLine = shopName.isEmpty
+        ? ''
+        : '\n${tx('Shop', 'Duka')}: $shopName';
+    final message = tx(
+      'I found $productName on Vigour Deals.$shopLine$priceLine\n\nDownload the app to view and buy this product:\nAndroid: $playStoreUrl\niPhone: $appStoreUrl',
+      'Nimepata $productName kwenye Vigour Deals.$shopLine$priceLine\n\nPakua app kuangalia na kununua bidhaa hii:\nAndroid: $playStoreUrl\niPhone: $appStoreUrl',
+    );
+
+    await SharePlus.instance.share(
+      ShareParams(text: message, subject: 'View $productName on Vigour Deals'),
+    );
+  }
+
   Future<void> openCartPage() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -3317,6 +3347,7 @@ class _BuyerPageState extends State<BuyerPage> {
                     await loadCartCount();
                   },
                   onStartChat: () => startChat(product),
+                  onShare: () => shareProductDownload(product),
                   onRate: (rating) async {
                     await widget.client.post(
                       '/products/${product['id']}/rating',
@@ -6686,6 +6717,7 @@ class ProductDealCard extends StatelessWidget {
     required this.imageAsset,
     required this.onAdd,
     required this.onStartChat,
+    required this.onShare,
     required this.onRate,
   });
   final Map<String, dynamic> product;
@@ -6693,6 +6725,7 @@ class ProductDealCard extends StatelessWidget {
   final String imageAsset;
   final Future<void> Function() onAdd;
   final Future<void> Function() onStartChat;
+  final Future<void> Function() onShare;
   final Future<void> Function(int rating) onRate;
 
   @override
@@ -6713,6 +6746,7 @@ class ProductDealCard extends StatelessWidget {
           imageAsset: imageAsset,
           onAdd: onAdd,
           onStartChat: onStartChat,
+          onShare: onShare,
           onRate: onRate,
         ),
       ),
@@ -6809,6 +6843,12 @@ class ProductDealCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  IconButton(
+                    tooltip: tx('Share product', 'Shiriki bidhaa'),
+                    onPressed: onShare,
+                    icon: const Icon(Icons.ios_share_outlined, size: 18),
+                    style: IconButton.styleFrom(fixedSize: const Size(36, 36)),
+                  ),
                   IconButton.filled(
                     onPressed: onAdd,
                     icon: const Icon(Icons.add_shopping_cart, size: 18),
@@ -6844,6 +6884,7 @@ class ProductQuickView extends StatelessWidget {
     required this.imageAsset,
     required this.onAdd,
     required this.onStartChat,
+    required this.onShare,
     required this.onRate,
   });
   final Map<String, dynamic> product;
@@ -6851,6 +6892,7 @@ class ProductQuickView extends StatelessWidget {
   final String imageAsset;
   final Future<void> Function() onAdd;
   final Future<void> Function() onStartChat;
+  final Future<void> Function() onShare;
   final Future<void> Function(int rating) onRate;
 
   @override
@@ -6931,6 +6973,12 @@ class ProductQuickView extends StatelessWidget {
                 },
                 icon: const Icon(Icons.add_shopping_cart),
                 label: const Text('Add to cart'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: onShare,
+                icon: const Icon(Icons.ios_share_outlined),
+                label: const Text('Share download link'),
               ),
               const SizedBox(height: 8),
               OutlinedButton.icon(

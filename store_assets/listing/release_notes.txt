@@ -1,5 +1,6 @@
-Version 1.0.11
-- Sends ClickPesa checkout prompts instantly instead of waiting on the payment queue.
-- Added a resend ClickPesa prompt action after checkout.
-- Improved checkout payment status messaging for USSD push requests.
-- Updated shop registration fee prompts to send immediately.
+Version 1.0.12
+- Renamed checkout resend action to Resend Payment request.
+- Improved payment request success and error messages with phone, reference, and channel details.
+- Fixed ClickPesa resend handling so failed requests use a fresh order reference.
+- Improved checkout payment dialogs and button layout to fit smaller screens.
+- Added product sharing that sends recipients to download the app to view shared products.
