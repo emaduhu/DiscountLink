@@ -393,7 +393,11 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
           ),
         ),
         home: UpgradeAlert(
-          upgrader: Upgrader(durationUntilAlertAgain: const Duration(days: 1)),
+          upgrader: Upgrader(
+            durationUntilAlertAgain: const Duration(seconds: 0),
+          ),
+          showIgnore: false,
+          showLater: false,
           showReleaseNotes: false,
           child: showSplash
               ? SplashPage(onContinue: () => setState(() => showSplash = false))
@@ -1727,6 +1731,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool biometricAvailable = false;
   bool biometricEnabled = false;
   bool biometricLoading = false;
+  bool accountDeleteLoading = false;
   String otpProvider = 'beem';
   String? firebaseVerificationId;
   String? visiblePhoneCode;
@@ -1824,6 +1829,73 @@ class _ProfilePageState extends State<ProfilePage> {
       if (mounted) showError(context, error);
     } finally {
       if (mounted) setState(() => biometricLoading = false);
+    }
+  }
+
+  Future<void> deleteAccount() async {
+    final confirm = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final canDelete = confirm.text.trim().toUpperCase() == 'DELETE';
+          return AlertDialog(
+            title: Text(tx('Delete account?', 'Futa akaunti?')),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  tx(
+                    'Your account will be deactivated and you will be signed out. You will need support to restore access.',
+                    'Akaunti yako itazimwa na utatolewa. Utahitaji msaada kurejesha ufikiaji.',
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: confirm,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: InputDecoration(
+                    labelText: tx(
+                      'Type DELETE to confirm',
+                      'Andika DELETE kuthibitisha',
+                    ),
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => setDialogState(() {}),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(tx('Cancel', 'Ghairi')),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: canDelete
+                    ? () => Navigator.pop(context, true)
+                    : null,
+                child: Text(tx('Delete account', 'Futa akaunti')),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    confirm.dispose();
+    if (confirmed != true) return;
+
+    setState(() => accountDeleteLoading = true);
+    try {
+      await widget.client.delete('/me');
+      await biometricAuth.disable();
+      if (!mounted) return;
+      await widget.onSignOut();
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => accountDeleteLoading = false);
     }
   }
 
@@ -2366,6 +2438,37 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
               ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        SurfacePanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                tx('Account deletion', 'Kufuta akaunti'),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                tx(
+                  'Deactivate this account and remove this device session.',
+                  'Zima akaunti hii na ondoa kipindi cha kifaa hiki.',
+                ),
+                style: const TextStyle(color: kTextColor),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: accountDeleteLoading ? null : deleteAccount,
+                icon: const Icon(Icons.delete_forever_outlined),
+                label: Text(
+                  accountDeleteLoading
+                      ? tx('Deleting...', 'Inafuta...')
+                      : tx('Delete account', 'Futa akaunti'),
+                ),
+              ),
             ],
           ),
         ),

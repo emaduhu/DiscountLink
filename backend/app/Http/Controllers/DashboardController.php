@@ -128,6 +128,25 @@ class DashboardController extends Controller
         return redirect()->route('dashboard')->with('status', $user->is_active ? 'User unblocked.' : 'User blocked.');
     }
 
+    public function restoreUser(string $user): RedirectResponse
+    {
+        $this->authorizeAdmin();
+
+        $user = User::withTrashed()->findOrFail($user);
+        abort_unless(in_array($user->role, ['buyer', 'seller', 'deliverer'], true), 422);
+        abort_unless($user->trashed(), 422, 'This user is not deleted.');
+
+        $user->restore();
+        $user->forceFill([
+            'is_active' => true,
+            'is_available' => true,
+        ])->save();
+
+        return redirect()
+            ->route('dashboard', ['page' => 'users'])
+            ->with('status', 'User account restored.');
+    }
+
     public function toggleProduct(Product $product): RedirectResponse
     {
         $this->authorizeAdmin();
@@ -370,7 +389,8 @@ class DashboardController extends Controller
                 ->latest()
                 ->paginate($paymentsPerPage, ['*'], 'payments_page')
                 ->withQueryString(),
-            'users' => User::whereIn('role', ['buyer', 'seller', 'deliverer'])
+            'users' => User::withTrashed()
+                ->whereIn('role', ['buyer', 'seller', 'deliverer'])
                 ->when($usersSearch, fn ($query, string $search) => $query->where(fn ($builder) => $this->userSearch($builder, $search)->orWhere('role', 'like', "%{$search}%")))
                 ->latest()
                 ->paginate($usersPerPage, ['*'], 'users_page')

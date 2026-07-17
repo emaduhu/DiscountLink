@@ -445,6 +445,23 @@ class AuthController extends Controller
         return response()->json(['message' => 'FCM token updated.']);
     }
 
+    public function deleteAccount(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        DB::transaction(function () use ($user): void {
+            $user->apiTokens()->delete();
+            $user->forceFill([
+                'is_active' => false,
+                'is_available' => false,
+                'fcm_token' => null,
+            ])->save();
+            $user->delete();
+        });
+
+        return response()->json(['message' => 'Account deleted.']);
+    }
+
     /**
      * @return array{sent: bool, code: string|null}
      */

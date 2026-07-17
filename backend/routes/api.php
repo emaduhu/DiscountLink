@@ -21,6 +21,7 @@ Route::post('/webhooks/clickpesa', [PaymentWebhookController::class, 'clickpesa'
 Route::middleware(AuthenticateApiToken::class)->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::put('/me', [AuthController::class, 'updateProfile']);
+    Route::delete('/me', [AuthController::class, 'deleteAccount']);
     Route::post('/me/fcm-token', [AuthController::class, 'updateFcm']);
     Route::post('/email/otp/request', [AuthController::class, 'requestEmailOtp']);
     Route::post('/email/otp/verify', [AuthController::class, 'verifyEmailOtp']);

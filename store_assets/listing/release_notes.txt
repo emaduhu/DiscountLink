@@ -1,5 +1,6 @@
-Version 1.0.13
-- Added product sharing from product cards and product quick view.
-- Shared products now send recipients to download the app before viewing and buying.
-- Updated the share message with product name, shop, price, and app download links.
-- Improved release package for the latest payment request resend fixes.
+Version 1.0.15
+- Added account deletion from the profile screen with typed confirmation and immediate sign-out.
+- Added admin account restore for deleted users.
+- Added a startup update prompt when a newer version is available on Google Play or the App Store.
+- Simplified product cards so prices are easier to read.
+- Improved product image visibility and kept quick-view sharing available.
