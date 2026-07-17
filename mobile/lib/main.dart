@@ -1833,12 +1833,12 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> deleteAccount() async {
-    final confirm = TextEditingController();
+    var confirmText = '';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
-          final canDelete = confirm.text.trim().toUpperCase() == 'DELETE';
+          final canDelete = confirmText.trim().toUpperCase() == 'DELETE';
           return AlertDialog(
             title: Text(tx('Delete account?', 'Futa akaunti?')),
             content: Column(
@@ -1853,7 +1853,6 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 const SizedBox(height: 14),
                 TextField(
-                  controller: confirm,
                   textCapitalization: TextCapitalization.characters,
                   decoration: InputDecoration(
                     labelText: tx(
@@ -1862,7 +1861,9 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                     border: const OutlineInputBorder(),
                   ),
-                  onChanged: (_) => setDialogState(() {}),
+                  onChanged: (value) => setDialogState(() {
+                    confirmText = value;
+                  }),
                 ),
               ],
             ),
@@ -1883,7 +1884,6 @@ class _ProfilePageState extends State<ProfilePage> {
         },
       ),
     );
-    confirm.dispose();
     if (confirmed != true) return;
 
     setState(() => accountDeleteLoading = true);
@@ -2263,26 +2263,29 @@ class _ProfilePageState extends State<ProfilePage> {
                 value: widget.user['address'] ?? '',
               ),
               const Divider(height: 24),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                value: biometricEnabled,
-                onChanged: biometricAvailable && !biometricLoading
-                    ? setBiometricEnabled
-                    : null,
-                secondary: const Icon(Icons.fingerprint),
-                title: Text(
-                  tx('Biometric login', 'Kuingia kwa alama ya kidole/uso'),
-                ),
-                subtitle: Text(
-                  biometricAvailable
-                      ? tx(
-                          'Use fingerprint or face unlock on this device.',
-                          'Tumia alama ya kidole au uso kwenye kifaa hiki.',
-                        )
-                      : tx(
-                          'Set up fingerprint or face unlock on this device first.',
-                          'Sanidi alama ya kidole au uso kwenye kifaa hiki kwanza.',
-                        ),
+              Material(
+                type: MaterialType.transparency,
+                child: SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: biometricEnabled,
+                  onChanged: biometricAvailable && !biometricLoading
+                      ? setBiometricEnabled
+                      : null,
+                  secondary: const Icon(Icons.fingerprint),
+                  title: Text(
+                    tx('Biometric login', 'Kuingia kwa alama ya kidole/uso'),
+                  ),
+                  subtitle: Text(
+                    biometricAvailable
+                        ? tx(
+                            'Use fingerprint or face unlock on this device.',
+                            'Tumia alama ya kidole au uso kwenye kifaa hiki.',
+                          )
+                        : tx(
+                            'Set up fingerprint or face unlock on this device first.',
+                            'Sanidi alama ya kidole au uso kwenye kifaa hiki kwanza.',
+                          ),
+                  ),
                 ),
               ),
               if (biometricLoading) const LinearProgressIndicator(minHeight: 3),

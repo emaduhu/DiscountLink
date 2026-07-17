@@ -1,5 +1,6 @@
 Version 1.0.15
 - Added account deletion from the profile screen with typed confirmation and immediate sign-out.
+- Fixed account deletion confirmation so it closes cleanly after confirming.
 - Added admin account restore for deleted users.
 - Added a startup update prompt when a newer version is available on Google Play or the App Store.
 - Simplified product cards so prices are easier to read.
