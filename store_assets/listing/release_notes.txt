@@ -1,8 +1,4 @@
-Version 1.0.16
-- Fixed account deletion on production servers that block DELETE requests.
-- Fixed account deletion sign-out so the profile screen does not rebuild after the account is removed.
-- Added account deletion from the profile screen with typed confirmation and immediate sign-out.
-- Added admin account restore for deleted users.
-- Added a startup update prompt when a newer version is available on Google Play or the App Store.
-- Simplified product cards so prices are easier to read.
-- Improved product image visibility and kept quick-view sharing available.
+Version 1.0.17
+- Added Terms and Conditions acceptance to account registration.
+- Backend now records when a new user accepts the Terms and Conditions.
+- Keeps account deletion working on production servers that block DELETE requests.

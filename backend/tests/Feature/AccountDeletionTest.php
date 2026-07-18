@@ -48,6 +48,17 @@ class AccountDeletionTest extends TestCase
         $this->assertSame(0, ApiToken::where('user_id', $user->id)->count());
     }
 
+    public function test_user_can_delete_account_through_post_fallback_route(): void
+    {
+        $user = User::factory()->create();
+        $token = app(ApiTokenService::class)->issue($user);
+
+        $this->withToken($token)->postJson('/api/me/delete')->assertOk();
+
+        $this->assertSoftDeleted('users', ['id' => $user->id]);
+        $this->assertSame(0, ApiToken::where('user_id', $user->id)->count());
+    }
+
     public function test_admin_can_restore_soft_deleted_account(): void
     {
         $admin = User::factory()->create([

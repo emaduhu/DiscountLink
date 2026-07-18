@@ -1167,6 +1167,7 @@ class _RegisterPageState extends State<RegisterPage> {
   final email = TextEditingController();
   final password = TextEditingController(text: 'password');
   String role = 'buyer';
+  bool termsAccepted = false;
   bool loading = false;
 
   Future<String?> fcmToken() async {
@@ -1203,6 +1204,9 @@ class _RegisterPageState extends State<RegisterPage> {
     if (includeEmailPassword && password.text.isEmpty) {
       missing.add(tx('password', 'nenosiri'));
     }
+    if (!termsAccepted) {
+      missing.add(tx('terms and conditions', 'vigezo na masharti'));
+    }
     if (missing.isNotEmpty) {
       throw Exception(
         '${tx('Complete these fields first:', 'Kamilisha taarifa hizi kwanza:')} ${missing.join(', ')}.',
@@ -1225,6 +1229,7 @@ class _RegisterPageState extends State<RegisterPage> {
         'password': password.text,
         'address': address.text.trim(),
         'fcm_token': await fcmToken(),
+        'terms_accepted': true,
       });
       completeSignIn(response);
     } catch (error) {
@@ -1253,6 +1258,7 @@ class _RegisterPageState extends State<RegisterPage> {
         'nida_number': nida.text.trim(),
         'address': address.text.trim(),
         'fcm_token': await fcmToken(),
+        'terms_accepted': true,
       });
       completeSignIn(response);
     } catch (error) {
@@ -1283,6 +1289,7 @@ class _RegisterPageState extends State<RegisterPage> {
         'nida_number': nida.text.trim(),
         'address': address.text.trim(),
         'fcm_token': await fcmToken(),
+        'terms_accepted': true,
       });
       completeSignIn(response);
     } catch (error) {
@@ -1337,6 +1344,30 @@ class _RegisterPageState extends State<RegisterPage> {
                         RoleSelector(
                           value: role,
                           onChanged: (value) => setState(() => role = value),
+                        ),
+                        const SizedBox(height: 10),
+                        CheckboxListTile(
+                          value: termsAccepted,
+                          onChanged: loading
+                              ? null
+                              : (value) => setState(
+                                  () => termsAccepted = value ?? false,
+                                ),
+                          controlAffinity: ListTileControlAffinity.leading,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            tx(
+                              'I accept the Terms and Conditions',
+                              'Ninakubali Vigezo na Masharti',
+                            ),
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            tx(
+                              'Required before creating a Discount Link account.',
+                              'Inahitajika kabla ya kufungua akaunti ya Discount Link.',
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 10),
                         SectionTitle(
@@ -1875,7 +1906,10 @@ class _ProfilePageState extends State<ProfilePage> {
               FilledButton(
                 style: FilledButton.styleFrom(backgroundColor: Colors.red),
                 onPressed: canDelete
-                    ? () => Navigator.pop(context, true)
+                    ? () {
+                        FocusScope.of(context).unfocus();
+                        Navigator.pop(context, true);
+                      }
                     : null,
                 child: Text(tx('Delete account', 'Futa akaunti')),
               ),
@@ -1888,15 +1922,15 @@ class _ProfilePageState extends State<ProfilePage> {
 
     setState(() => accountDeleteLoading = true);
     try {
-      await widget.client.delete('/me');
+      await widget.client.post('/me/delete', {});
       await biometricAuth.disable();
       if (!mounted) return;
       await widget.onSignOut();
+      return;
     } catch (error) {
       if (mounted) showError(context, error);
-    } finally {
-      if (mounted) setState(() => accountDeleteLoading = false);
     }
+    if (mounted) setState(() => accountDeleteLoading = false);
   }
 
   Future<void> saveName() async {

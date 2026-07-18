@@ -38,6 +38,7 @@ class AuthController extends Controller
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'fcm_token' => ['nullable', 'string', 'max:255'],
+            'terms_accepted' => ['required', 'accepted'],
         ], $this->phoneValidationMessages());
 
         $user = User::create([
@@ -53,6 +54,7 @@ class AuthController extends Controller
             'longitude' => $data['longitude'] ?? null,
             'fcm_token' => $data['fcm_token'] ?? null,
             'is_active' => true,
+            'terms_accepted_at' => now(),
         ]);
 
         $emailOtp = $this->sendEmailOtp($user);
@@ -197,6 +199,7 @@ class AuthController extends Controller
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'fcm_token' => ['nullable', 'string', 'max:255'],
+            'terms_accepted' => ['nullable', 'accepted'],
         ], $this->phoneValidationMessages());
 
         $profile = match (true) {
@@ -214,6 +217,11 @@ class AuthController extends Controller
             422,
             'Complete registration with your name, phone, NIDA number, and address before using social sign-in.'
         );
+        abort_if(
+            ! $user && empty($data['terms_accepted']),
+            422,
+            'You must accept the Terms and Conditions before creating an account.'
+        );
 
         $attributes = [
             'google_id' => $profile['sub'] ?? $profile['user_id'] ?? null,
@@ -224,6 +232,9 @@ class AuthController extends Controller
         ];
         if (! $user) {
             $attributes['role'] = $data['role'];
+            $attributes['terms_accepted_at'] = now();
+        } elseif (! $user->terms_accepted_at && ! empty($data['terms_accepted'])) {
+            $attributes['terms_accepted_at'] = now();
         }
         if (! empty($data['full_name'])) {
             $attributes['name'] = $data['full_name'];

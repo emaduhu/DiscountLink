@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 #[Fillable([
     'role', 'name', 'email', 'google_id', 'email_verified_at', 'password', 'phone', 'pending_phone', 'phone_verified_at',
     'nida_number', 'address', 'latitude', 'longitude', 'fcm_token', 'is_active', 'is_available',
+    'terms_accepted_at',
 ])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
@@ -26,6 +27,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'phone_verified_at' => 'datetime',
+            'terms_accepted_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
             'is_available' => 'boolean',
