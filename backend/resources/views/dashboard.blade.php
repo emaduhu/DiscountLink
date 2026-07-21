@@ -37,6 +37,7 @@
                 <a class="{{ $activePage === 'settings' ? 'active' : '' }}" href="{{ route('dashboard', ['page' => 'settings']) }}">Settings</a>
                 <a class="{{ $activePage === 'users' ? 'active' : '' }}" href="{{ route('dashboard', ['page' => 'users']) }}">Users</a>
                 <a class="{{ $activePage === 'products' ? 'active' : '' }}" href="{{ route('dashboard', ['page' => 'products']) }}">Products</a>
+                <a class="{{ $activePage === 'campaigns' ? 'active' : '' }}" href="{{ route('dashboard', ['page' => 'campaigns']) }}">Campaigns</a>
                 <a class="{{ $activePage === 'reports' ? 'active' : '' }}" href="{{ route('dashboard', ['page' => 'reports']) }}">Chat reports</a>
                 <a class="{{ $activePage === 'chats' ? 'active' : '' }}" href="{{ route('dashboard', ['page' => 'chats']) }}">Chat moderation</a>
                 <a class="{{ $activePage === 'notifications' ? 'active' : '' }}" href="{{ route('dashboard', ['page' => 'notifications']) }}">Notifications</a>
@@ -210,6 +211,18 @@
                 <button class="primary" type="submit">Save service fee</button>
             </form>
         </div>
+        <div class="card">
+            <h2>Product Campaign Pricing</h2>
+            <form method="post" action="{{ route('dashboard.campaign-pricing') }}">
+                @csrf
+                <label class="label">Price per SMS recipient (TZS)</label>
+                <input name="campaign_sms_unit_price" type="number" min="0" step="0.0001" value="{{ $settings['campaign_sms_unit_price'] }}">
+                <label class="label">Price per FCM recipient (TZS)</label>
+                <input name="campaign_fcm_unit_price" type="number" min="0" step="0.0001" value="{{ $settings['campaign_fcm_unit_price'] }}">
+                <div class="muted">The seller is charged the configured price multiplied by the eligible recipients snapshotted when the campaign is created. Set a channel to 0 to waive its campaign charge.</div>
+                <button class="primary" type="submit">Save campaign pricing</button>
+            </form>
+        </div>
     </div>
     @endif
     @if($activePage === 'users')
@@ -217,6 +230,34 @@
     @endif
     @if($activePage === 'products')
     <div id="products" class="section"><div class="section-head"><h2>Product Management</h2><form class="tools" method="get" action="{{ route('dashboard', ['page' => 'products']) }}"><input name="products_q" value="{{ $filters['products_q'] }}" placeholder="Search products"><select name="products_per_page">@foreach($pageOptions as $option)<option value="{{ $option }}" @selected($perPage['products_per_page'] === $option)>{{ $option }} per page</option>@endforeach</select></form></div><div class="table-wrap"><table><tr><th>Product</th><th>Shop</th><th>Seller</th><th>Price</th><th>Stock</th><th>Status</th><th>Action</th></tr>@forelse($products as $product)<tr><td data-label="Product">{{ $product->name }}<div class="muted">{{ \Illuminate\Support\Str::limit($product->description, 80) }}</div></td><td data-label="Shop">{{ $product->shop?->name }}<div class="muted">{{ collect($product->shop?->categories ?? [$product->shop?->category])->filter()->join(', ') }}</div></td><td data-label="Seller">{{ $product->seller?->name }}<div class="muted">{{ $product->seller?->email }}</div></td><td data-label="Price"><span class="badge">TZS {{ number_format($product->auto_total, 2) }}</span><div class="muted">Base {{ number_format($product->price, 2) }}</div></td><td data-label="Stock">{{ $product->stock }}</td><td data-label="Status" class="{{ $product->is_active ? 'status' : 'blocked' }}">{{ $product->is_active ? 'Active' : 'Blocked' }}</td><td data-label="Action"><form method="post" action="{{ route('dashboard.products.toggle', $product) }}">@csrf<button class="{{ $product->is_active ? 'danger' : '' }}" type="submit">{{ $product->is_active ? 'Block product' : 'Unblock product' }}</button></form></td></tr>@empty<tr><td colspan="7">No products found.</td></tr>@endforelse</table></div><div class="pagination"><span>{{ $products->total() }} result(s)</span>{{ $products->links() }}</div></div>
+    @endif
+    @if($activePage === 'campaigns')
+    <div id="campaigns" class="section">
+        <div class="section-head">
+            <h2>Product Campaign Revenue</h2>
+            <form class="tools" method="get" action="{{ route('dashboard', ['page' => 'campaigns']) }}">
+                <input name="campaigns_q" value="{{ $filters['campaigns_q'] }}" placeholder="Search campaigns">
+                <select name="campaigns_per_page">@foreach($pageOptions as $option)<option value="{{ $option }}" @selected($perPage['campaigns_per_page'] === $option)>{{ $option }} per page</option>@endforeach</select>
+            </form>
+        </div>
+        <div class="table-wrap"><table>
+            <tr><th>Campaign</th><th>Seller / Product</th><th>Channel</th><th>Recipients</th><th>Delivery</th><th>Revenue</th><th>Payment / Status</th></tr>
+            @forelse($campaigns as $campaign)
+            <tr>
+                <td>{{ $campaign->reference }}<div class="muted">{{ $campaign->created_at }}</div></td>
+                <td>{{ $campaign->seller?->name }}<div class="muted">{{ $campaign->product?->name }} · {{ $campaign->product?->shop?->name }}</div></td>
+                <td><span class="pill">{{ strtoupper($campaign->channel) }}</span><div class="muted">TZS {{ number_format($campaign->unit_price, 4) }} each</div></td>
+                <td>{{ number_format($campaign->recipient_count) }}</td>
+                <td><span class="status">{{ number_format($campaign->sent_count) }} sent</span><div class="muted">{{ number_format($campaign->failed_count) }} failed</div></td>
+                <td><strong>TZS {{ number_format($campaign->total_cost, 2) }}</strong><div class="muted">{{ $campaign->paid_at ? 'Paid '.$campaign->paid_at : 'Not paid' }}</div></td>
+                <td class="{{ in_array($campaign->status, ['payment_failed', 'completed_with_errors'], true) ? 'blocked' : 'status' }}">{{ str_replace('_', ' ', $campaign->status) }}<div class="muted">{{ $campaign->payment?->provider_reference }}</div></td>
+            </tr>
+            @empty
+            <tr><td colspan="7">No product campaigns found.</td></tr>
+            @endforelse
+        </table></div>
+        <div class="pagination"><span>{{ $campaigns->total() }} result(s)</span>{{ $campaigns->links() }}</div>
+    </div>
     @endif
     @if($activePage === 'reports')
     <div id="reports" class="section"><div class="section-head"><h2>Chat Reports</h2><form class="tools" method="get" action="{{ route('dashboard', ['page' => 'reports']) }}"><input name="reports_q" value="{{ $filters['reports_q'] }}" placeholder="Search reports"><select name="reports_per_page">@foreach($pageOptions as $option)<option value="{{ $option }}" @selected($perPage['reports_per_page'] === $option)>{{ $option }} per page</option>@endforeach</select></form></div><div class="table-wrap"><table><tr><th>Reason</th><th>Reporter</th><th>Reported User</th><th>Conversation</th><th>Status</th><th>Action</th></tr>@forelse($conversationReports as $report)<tr><td>{{ $report->reason }}<div class="muted">{{ \Illuminate\Support\Str::limit($report->details, 120) }}</div></td><td>{{ $report->reporter?->name }}<div class="muted">{{ $report->reporter?->email }}</div></td><td>{{ $report->reportedUser?->name }}<div class="muted">{{ $report->reportedUser?->email }}</div></td><td>#{{ $report->conversation_id }}<div class="muted">{{ $report->conversation?->userOne?->name }} / {{ $report->conversation?->userTwo?->name }}</div></td><td class="{{ $report->status === 'open' ? 'blocked' : 'status' }}">{{ ucfirst($report->status) }}</td><td><div class="actions"><form method="post" action="{{ route('dashboard.conversations.toggle', $report->conversation) }}">@csrf<button class="{{ $report->conversation?->blocked_at ? '' : 'danger' }}" type="submit">{{ $report->conversation?->blocked_at ? 'Unblock chat' : 'Block chat' }}</button></form>@if($report->status === 'open')<form method="post" action="{{ route('dashboard.conversation-reports.close', $report) }}">@csrf<button type="submit">Close report</button></form>@endif</div></td></tr>@empty<tr><td colspan="6">No reports found.</td></tr>@endforelse</table></div><div class="pagination"><span>{{ $conversationReports->total() }} result(s)</span>{{ $conversationReports->links() }}</div></div>
@@ -247,7 +288,7 @@
                 <tr><th>Order / Shop</th><th>Type</th><th>Status</th><th>Amount</th><th>Phone</th><th>Provider Ref</th><th>Action</th></tr>
                 @forelse($payments as $payment)
                 <tr>
-                    <td>{{ $payment->order?->reference ?? $payment->shop?->name ?? '-' }}@if($payment->shop)<div class="muted">Shop registration</div>@endif</td>
+                    <td>{{ $payment->order?->reference ?? $payment->shop?->name ?? $payment->productCampaign?->reference ?? '-' }}@if($payment->shop)<div class="muted">Shop registration</div>@elseif($payment->productCampaign)<div class="muted">{{ $payment->productCampaign?->product?->name }}</div>@endif</td>
                     <td>{{ $payment->type }}</td>
                     <td class="{{ $payment->status === 'failed' ? 'blocked' : 'status' }}">{{ $payment->status }}</td>
                     <td>{{ number_format($payment->amount,2) }}</td>

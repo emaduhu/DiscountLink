@@ -15,6 +15,13 @@ class ClickPesaServiceTest extends TestCase
 {
     use DatabaseMigrations;
 
+    protected function tearDown(): void
+    {
+        app()->detectEnvironment(fn () => 'testing');
+
+        parent::tearDown();
+    }
+
     public function test_it_generates_token_previews_and_initiates_ussd_push(): void
     {
         app()->detectEnvironment(fn () => 'production');

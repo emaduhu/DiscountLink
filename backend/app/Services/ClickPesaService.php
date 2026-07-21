@@ -13,9 +13,33 @@ use RuntimeException;
 
 class ClickPesaService
 {
+    public function hasValidWebhookChecksum(array $payload): bool
+    {
+        $secret = trim((string) config('services.clickpesa.webhook_secret'));
+        if ($secret === '') {
+            return true;
+        }
+
+        $receivedChecksum = (string) ($payload['checksum'] ?? '');
+        if ($receivedChecksum === '') {
+            return false;
+        }
+
+        unset($payload['checksum'], $payload['checksumMethod']);
+        $canonicalPayload = $this->canonicalize($payload);
+        $encodedPayload = json_encode($canonicalPayload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        $expectedChecksum = hash_hmac('sha256', $encodedPayload, $secret);
+
+        return hash_equals(strtolower($expectedChecksum), strtolower($receivedChecksum));
+    }
+
     public function requestUssdPush(Payment $payment, string $currency = 'TZS'): array
     {
-        $prefix = $payment->type === 'shop_registration_fee' ? 'DLSHOP' : 'DLPAY';
+        $prefix = match ($payment->type) {
+            'shop_registration_fee' => 'DLSHOP',
+            'product_campaign' => 'DLCAMP',
+            default => 'DLPAY',
+        };
 
         if (! $this->isConfigured()) {
             $this->abortUnlessLocalFallbackAllowed('ClickPesa payment push is not configured. Set CLICKPESA_CLIENT_ID and CLICKPESA_API_KEY.');
@@ -189,6 +213,8 @@ class ClickPesaService
 
     public function applyCallback(array $payload): void
     {
+        $hasAuthenticatedChecksum = $this->webhookChecksumIsConfigured()
+            && $this->hasValidWebhookChecksum($payload);
         $reference = $this->firstData($payload, [
             'id',
             'transaction.id',
@@ -217,6 +243,16 @@ class ClickPesaService
 
         if (! $payment) {
             Log::warning('Unknown ClickPesa callback', $payload);
+
+            return;
+        }
+
+        if ($payment->type === 'product_campaign' && ! $hasAuthenticatedChecksum) {
+            Log::warning('Product campaign payment callback ignored because its checksum could not be authenticated.', [
+                'payment_id' => $payment->id,
+                'provider_reference' => $payment->provider_reference,
+                'checksum_configured' => $this->webhookChecksumIsConfigured(),
+            ]);
 
             return;
         }
@@ -254,6 +290,10 @@ class ClickPesaService
                     'registration_fee_payment_id' => $payment->id,
                 ]);
             }
+        }
+
+        if ($payment->type === 'product_campaign') {
+            app(ProductCampaignService::class)->syncPaymentStatus($payment->fresh());
         }
     }
 
@@ -470,5 +510,25 @@ class ClickPesaService
             'failed', 'failure', 'cancelled', 'canceled', 'expired' => 'failed',
             default => $status !== '' ? $status : 'processing',
         };
+    }
+
+    private function canonicalize(mixed $value): mixed
+    {
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        if (array_is_list($value)) {
+            return array_map(fn (mixed $item) => $this->canonicalize($item), $value);
+        }
+
+        ksort($value);
+
+        return array_map(fn (mixed $item) => $this->canonicalize($item), $value);
+    }
+
+    private function webhookChecksumIsConfigured(): bool
+    {
+        return trim((string) config('services.clickpesa.webhook_secret')) !== '';
     }
 }

@@ -10,12 +10,11 @@ use App\Models\Product;
 use App\Models\Shop;
 use App\Services\ClickPesaService;
 use App\Services\OtpProviderService;
+use App\Services\ProductMediaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 
 class ShopController extends Controller
 {
@@ -35,6 +34,9 @@ class ShopController extends Controller
             'address' => ['nullable', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
+            'opening_time' => ['nullable', 'required_with:closing_time', 'date_format:H:i'],
+            'closing_time' => ['nullable', 'required_with:opening_time', 'date_format:H:i'],
+            'timezone' => ['nullable', 'timezone:all'],
             'registration_payment_phone' => ['nullable', 'string', 'regex:/^\d{12}$/'],
         ], [
             'registration_payment_phone.regex' => 'Payment phone number must contain exactly 12 digits, for example 255700000001.',
@@ -51,6 +53,8 @@ class ShopController extends Controller
         abort_if(! $data['address'], 422, 'Add a shop address or update your seller address.');
         $data['category'] = $categories->first();
         $data['categories'] = $categories->all();
+        $this->abortForMatchingBusinessHours($data);
+        $data['timezone'] = $data['timezone'] ?? Shop::DEFAULT_TIMEZONE;
         unset($data['registration_payment_phone']);
 
         $feeAmount = $this->shopRegistrationFeeAmount();
@@ -196,6 +200,9 @@ class ShopController extends Controller
             'address' => ['nullable', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
+            'opening_time' => ['nullable', 'required_with:closing_time', 'date_format:H:i'],
+            'closing_time' => ['nullable', 'required_with:opening_time', 'date_format:H:i'],
+            'timezone' => ['nullable', 'timezone:all'],
         ]);
         $categories = collect($data['categories'] ?? [$data['category'] ?? null])
             ->filter()
@@ -207,12 +214,38 @@ class ShopController extends Controller
         $this->abortForUnknownCategories($categories);
         $data['category'] = $categories->first();
         $data['categories'] = $categories->all();
+        $this->abortForMatchingBusinessHours($data);
+        if (array_key_exists('timezone', $data) && $data['timezone'] === null) {
+            unset($data['timezone']);
+        }
         $shop->update($data);
 
         return response()->json(['shop' => $shop->fresh('products')]);
     }
 
-    public function product(Request $request, Shop $shop): JsonResponse
+    public function updateHours(Request $request, Shop $shop): JsonResponse
+    {
+        abort_unless($shop->seller_id === $request->user()->id, 403);
+        $data = $request->validate([
+            'opening_time' => ['present', 'nullable', 'required_with:closing_time', 'date_format:H:i'],
+            'closing_time' => ['present', 'nullable', 'required_with:opening_time', 'date_format:H:i'],
+            'timezone' => ['nullable', 'timezone:all'],
+        ]);
+        $this->abortForMatchingBusinessHours($data);
+        if (array_key_exists('timezone', $data) && $data['timezone'] === null) {
+            unset($data['timezone']);
+        }
+        $shop->update($data);
+
+        return response()->json([
+            'message' => $shop->opening_time === null
+                ? 'Shop hours removed. The shop will remain open while active.'
+                : 'Shop opening and closing times updated.',
+            'shop' => $shop->fresh(),
+        ]);
+    }
+
+    public function product(Request $request, Shop $shop, ProductMediaService $media): JsonResponse
     {
         abort_unless($shop->seller_id === $request->user()->id, 403);
         abort_unless($shop->is_active, 422, 'Pay the shop registration fee before adding products.');
@@ -223,25 +256,44 @@ class ShopController extends Controller
             'discount_price' => ['nullable', 'numeric', 'min:0'],
             'discount_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'delivery_price' => ['required', 'numeric', 'min:0'],
-            'images' => ['required_without:product_images', 'array', 'min:3'],
-            'images.*' => ['required', 'string', 'max:500'],
-            'product_images' => ['nullable', 'array', 'min:3'],
-            'product_images.*' => ['required', 'image', 'max:4096'],
+            'images' => ['required_without:product_images', 'prohibits:product_images', 'array', 'size:3'],
+            'images.*' => ['required', 'string', 'max:2048'],
+            'product_images' => ['required_without:images', 'prohibits:images', 'array', 'size:3'],
+            'product_images.*' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120', 'dimensions:max_width=4096,max_height=4096'],
+            'product_videos' => ['nullable', 'array', 'max:2'],
+            'product_videos.*' => ['required', 'file', 'mimes:mp4,mov,webm', 'mimetypes:video/mp4,video/quicktime,video/webm', 'max:51200'],
             'stock' => ['required', 'integer', 'min:0'],
+        ], [
+            'images.size' => 'A product must have exactly 3 images.',
+            'product_images.size' => 'Upload exactly 3 product images.',
+            'product_images.*.max' => 'Each product image must be 5 MB or smaller.',
+            'product_videos.max' => 'A product can have at most 2 videos.',
+            'product_videos.*.max' => 'Each product video must be 50 MB or smaller.',
         ]);
-        $uploadedImages = $this->storeProductImages($request->file('product_images', []));
-        if ($uploadedImages !== []) {
-            $data['images'] = $uploadedImages;
-        }
-        unset($data['product_images']);
+        $imageFiles = $request->hasFile('product_images') ? array_values($request->file('product_images')) : null;
+        $imageUrls = array_key_exists('images', $data) ? $data['images'] : null;
+        $videoFiles = $request->hasFile('product_videos') ? array_values($request->file('product_videos')) : [];
+        unset($data['images'], $data['product_images'], $data['product_videos']);
         $effective = $data['discount_price'] ?? round($data['price'] * (1 - (($data['discount_percent'] ?? 0) / 100)), 2);
         $data['auto_total'] = $effective + $data['delivery_price'];
-        $product = Product::create($data + ['shop_id' => $shop->id, 'seller_id' => $request->user()->id]);
+        $product = Product::create($data + [
+            'shop_id' => $shop->id,
+            'seller_id' => $request->user()->id,
+            'images' => $imageUrls ?? [],
+        ]);
+
+        try {
+            $product = $media->synchronize($product, [], $imageFiles, $imageUrls, $videoFiles);
+        } catch (\Throwable $error) {
+            $product->delete();
+
+            throw $error;
+        }
 
         return response()->json(['product' => $product], 201);
     }
 
-    public function updateProduct(Request $request, Product $product): JsonResponse
+    public function updateProduct(Request $request, Product $product, ProductMediaService $media): JsonResponse
     {
         abort_unless($product->seller_id === $request->user()->id, 403);
         $data = $request->validate([
@@ -251,50 +303,42 @@ class ShopController extends Controller
             'discount_price' => ['nullable', 'numeric', 'min:0'],
             'discount_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'delivery_price' => ['required', 'numeric', 'min:0'],
-            'images' => ['nullable', 'array', 'min:3'],
-            'images.*' => ['required', 'string', 'max:500'],
-            'product_images' => ['nullable', 'array', 'min:3'],
-            'product_images.*' => ['required', 'image', 'max:4096'],
+            'images' => ['nullable', 'prohibits:product_images', 'array', 'size:3'],
+            'images.*' => ['required', 'string', 'max:2048'],
+            'product_images' => ['nullable', 'prohibits:images', 'array', 'size:3'],
+            'product_images.*' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120', 'dimensions:max_width=4096,max_height=4096'],
+            'product_videos' => ['nullable', 'array', 'max:2'],
+            'product_videos.*' => ['required', 'file', 'mimes:mp4,mov,webm', 'mimetypes:video/mp4,video/quicktime,video/webm', 'max:51200'],
+            'clear_videos' => ['sometimes', 'boolean'],
             'stock' => ['required', 'integer', 'min:0'],
+        ], [
+            'images.size' => 'A product must have exactly 3 images.',
+            'product_images.size' => 'Upload exactly 3 replacement product images.',
+            'product_images.*.max' => 'Each product image must be 5 MB or smaller.',
+            'product_videos.max' => 'A product can have at most 2 videos.',
+            'product_videos.*.max' => 'Each product video must be 50 MB or smaller.',
         ]);
-        $uploadedImages = $this->storeProductImages($request->file('product_images', []));
-        if ($uploadedImages !== []) {
-            $data['images'] = $uploadedImages;
-        }
+        abort_if($request->boolean('clear_videos') && $request->hasFile('product_videos'), 422, 'Do not upload videos while clearing them.');
+
+        $imageFiles = $request->hasFile('product_images') ? array_values($request->file('product_images')) : null;
+        $imageUrls = array_key_exists('images', $data) && is_array($data['images']) ? $data['images'] : null;
+        $videoFiles = $request->boolean('clear_videos')
+            ? []
+            : ($request->hasFile('product_videos') ? array_values($request->file('product_videos')) : null);
         $effective = $data['discount_price'] ?? round($data['price'] * (1 - (($data['discount_percent'] ?? 0) / 100)), 2);
         $data['auto_total'] = $effective + $data['delivery_price'];
-        unset($data['product_images']);
-        if (! array_key_exists('images', $data)) {
-            unset($data['images']);
-        }
-        $product->update($data);
+        unset($data['images'], $data['product_images'], $data['product_videos'], $data['clear_videos']);
+        $product = $media->synchronize($product, $data, $imageFiles, $imageUrls, $videoFiles);
 
-        return response()->json(['product' => $product->fresh('shop')]);
+        return response()->json(['product' => $product]);
     }
 
-    public function destroyProduct(Request $request, Product $product): JsonResponse
+    public function destroyProduct(Request $request, Product $product, ProductMediaService $media): JsonResponse
     {
         abort_unless($product->seller_id === $request->user()->id, 403);
-        $product->update(['is_active' => false, 'stock' => 0]);
+        $media->deactivate($product);
 
         return response()->json(['message' => 'Product removed.']);
-    }
-
-    /**
-     * @param  array<int, UploadedFile>|UploadedFile|null  $files
-     * @return array<int, string>
-     */
-    private function storeProductImages(array|UploadedFile|null $files): array
-    {
-        if ($files instanceof UploadedFile) {
-            $files = [$files];
-        }
-
-        return collect($files ?? [])
-            ->filter(fn ($file) => $file instanceof UploadedFile)
-            ->map(fn (UploadedFile $file) => Storage::disk('public')->url($file->store('products', 'public')))
-            ->values()
-            ->all();
     }
 
     /**
@@ -320,6 +364,17 @@ class ShopController extends Controller
         $allowed = $this->configuredCategories();
         $unknown = $categories->reject(fn (string $category) => in_array($category, $allowed, true));
         abort_if($unknown->isNotEmpty(), 422, 'Choose categories configured by the backend.');
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function abortForMatchingBusinessHours(array $data): void
+    {
+        $opening = $data['opening_time'] ?? null;
+        $closing = $data['closing_time'] ?? null;
+
+        abort_if($opening !== null && $opening === $closing, 422, 'Opening and closing times must be different.');
     }
 
     private function shopRegistrationFeeAmount(): float

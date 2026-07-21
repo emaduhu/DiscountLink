@@ -16,6 +16,13 @@ class ProcessClickPesaPaymentTest extends TestCase
 {
     use DatabaseMigrations;
 
+    protected function tearDown(): void
+    {
+        app()->detectEnvironment(fn () => 'testing');
+
+        parent::tearDown();
+    }
+
     public function test_it_queues_ussd_push_payments_on_the_payments_queue(): void
     {
         Queue::fake();

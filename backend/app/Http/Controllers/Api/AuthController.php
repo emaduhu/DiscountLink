@@ -7,6 +7,7 @@ use App\Models\EmailOtp;
 use App\Models\PhoneOtp;
 use App\Models\User;
 use App\Services\ApiTokenService;
+use App\Services\FcmTokenService;
 use App\Services\FirebasePhoneAuthService;
 use App\Services\GoogleAuthService;
 use App\Services\OtpProviderService;
@@ -21,8 +22,12 @@ use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
 {
-    public function register(Request $request, ApiTokenService $tokens, OtpProviderService $otp): JsonResponse
-    {
+    public function register(
+        Request $request,
+        ApiTokenService $tokens,
+        OtpProviderService $otp,
+        FcmTokenService $fcmTokens,
+    ): JsonResponse {
         $request->merge([
             'phone' => $this->normalizePhone((string) $request->input('phone', '')),
         ]);
@@ -52,13 +57,16 @@ class AuthController extends Controller
             'address' => $data['address'],
             'latitude' => $data['latitude'] ?? null,
             'longitude' => $data['longitude'] ?? null,
-            'fcm_token' => $data['fcm_token'] ?? null,
             'is_active' => true,
             'terms_accepted_at' => now(),
         ]);
+        if (! empty($data['fcm_token'])) {
+            $fcmTokens->claim($user, $data['fcm_token']);
+        }
 
         $emailOtp = $this->sendEmailOtp($user);
         $phoneOtp = $this->sendPhoneOtp($user, $otp);
+        $credentialsEmailSent = $this->sendRegistrationCredentialsEmail($user, $data['password']);
 
         return response()->json([
             'token' => $tokens->issue($user),
@@ -67,6 +75,7 @@ class AuthController extends Controller
             'phone_verified' => false,
             'email_otp_sent' => $emailOtp['sent'],
             'phone_otp_sent' => $phoneOtp['sent'],
+            'credentials_email_sent' => $credentialsEmailSent,
             'verification_codes' => [
                 'email' => $emailOtp['code'],
                 'phone' => $phoneOtp['code'],
@@ -75,7 +84,7 @@ class AuthController extends Controller
         ], 201);
     }
 
-    public function login(Request $request, ApiTokenService $tokens): JsonResponse
+    public function login(Request $request, ApiTokenService $tokens, FcmTokenService $fcmTokens): JsonResponse
     {
         $data = $request->validate([
             'identifier' => ['required', 'string', 'max:190'],
@@ -92,7 +101,7 @@ class AuthController extends Controller
         abort_unless($user->is_active, 403, 'Your account is blocked.');
 
         if (! empty($data['fcm_token'])) {
-            $user->update(['fcm_token' => $data['fcm_token']]);
+            $fcmTokens->claim($user, $data['fcm_token']);
         }
 
         return response()->json([
@@ -179,8 +188,14 @@ class AuthController extends Controller
         return response()->json(['message' => 'Password reset successful. You can now sign in.']);
     }
 
-    public function google(Request $request, GoogleAuthService $google, FirebasePhoneAuthService $firebase, ApiTokenService $tokens, OtpProviderService $otp): JsonResponse
-    {
+    public function google(
+        Request $request,
+        GoogleAuthService $google,
+        FirebasePhoneAuthService $firebase,
+        ApiTokenService $tokens,
+        OtpProviderService $otp,
+        FcmTokenService $fcmTokens,
+    ): JsonResponse {
         if ($request->has('phone')) {
             $request->merge([
                 'phone' => $this->normalizePhone((string) $request->input('phone', '')),
@@ -199,7 +214,7 @@ class AuthController extends Controller
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'fcm_token' => ['nullable', 'string', 'max:255'],
-            'terms_accepted' => ['nullable', 'accepted'],
+            'terms_accepted' => ['sometimes', 'accepted'],
         ], $this->phoneValidationMessages());
 
         $profile = match (true) {
@@ -222,13 +237,17 @@ class AuthController extends Controller
             422,
             'You must accept the Terms and Conditions before creating an account.'
         );
+        abort_if(
+            $user && ! $user->terms_accepted_at && empty($data['terms_accepted']),
+            422,
+            'You must accept the Terms and Conditions before signing in.'
+        );
 
         $attributes = [
             'google_id' => $profile['sub'] ?? $profile['user_id'] ?? null,
             'email_verified_at' => now(),
             'latitude' => $data['latitude'] ?? null,
             'longitude' => $data['longitude'] ?? null,
-            'fcm_token' => $data['fcm_token'] ?? null,
         ];
         if (! $user) {
             $attributes['role'] = $data['role'];
@@ -260,6 +279,12 @@ class AuthController extends Controller
         }
 
         $user = User::updateOrCreate(['email' => $email], $attributes);
+        if (! empty($data['fcm_token'])) {
+            $fcmTokens->claim($user, $data['fcm_token']);
+        }
+        $credentialsEmailSent = $isNewUser
+            ? $this->sendRegistrationCredentialsEmail($user)
+            : false;
         $phoneOtp = match (true) {
             $isNewUser => $this->sendPhoneOtp($user, $otp),
             ! empty($attributes['pending_phone']) => $this->sendPhoneOtpTo($user, $attributes['pending_phone'], $otp),
@@ -272,6 +297,7 @@ class AuthController extends Controller
             'email_verified' => (bool) $user->email_verified_at,
             'phone_verified' => (bool) $user->phone_verified_at,
             'phone_otp_sent' => $phoneOtp['sent'],
+            'credentials_email_sent' => $credentialsEmailSent,
             'verification_codes' => [
                 'email' => null,
                 'phone' => $phoneOtp['code'],
@@ -448,12 +474,14 @@ class AuthController extends Controller
         ]);
     }
 
-    public function updateFcm(Request $request): JsonResponse
+    public function updateFcm(Request $request, FcmTokenService $fcmTokens): JsonResponse
     {
-        $data = $request->validate(['fcm_token' => ['required', 'string', 'max:255']]);
-        $request->user()->update($data);
+        $data = $request->validate(['fcm_token' => ['present', 'nullable', 'string', 'max:255']]);
+        $fcmTokens->claim($request->user(), $data['fcm_token']);
 
-        return response()->json(['message' => 'FCM token updated.']);
+        return response()->json([
+            'message' => $data['fcm_token'] === null ? 'FCM token cleared.' : 'FCM token updated.',
+        ]);
     }
 
     public function deleteAccount(Request $request): JsonResponse
@@ -643,6 +671,20 @@ class AuthController extends Controller
 
             return false;
         }
+    }
+
+    private function sendRegistrationCredentialsEmail(User $user, ?string $password = null): bool
+    {
+        $signInDetails = $password === null
+            ? "Sign-in method: Google\nEmail: {$user->email}"
+            : "Email: {$user->email}\nPassword: {$password}";
+
+        return $this->sendRawEmail(
+            $user,
+            'Your DiscountLink account details',
+            "Hello {$user->name},\n\nYour DiscountLink registration was successful.\n\n{$signInDetails}\n\nKeep these details secure. You can reset your password from the sign-in page if needed.",
+            'DiscountLink registration credentials email could not be sent.',
+        );
     }
 
     private function mailMailer(): string

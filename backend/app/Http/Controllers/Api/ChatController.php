@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\FcmService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
 class ChatController extends Controller
@@ -19,9 +20,7 @@ class ChatController extends Controller
     public function conversations(Request $request): JsonResponse
     {
         $conversations = Conversation::with(['messages', 'product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role'])
-            ->where(fn ($query) => $query
-                ->where('user_one_id', $request->user()->id)
-                ->orWhere('user_two_id', $request->user()->id))
+            ->forParticipant($request->user()->id)
             ->when(trim((string) $request->query('q')), function ($query, string $search) {
                 $query->where(fn ($builder) => $builder
                     ->whereHas('product', fn ($productQuery) => $productQuery->where('name', 'like', "%{$search}%"))
@@ -83,6 +82,7 @@ class ChatController extends Controller
             'order_id' => $data['order_id'] ?? null,
             'product_id' => $data['product_id'] ?? null,
         ]);
+
         return response()->json([
             'conversation' => $this->withUnreadCount(
                 $conversation->load(['product.shop', 'userOne:id,name,role,email,phone', 'userTwo:id,name,role,email,phone', 'blocker:id,name,role']),
@@ -93,7 +93,7 @@ class ChatController extends Controller
 
     public function messages(Request $request, Conversation $conversation): JsonResponse
     {
-        abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
+        $this->ensureParticipant($request, $conversation);
 
         $conversation->messages()
             ->where('sender_id', '!=', $request->user()->id)
@@ -119,7 +119,7 @@ class ChatController extends Controller
 
     public function createDiscountLink(Request $request, Conversation $conversation, FcmService $fcm): JsonResponse
     {
-        abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
+        $this->ensureParticipant($request, $conversation);
         abort_if($conversation->blocked_at, 423, 'This chat has been blocked.');
         abort_unless($request->user()->role === 'seller', 403, 'Only sellers can generate discount links.');
         abort_unless($conversation->product_id, 422, 'Start the chat from a product before generating a discount link.');
@@ -178,7 +178,7 @@ class ChatController extends Controller
 
     public function send(Request $request, Conversation $conversation, FcmService $fcm): JsonResponse
     {
-        abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
+        $this->ensureParticipant($request, $conversation);
         abort_if($conversation->blocked_at, 423, 'This chat has been blocked.');
         $data = $request->validate(['body' => ['required', 'string', 'max:4000']]);
         $message = Message::create(['conversation_id' => $conversation->id, 'sender_id' => $request->user()->id, 'body' => $data['body']]);
@@ -199,12 +199,13 @@ class ChatController extends Controller
                 'product_id' => (string) ($conversation->product_id ?? ''),
             ]);
         }
+
         return response()->json(['message' => $message], 201);
     }
 
     public function report(Request $request, Conversation $conversation): JsonResponse
     {
-        abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
+        $this->ensureParticipant($request, $conversation);
 
         $data = $request->validate([
             'reason' => ['required', 'string', 'max:120'],
@@ -231,7 +232,7 @@ class ChatController extends Controller
 
     public function block(Request $request, Conversation $conversation, FcmService $fcm): JsonResponse
     {
-        abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
+        $this->ensureParticipant($request, $conversation);
 
         $data = $request->validate([
             'reason' => ['nullable', 'string', 'max:500'],
@@ -262,7 +263,7 @@ class ChatController extends Controller
 
     public function unblock(Request $request, Conversation $conversation, FcmService $fcm): JsonResponse
     {
-        abort_unless(in_array($request->user()->id, [$conversation->user_one_id, $conversation->user_two_id], true), 403);
+        $this->ensureParticipant($request, $conversation);
         abort_unless($conversation->blocked_by_id === $request->user()->id, 403, 'Only the user who blocked this chat can unblock it.');
 
         $conversation->update([
@@ -289,12 +290,17 @@ class ChatController extends Controller
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, Conversation>  $conversations
-     * @return \Illuminate\Support\Collection<int, Conversation>
+     * @param  Collection<int, Conversation>  $conversations
+     * @return Collection<int, Conversation>
      */
     private function withUnreadCounts($conversations, int $userId)
     {
         return $conversations->map(fn (Conversation $conversation) => $this->withUnreadCount($conversation, $userId));
+    }
+
+    private function ensureParticipant(Request $request, Conversation $conversation): void
+    {
+        abort_unless($conversation->hasParticipant($request->user()->id), 404);
     }
 
     private function withUnreadCount(Conversation $conversation, int $userId): Conversation

@@ -28,6 +28,12 @@
 	<string>Discount Link uses your location to show buyers where their deliverer is during an active delivery.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Discount Link uses Face ID to unlock your saved account on this device.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Discount Link lets sellers choose product images and videos from their photo library.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

@@ -10,10 +10,12 @@ use App\Models\NotificationBroadcast;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Product;
+use App\Models\ProductCampaign;
 use App\Models\Shop;
 use App\Models\User;
 use App\Services\ClickPesaService;
 use App\Services\FcmService;
+use App\Services\ProductCampaignService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -123,7 +125,7 @@ class DashboardController extends Controller
         $this->authorizeAdmin();
         abort_unless(in_array($user->role, ['buyer', 'seller', 'deliverer'], true), 422);
 
-        $user->update(['is_active' => !$user->is_active]);
+        $user->update(['is_active' => ! $user->is_active]);
 
         return redirect()->route('dashboard')->with('status', $user->is_active ? 'User unblocked.' : 'User blocked.');
     }
@@ -238,16 +240,37 @@ class DashboardController extends Controller
         return redirect()->route('dashboard')->with('status', 'Checkout service fee updated.');
     }
 
-    public function resendPaymentPrompt(Payment $payment, ClickPesaService $clickPesa): RedirectResponse
+    public function updateCampaignPricing(Request $request): RedirectResponse
     {
         $this->authorizeAdmin();
-        abort_unless(in_array($payment->type, ['collection', 'shop_registration_fee'], true), 422, 'This payment cannot receive a phone prompt.');
+
+        $data = $request->validate([
+            'campaign_sms_unit_price' => ['required', 'numeric', 'min:0', 'max:999999999'],
+            'campaign_fcm_unit_price' => ['required', 'numeric', 'min:0', 'max:999999999'],
+        ]);
+
+        AppSetting::put('campaign_sms_unit_price', number_format((float) $data['campaign_sms_unit_price'], 4, '.', ''));
+        AppSetting::put('campaign_fcm_unit_price', number_format((float) $data['campaign_fcm_unit_price'], 4, '.', ''));
+
+        return redirect()->route('dashboard', ['page' => 'settings'])->with('status', 'Campaign channel pricing updated.');
+    }
+
+    public function resendPaymentPrompt(
+        Payment $payment,
+        ClickPesaService $clickPesa,
+        ProductCampaignService $campaigns,
+    ): RedirectResponse {
+        $this->authorizeAdmin();
+        abort_unless(in_array($payment->type, ['collection', 'shop_registration_fee', 'product_campaign'], true), 422, 'This payment cannot receive a phone prompt.');
         abort_if(in_array($payment->status, ['paid', 'success', 'completed'], true), 422, 'This payment is already complete.');
         abort_unless($payment->phone, 422, 'This payment does not have a phone number.');
 
         try {
             $ussdPush = $clickPesa->requestUssdPush($payment);
         } catch (Throwable $error) {
+            if ($payment->type === 'product_campaign') {
+                $payment->productCampaign?->update(['status' => 'payment_failed']);
+            }
             if (! $error instanceof ValidationException) {
                 report($error);
             }
@@ -259,6 +282,10 @@ class DashboardController extends Controller
 
         if ($payment->type === 'shop_registration_fee') {
             $payment->shop?->update(['registration_fee_status' => 'processing']);
+        }
+        if ($payment->type === 'product_campaign') {
+            $payment->productCampaign?->update(['status' => 'pending_payment']);
+            $campaigns->syncPaymentStatus($payment->fresh());
         }
 
         $payment->refresh();
@@ -308,7 +335,7 @@ class DashboardController extends Controller
             return redirect()->guest(route('admin.login'));
         }
 
-        $dashboardPages = ['dashboard', 'charts', 'settings', 'users', 'products', 'reports', 'chats', 'notifications', 'orders', 'deliveries', 'payments'];
+        $dashboardPages = ['dashboard', 'charts', 'settings', 'users', 'products', 'campaigns', 'reports', 'chats', 'notifications', 'orders', 'deliveries', 'payments'];
         $activePage = $request->query('page', 'dashboard');
         if (! in_array($activePage, $dashboardPages, true)) {
             $activePage = 'dashboard';
@@ -325,6 +352,7 @@ class DashboardController extends Controller
         $ordersPerPage = $this->perPage($request, 'orders_per_page', 25);
         $deliveriesPerPage = $this->perPage($request, 'deliveries_per_page', 25);
         $paymentsPerPage = $this->perPage($request, 'payments_per_page', 25);
+        $campaignsPerPage = $this->perPage($request, 'campaigns_per_page', 25);
 
         $usersSearch = $this->search($request, 'users_q');
         $productsSearch = $this->search($request, 'products_q');
@@ -334,10 +362,12 @@ class DashboardController extends Controller
         $ordersSearch = $this->search($request, 'orders_q');
         $deliveriesSearch = $this->search($request, 'deliveries_q');
         $paymentsSearch = $this->search($request, 'payments_q');
+        $campaignsSearch = $this->search($request, 'campaigns_q');
         $serviceFeeRevenue = (float) Order::whereNotNull('paid_at')->sum('service_fee_total');
         $registrationFeeRevenue = (float) Payment::where('type', 'shop_registration_fee')
             ->whereIn('status', ['paid', 'success', 'completed'])
             ->sum('amount');
+        $campaignRevenue = (float) ProductCampaign::whereNotNull('paid_at')->sum('total_cost');
 
         return view('dashboard', [
             'stats' => [
@@ -353,8 +383,9 @@ class DashboardController extends Controller
                 'service_fee' => number_format((float) AppSetting::get('service_fee_percentage', '0'), 2).'%',
                 'service_fee_revenue' => 'TZS '.number_format($serviceFeeRevenue, 2),
                 'registration_fee_revenue' => 'TZS '.number_format($registrationFeeRevenue, 2),
+                'campaign_revenue' => 'TZS '.number_format($campaignRevenue, 2),
             ],
-            'charts' => $this->dashboardCharts($serviceFeeRevenue, $registrationFeeRevenue),
+            'charts' => $this->dashboardCharts($serviceFeeRevenue, $registrationFeeRevenue, $campaignRevenue),
             'orders' => Order::with('buyer', 'seller', 'shop', 'deliveryAssignment.deliverer')
                 ->when($ordersSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
                     ->where('reference', 'like', "%{$search}%")
@@ -378,16 +409,29 @@ class DashboardController extends Controller
                 ->latest()
                 ->paginate($deliveriesPerPage, ['*'], 'deliveries_page')
                 ->withQueryString(),
-            'payments' => Payment::with('order', 'shop')
+            'payments' => Payment::with('order', 'shop', 'productCampaign.product')
                 ->when($paymentsSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
                     ->where('type', 'like', "%{$search}%")
                     ->orWhere('status', 'like', "%{$search}%")
                     ->orWhere('phone', 'like', "%{$search}%")
                     ->orWhere('provider_reference', 'like', "%{$search}%")
                     ->orWhereHas('order', fn ($orderQuery) => $orderQuery->where('reference', 'like', "%{$search}%"))
-                    ->orWhereHas('shop', fn ($shopQuery) => $shopQuery->where('name', 'like', "%{$search}%"))))
+                    ->orWhereHas('shop', fn ($shopQuery) => $shopQuery->where('name', 'like', "%{$search}%"))
+                    ->orWhereHas('productCampaign', fn ($campaignQuery) => $campaignQuery
+                        ->where('reference', 'like', "%{$search}%")
+                        ->orWhereHas('product', fn ($productQuery) => $productQuery->where('name', 'like', "%{$search}%")))))
                 ->latest()
                 ->paginate($paymentsPerPage, ['*'], 'payments_page')
+                ->withQueryString(),
+            'campaigns' => ProductCampaign::with(['seller', 'product.shop', 'payment'])
+                ->when($campaignsSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
+                    ->where('reference', 'like', "%{$search}%")
+                    ->orWhere('channel', 'like', "%{$search}%")
+                    ->orWhere('status', 'like', "%{$search}%")
+                    ->orWhereHas('seller', fn ($userQuery) => $this->userSearch($userQuery, $search))
+                    ->orWhereHas('product', fn ($productQuery) => $productQuery->where('name', 'like', "%{$search}%"))))
+                ->latest()
+                ->paginate($campaignsPerPage, ['*'], 'campaigns_page')
                 ->withQueryString(),
             'users' => User::withTrashed()
                 ->whereIn('role', ['buyer', 'seller', 'deliverer'])
@@ -447,6 +491,8 @@ class DashboardController extends Controller
                 'firebase_project_id' => AppSetting::get('firebase_project_id', config('services.firebase.project_id')),
                 'shop_registration_fee_amount' => AppSetting::get('shop_registration_fee_amount', '0.00'),
                 'service_fee_percentage' => AppSetting::get('service_fee_percentage', '0.00'),
+                'campaign_sms_unit_price' => AppSetting::get('campaign_sms_unit_price', '0.0000'),
+                'campaign_fcm_unit_price' => AppSetting::get('campaign_fcm_unit_price', '0.0000'),
             ],
             'shopCategories' => AppSetting::get('shop_categories', "Electronics\nFashion\nGroceries\nBooks\nArt\nHome\nOther"),
             'filters' => [
@@ -458,6 +504,7 @@ class DashboardController extends Controller
                 'orders_q' => $ordersSearch,
                 'deliveries_q' => $deliveriesSearch,
                 'payments_q' => $paymentsSearch,
+                'campaigns_q' => $campaignsSearch,
             ],
             'perPage' => [
                 'users_per_page' => $usersPerPage,
@@ -468,6 +515,7 @@ class DashboardController extends Controller
                 'orders_per_page' => $ordersPerPage,
                 'deliveries_per_page' => $deliveriesPerPage,
                 'payments_per_page' => $paymentsPerPage,
+                'campaigns_per_page' => $campaignsPerPage,
             ],
             'activePage' => $activePage,
         ]);
@@ -500,7 +548,7 @@ class DashboardController extends Controller
             ->orWhere('phone', 'like', "%{$search}%");
     }
 
-    private function dashboardCharts(float $serviceFeeRevenue, float $registrationFeeRevenue): array
+    private function dashboardCharts(float $serviceFeeRevenue, float $registrationFeeRevenue, float $campaignRevenue): array
     {
         $start = now()->subDays(13)->startOfDay();
         $orderRows = Order::query()
@@ -561,6 +609,7 @@ class DashboardController extends Controller
             'feeRevenue' => [
                 ['label' => 'Service fees', 'value' => $serviceFeeRevenue],
                 ['label' => 'Registration fees', 'value' => $registrationFeeRevenue],
+                ['label' => 'Campaigns', 'value' => $campaignRevenue],
             ],
             'lowStock' => Product::query()
                 ->where('stock', '<=', 5)

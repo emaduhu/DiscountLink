@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 class RegistrationTermsTest extends TestCase
@@ -27,6 +29,7 @@ class RegistrationTermsTest extends TestCase
 
     public function test_registration_stores_terms_acceptance_timestamp(): void
     {
+        Mail::fake();
         $response = $this->postJson('/api/auth/register', [
             'role' => 'buyer',
             'full_name' => 'Terms Buyer',
@@ -43,5 +46,29 @@ class RegistrationTermsTest extends TestCase
 
         $this->assertDatabaseHas('users', ['email' => 'terms@example.com']);
         $this->assertNotNull($response->json('user.terms_accepted_at'));
+        $response->assertJsonPath('email_otp_sent', true)
+            ->assertJsonPath('credentials_email_sent', true);
+    }
+
+    public function test_existing_google_user_must_accept_terms_before_signing_in(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'legacy-google@example.com',
+            'terms_accepted_at' => null,
+        ]);
+
+        $payload = [
+            'google_id_token' => 'dev-google-token:'.$user->email,
+            'role' => 'buyer',
+        ];
+
+        $this->postJson('/api/auth/google', $payload)
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'You must accept the Terms and Conditions before signing in.');
+
+        $this->postJson('/api/auth/google', $payload + ['terms_accepted' => true])
+            ->assertOk();
+
+        $this->assertNotNull($user->fresh()->terms_accepted_at);
     }
 }

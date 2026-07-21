@@ -12,7 +12,7 @@ class FcmService
 {
     public function sendToUser(User $user, string $title, string $body, array $data = []): bool
     {
-        if (!$user->fcm_token) {
+        if (! $user->fcm_token) {
             return false;
         }
 
@@ -27,9 +27,16 @@ class FcmService
                 return $this->sendLegacy($user->fcm_token, $title, $body, $data);
             }
 
-            Log::info('FCM notification skipped because credentials are not configured.', compact('title', 'body', 'data') + [
+            $sensitive = ($data['type'] ?? null) === 'delivery_code';
+            $loggedData = $data;
+            unset($loggedData['delivery_code']);
+            Log::info('FCM notification skipped because credentials are not configured.', [
+                'title' => $title,
+                'body' => $sensitive ? '[redacted delivery code notification]' : $body,
+                'data' => $loggedData,
                 'user_id' => $user->id,
             ]);
+
             return false;
         } catch (\Throwable $error) {
             Log::warning('FCM notification failed.', [
@@ -37,6 +44,7 @@ class FcmService
                 'title' => $title,
                 'error' => $error->getMessage(),
             ]);
+
             return false;
         }
     }
@@ -44,7 +52,7 @@ class FcmService
     private function sendV1(string $token, string $title, string $body, array $data): bool
     {
         $projectId = config('services.firebase.project_id');
-        if (!$projectId) {
+        if (! $projectId) {
             throw new RuntimeException('FIREBASE_PROJECT_ID is not configured.');
         }
 
@@ -93,7 +101,7 @@ class FcmService
         $clientEmail = $credentials['client_email'] ?? null;
         $privateKey = $credentials['private_key'] ?? null;
 
-        if (!$clientEmail || !$privateKey) {
+        if (! $clientEmail || ! $privateKey) {
             throw new RuntimeException('Firebase service account credentials are incomplete.');
         }
 
@@ -128,12 +136,12 @@ class FcmService
     private function firebaseCredentials(): array
     {
         $path = config('services.firebase.credentials');
-        if (!$path || !is_readable($path)) {
+        if (! $path || ! is_readable($path)) {
             throw new RuntimeException('Firebase service account file is not readable.');
         }
 
         $credentials = json_decode((string) file_get_contents($path), true);
-        if (!is_array($credentials)) {
+        if (! is_array($credentials)) {
             throw new RuntimeException('Firebase service account file is invalid JSON.');
         }
 
@@ -141,8 +149,8 @@ class FcmService
     }
 
     /**
-     * @param array<string, mixed> $header
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $header
+     * @param  array<string, mixed>  $payload
      */
     private function jwt(array $header, array $payload, string $privateKey): string
     {
@@ -152,11 +160,12 @@ class FcmService
         ];
         $signingInput = implode('.', $segments);
 
-        if (!openssl_sign($signingInput, $signature, $privateKey, OPENSSL_ALGO_SHA256)) {
+        if (! openssl_sign($signingInput, $signature, $privateKey, OPENSSL_ALGO_SHA256)) {
             throw new RuntimeException('Unable to sign Firebase JWT.');
         }
 
         $segments[] = $this->base64UrlEncode($signature);
+
         return implode('.', $segments);
     }
 

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -13,6 +14,18 @@ class Conversation extends Model
     protected function casts(): array
     {
         return ['blocked_at' => 'datetime'];
+    }
+
+    public function scopeForParticipant(Builder $query, int $userId): Builder
+    {
+        return $query->where(fn (Builder $participantQuery) => $participantQuery
+            ->where('user_one_id', $userId)
+            ->orWhere('user_two_id', $userId));
+    }
+
+    public function hasParticipant(int $userId): bool
+    {
+        return $this->user_one_id === $userId || $this->user_two_id === $userId;
     }
 
     public function userOne(): BelongsTo

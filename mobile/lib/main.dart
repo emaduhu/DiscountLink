@@ -14,6 +14,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:video_player/video_player.dart';
 import 'package:intl/intl.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:share_plus/share_plus.dart';
@@ -48,6 +49,7 @@ const kSurfaceColor = Color(0xfff6f7fb);
 const kDefaultPadding = 16.0;
 final appLanguage = ValueNotifier<AppLanguage>(AppLanguage.en);
 const biometricAuth = BiometricAuthService();
+final appScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 enum AppLanguage { en, sw }
 
@@ -279,6 +281,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   Map<String, dynamic>? user;
   bool showSplash = true;
   StreamSubscription<String>? fcmTokenSubscription;
+  StreamSubscription<RemoteMessage>? foregroundMessageSubscription;
 
   void signedIn(String token, Map<String, dynamic> signedUser) {
     setState(() {
@@ -296,6 +299,15 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   Future<void> registerNotifications() async {
     try {
       await FirebaseMessaging.instance.requestPermission();
+      await FirebaseMessaging.instance
+          .setForegroundNotificationPresentationOptions(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
+      foregroundMessageSubscription ??= FirebaseMessaging.onMessage.listen(
+        showForegroundNotification,
+      );
       final token = await FirebaseMessaging.instance.getToken();
       if (token != null) {
         await client.post('/me/fcm-token', {'fcm_token': token});
@@ -313,7 +325,53 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
     } catch (_) {}
   }
 
+  void showForegroundNotification(RemoteMessage message) {
+    if (client.token == null) return;
+
+    // Apple displays the native foreground banner configured above. Android
+    // does not, so surface the received FCM notification inside the app.
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS)) {
+      return;
+    }
+
+    final title = (message.notification?.title ?? '').trim();
+    final body = (message.notification?.body ?? '').trim();
+    final fallbackCode = '${message.data['delivery_code'] ?? ''}'.trim();
+    final text = [
+      if (title.isNotEmpty) title,
+      if (body.isNotEmpty)
+        body
+      else if (fallbackCode.isNotEmpty)
+        'Your delivery code is $fallbackCode.',
+    ].join('\n');
+    if (text.isEmpty) return;
+
+    final messenger = appScaffoldMessengerKey.currentState;
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(text),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 8),
+        ),
+      );
+  }
+
   Future<void> signedOut() async {
+    final tokenSubscription = fcmTokenSubscription;
+    fcmTokenSubscription = null;
+    try {
+      await tokenSubscription?.cancel();
+    } catch (_) {}
+    try {
+      await client.post('/me/fcm-token', {'fcm_token': null});
+    } catch (_) {}
+    try {
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (_) {}
     try {
       await GoogleSignIn.instance.signOut();
     } catch (_) {}
@@ -330,6 +388,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   @override
   void dispose() {
     fcmTokenSubscription?.cancel();
+    foregroundMessageSubscription?.cancel();
     super.dispose();
   }
 
@@ -338,6 +397,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
     return ValueListenableBuilder<AppLanguage>(
       valueListenable: appLanguage,
       builder: (context, _, _) => MaterialApp(
+        scaffoldMessengerKey: appScaffoldMessengerKey,
         title: kAppName,
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
@@ -504,7 +564,7 @@ class ApiClient {
       }
       final streamed = await request.send();
       return http.Response.fromStream(streamed);
-    });
+    }, timeout: const Duration(minutes: 3));
   }
 
   Future<Map<String, dynamic>> postMultipartFiles(
@@ -526,6 +586,32 @@ class ApiClient {
       final streamed = await request.send();
       return http.Response.fromStream(streamed);
     });
+  }
+
+  Future<Map<String, dynamic>> postMultipartMedia(
+    String path, {
+    required Map<String, String> fields,
+    required List<File> images,
+    required List<File> videos,
+  }) async {
+    final uri = Uri.parse('$baseUrl$path');
+    return _request(() async {
+      final request = http.MultipartRequest('POST', uri);
+      request.headers.addAll(_headers(includeContentType: false));
+      request.fields.addAll(fields);
+      for (final image in images) {
+        request.files.add(
+          await http.MultipartFile.fromPath('product_images[]', image.path),
+        );
+      }
+      for (final video in videos) {
+        request.files.add(
+          await http.MultipartFile.fromPath('product_videos[]', video.path),
+        );
+      }
+      final streamed = await request.send();
+      return http.Response.fromStream(streamed);
+    }, timeout: const Duration(minutes: 3));
   }
 
   Future<Map<String, dynamic>> get(
@@ -553,11 +639,12 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> _request(
-    Future<http.Response> Function() call,
-  ) async {
+    Future<http.Response> Function() call, {
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
     late final http.Response response;
     try {
-      response = await call().timeout(const Duration(seconds: 30));
+      response = await call().timeout(timeout);
     } on SocketException {
       throw Exception(
         'We could not reach DiscountLink. Check your internet connection and try again.',
@@ -667,7 +754,7 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final auth = await googleBackendAuthPayload();
       final socialPhone = normalizePhoneInput('${auth['_phone'] ?? ''}');
-      final response = await widget.client.post('/auth/google', {
+      final payload = <String, dynamic>{
         if (auth['firebase_id_token'] != null)
           'firebase_id_token': auth['firebase_id_token'],
         if (auth['google_access_token'] != null)
@@ -679,7 +766,23 @@ class _LoginPageState extends State<LoginPage> {
             : requireTwelveDigitPhone(socialPhone),
         'address': '',
         'fcm_token': await fcmToken(),
-      });
+      };
+      Map<String, dynamic> response;
+      try {
+        response = await widget.client.post('/auth/google', payload);
+      } catch (error) {
+        if (!error.toString().contains(
+          'accept the Terms and Conditions before signing in',
+        )) {
+          rethrow;
+        }
+        final accepted = await showGoogleTermsDialog();
+        if (!accepted) return;
+        response = await widget.client.post('/auth/google', {
+          ...payload,
+          'terms_accepted': true,
+        });
+      }
       widget.onSignedIn(
         response['token'] as String,
         response['user'] as Map<String, dynamic>,
@@ -689,6 +792,45 @@ class _LoginPageState extends State<LoginPage> {
     } finally {
       if (mounted) setState(() => loading = false);
     }
+  }
+
+  Future<bool> showGoogleTermsDialog() async {
+    var accepted = false;
+    return await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: Text(tx('Terms and Conditions', 'Vigezo na Masharti')),
+              content: CheckboxListTile(
+                value: accepted,
+                onChanged: (value) =>
+                    setDialogState(() => accepted = value ?? false),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  tx(
+                    'I accept the Terms and Conditions',
+                    'Ninakubali Vigezo na Masharti',
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: Text(tx('Cancel', 'Ghairi')),
+                ),
+                FilledButton(
+                  onPressed: accepted
+                      ? () => Navigator.of(dialogContext).pop(true)
+                      : null,
+                  child: Text(tx('Accept and sign in', 'Kubali na uingie')),
+                ),
+              ],
+            ),
+          ),
+        ) ??
+        false;
   }
 
   Future<void> appleSignIn() async {
@@ -1346,30 +1488,6 @@ class _RegisterPageState extends State<RegisterPage> {
                           onChanged: (value) => setState(() => role = value),
                         ),
                         const SizedBox(height: 10),
-                        CheckboxListTile(
-                          value: termsAccepted,
-                          onChanged: loading
-                              ? null
-                              : (value) => setState(
-                                  () => termsAccepted = value ?? false,
-                                ),
-                          controlAffinity: ListTileControlAffinity.leading,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            tx(
-                              'I accept the Terms and Conditions',
-                              'Ninakubali Vigezo na Masharti',
-                            ),
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          subtitle: Text(
-                            tx(
-                              'Required before creating a Discount Link account.',
-                              'Inahitajika kabla ya kufungua akaunti ya Discount Link.',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
                         SectionTitle(
                           title: tx('Fast registration', 'Usajili wa haraka'),
                         ),
@@ -1440,6 +1558,29 @@ class _RegisterPageState extends State<RegisterPage> {
                           label: tx('Password', 'Nenosiri'),
                           icon: Icons.lock_outline,
                           obscure: true,
+                        ),
+                        CheckboxListTile(
+                          value: termsAccepted,
+                          onChanged: loading
+                              ? null
+                              : (value) => setState(
+                                  () => termsAccepted = value ?? false,
+                                ),
+                          controlAffinity: ListTileControlAffinity.leading,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            tx(
+                              'I accept the Terms and Conditions',
+                              'Ninakubali Vigezo na Masharti',
+                            ),
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            tx(
+                              'Required before creating a Discount Link account.',
+                              'Inahitajika kabla ya kufungua akaunti ya Discount Link.',
+                            ),
+                          ),
                         ),
                         FilledButton.icon(
                           onPressed: loading ? null : register,
@@ -2764,6 +2905,13 @@ class _CartPageState extends State<CartPage> {
         lastCheckoutOrder = (r['order'] as Map?)?.cast<String, dynamic>();
         lastDeliveryCode = '${r['delivery_code'] ?? r['delivery_code_demo']}';
       });
+      final deliveryNotifications =
+          (r['delivery_code_notifications'] as Map?)?.cast<String, dynamic>() ??
+          {};
+      final deliveryNotificationSummary = [
+        if (deliveryNotifications['sms'] == true) 'SMS',
+        if (deliveryNotifications['fcm'] == true) 'push notification',
+      ];
       await showDialog<void>(
         context: context,
         builder: (_) => AlertDialog(
@@ -2775,6 +2923,7 @@ class _CartPageState extends State<CartPage> {
               '${paymentRequestDetails(payment: payment, push: push, fallbackPhone: paymentPhone)}\n\n'
               '${tx('Approve the USSD prompt on your phone. Keep this buyer delivery code:', 'Kubali ombi la USSD kwenye simu yako. Hifadhi kodi hii ya kupokea mzigo:')} '
               '${r['delivery_code'] ?? r['delivery_code_demo']}\n\n'
+              '${deliveryNotificationSummary.isEmpty ? tx('We could not confirm an SMS or push copy; keep the code shown here.', 'Hatujaweza kuthibitisha nakala ya SMS au arifa; hifadhi kodi iliyo hapa.') : tx('A copy was also sent by ${deliveryNotificationSummary.join(' and ')}.', 'Nakala pia imetumwa kwa ${deliveryNotificationSummary.join(' na ')}.')}\n\n'
               '${tx('Share the delivery code only after the order arrives.', 'Toa kodi ya mzigo baada tu ya kupokea oda yako.')}',
             ),
           ),
@@ -3674,12 +3823,16 @@ class _SellerPageState extends State<SellerPage> {
   final stock = TextEditingController(text: '10');
   final delivererName = TextEditingController();
   final delivererPhone = TextEditingController();
+  final campaignPhone = TextEditingController();
   final money = NumberFormat('#,##0.00');
   final selectedCategories = <String>{'Electronics'};
   List<String> shopCategories = defaultShopCategories;
   final picker = ImagePicker();
   List<XFile> selectedProductImages = [];
+  List<XFile> selectedProductVideos = [];
   List shops = [];
+  List campaigns = [];
+  Map<String, dynamic> campaignPricing = {};
   Map<String, dynamic> registrationFee = {
     'amount': 0,
     'currency': 'TZS',
@@ -3692,9 +3845,17 @@ class _SellerPageState extends State<SellerPage> {
   _ShopEditDraft? shopDraft;
   _ProductEditDraft? productDraft;
   List<XFile> replacementProductImages = [];
+  List<XFile> replacementProductVideos = [];
+  bool clearReplacementProductVideos = false;
+  TimeOfDay openingTime = const TimeOfDay(hour: 8, minute: 0);
+  TimeOfDay closingTime = const TimeOfDay(hour: 20, minute: 0);
+  int? campaignProductId;
+  String campaignChannel = 'fcm';
   bool loadingShops = true;
   bool loadingMoreShops = false;
   bool invitingDeliverer = false;
+  bool loadingCampaigns = true;
+  bool creatingCampaign = false;
   int shopPage = 1;
   int? shopTotal;
   bool shopHasMore = false;
@@ -3703,8 +3864,10 @@ class _SellerPageState extends State<SellerPage> {
   void initState() {
     super.initState();
     address.text = widget.user['address'] ?? '';
+    campaignPhone.text = widget.user['phone'] ?? '';
     loadCategories();
     load();
+    loadCampaigns();
   }
 
   Future<void> loadCategories() async {
@@ -3757,6 +3920,15 @@ class _SellerPageState extends State<SellerPage> {
         } else {
           selectedShopId = null;
         }
+        final products = sellerProducts();
+        if (products.isNotEmpty) {
+          campaignProductId ??= products.first['id'] as int?;
+          if (!products.any((product) => product['id'] == campaignProductId)) {
+            campaignProductId = products.first['id'] as int?;
+          }
+        } else {
+          campaignProductId = null;
+        }
       });
     } catch (error) {
       if (mounted) showError(context, error);
@@ -3770,10 +3942,226 @@ class _SellerPageState extends State<SellerPage> {
     }
   }
 
+  String apiTime(TimeOfDay value) =>
+      '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+
+  TimeOfDay parseApiTime(String? value, TimeOfDay fallback) {
+    final parts = (value ?? '').split(':');
+    if (parts.length < 2) return fallback;
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) return fallback;
+    return TimeOfDay(hour: hour, minute: minute);
+  }
+
+  Future<void> pickShopTime({required bool opening}) async {
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: opening ? openingTime : closingTime,
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      if (opening) {
+        openingTime = selected;
+      } else {
+        closingTime = selected;
+      }
+    });
+  }
+
+  Future<void> pickDraftShopTime({required bool opening}) async {
+    final draft = shopDraft;
+    if (draft == null) return;
+    final current = parseApiTime(
+      opening ? draft.openingTime : draft.closingTime,
+      opening
+          ? const TimeOfDay(hour: 8, minute: 0)
+          : const TimeOfDay(hour: 20, minute: 0),
+    );
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: current,
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      if (opening) {
+        draft.openingTime = apiTime(selected);
+      } else {
+        draft.closingTime = apiTime(selected);
+      }
+    });
+  }
+
+  List<Map<String, dynamic>> sellerProducts() {
+    return [
+      for (final shop in shops)
+        for (final product in ((shop['products'] as List?) ?? []))
+          if (product is Map)
+            Map<String, dynamic>.from(product)
+              ..putIfAbsent('shop_name', () => shop['name']),
+    ];
+  }
+
+  Future<void> loadCampaigns() async {
+    setState(() {
+      loadingCampaigns = true;
+      campaignPricing = {};
+    });
+    try {
+      final response = await widget.client.get('/seller/campaigns', {
+        'per_page': '20',
+      });
+      if (!mounted) return;
+      setState(() {
+        campaigns = responseItems(response['campaigns']);
+        campaignPricing =
+            (response['pricing'] as Map?)?.cast<String, dynamic>() ?? {};
+      });
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loadingCampaigns = false);
+    }
+  }
+
+  Map<String, dynamic> selectedCampaignPricing() {
+    return (campaignPricing[campaignChannel] as Map?)
+            ?.cast<String, dynamic>() ??
+        {};
+  }
+
+  bool campaignQuoteIsReady() {
+    if (loadingCampaigns) return false;
+    final pricing = selectedCampaignPricing();
+    final unitPrice = num.tryParse('${pricing['unit_price'] ?? ''}');
+    final recipientCount = int.tryParse(
+      '${pricing['eligible_recipient_count'] ?? ''}',
+    );
+    final estimatedTotal = num.tryParse('${pricing['estimated_total'] ?? ''}');
+
+    return unitPrice != null &&
+        unitPrice >= 0 &&
+        recipientCount != null &&
+        recipientCount > 0 &&
+        estimatedTotal != null &&
+        estimatedTotal >= 0;
+  }
+
+  Future<void> createCampaign() async {
+    final productId = campaignProductId;
+    if (productId == null) {
+      showError(context, Exception('Choose a product to promote.'));
+      return;
+    }
+    if (!campaignQuoteIsReady()) {
+      showError(
+        context,
+        Exception(
+          loadingCampaigns
+              ? 'Wait for the latest campaign price before continuing.'
+              : 'A live campaign price and eligible audience are required. Refresh and try again.',
+        ),
+      );
+      return;
+    }
+    final pricing = selectedCampaignPricing();
+    final recipientCount = pricing['eligible_recipient_count'] ?? 0;
+    final estimated = num.tryParse('${pricing['estimated_total'] ?? 0}') ?? 0;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm product campaign'),
+        content: Text(
+          'DiscountLink will generate the campaign message and send it to $recipientCount eligible users through ${campaignChannel.toUpperCase()}.\n\nEstimated cost: TZS ${money.format(estimated)}. The final recipient count and price are locked when the campaign is created.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(estimated > 0 ? 'Create and pay' : 'Create campaign'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => creatingCampaign = true);
+    try {
+      final response = await widget.client.post('/seller/campaigns', {
+        'product_id': productId,
+        'channel': campaignChannel,
+        if (campaignPhone.text.trim().isNotEmpty)
+          'payment_phone': requireTwelveDigitPhone(campaignPhone.text),
+      });
+      await loadCampaigns();
+      if (!mounted) return;
+      final payment = response['payment'] as Map?;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(payment == null ? 'Campaign queued' : 'Payment sent'),
+          content: Text(
+            '${response['message'] ?? 'Campaign created.'}'
+            '${payment == null ? '' : '\n\nApprove the ClickPesa USSD request on ${payment['phone'] ?? campaignPhone.text}. The campaign starts only after payment is confirmed.'}',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => creatingCampaign = false);
+    }
+  }
+
+  Future<void> resendCampaignPayment(Map<String, dynamic> campaign) async {
+    final paymentId = (campaign['payment'] as Map?)?['id'];
+    if (paymentId == null) return;
+    try {
+      final response = await widget.client.post(
+        '/seller/campaign-payments/$paymentId/ussd-push',
+        {},
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${response['message'] ?? 'Payment request sent.'}'),
+        ),
+      );
+      await loadCampaigns();
+    } catch (error) {
+      if (mounted) showError(context, error);
+    }
+  }
+
   Future<void> pickProductImages() async {
     final images = await picker.pickMultiImage(imageQuality: 75);
     if (images.isEmpty) return;
-    setState(() => selectedProductImages = images);
+    if (images.length != 3) {
+      if (mounted) {
+        showError(context, Exception('Choose exactly 3 product images.'));
+      }
+      return;
+    }
+    setState(() => selectedProductImages = images.take(3).toList());
+  }
+
+  Future<void> pickProductVideo() async {
+    if (selectedProductVideos.length >= 2) return;
+    final video = await picker.pickVideo(
+      source: ImageSource.gallery,
+      maxDuration: const Duration(minutes: 2),
+    );
+    if (video == null || !mounted) return;
+    setState(() => selectedProductVideos = [...selectedProductVideos, video]);
   }
 
   List<String> productImagePaths() {
@@ -3815,6 +4203,9 @@ class _SellerPageState extends State<SellerPage> {
         'category': selectedCategories.first,
         'categories': selectedCategories.toList(),
         'address': address.text,
+        'opening_time': apiTime(openingTime),
+        'closing_time': apiTime(closingTime),
+        'timezone': 'Africa/Dar_es_Salaam',
       });
       shopName.clear();
       await load();
@@ -3862,6 +4253,8 @@ class _SellerPageState extends State<SellerPage> {
         name: shop['name'] ?? '',
         address: shop['address'] ?? '',
         categories: categories,
+        openingTime: '${shop['opening_time'] ?? '08:00'}',
+        closingTime: '${shop['closing_time'] ?? '20:00'}',
       );
     });
   }
@@ -3871,6 +4264,8 @@ class _SellerPageState extends State<SellerPage> {
     setState(() {
       editingProductId = product['id'] as int?;
       replacementProductImages = [];
+      replacementProductVideos = [];
+      clearReplacementProductVideos = false;
       productDraft = _ProductEditDraft(product);
     });
   }
@@ -3889,6 +4284,8 @@ class _SellerPageState extends State<SellerPage> {
       editingProductId = null;
       productDraft = null;
       replacementProductImages = [];
+      replacementProductVideos = [];
+      clearReplacementProductVideos = false;
     });
   }
 
@@ -3901,6 +4298,9 @@ class _SellerPageState extends State<SellerPage> {
         'category': draft.categories.first,
         'categories': draft.categories.toList(),
         'address': draft.address.text.trim(),
+        'opening_time': draft.openingTime,
+        'closing_time': draft.closingTime,
+        'timezone': 'Africa/Dar_es_Salaam',
       });
       cancelShopEdit();
       await load();
@@ -3912,18 +4312,39 @@ class _SellerPageState extends State<SellerPage> {
   Future<void> pickReplacementProductImages() async {
     final images = await picker.pickMultiImage(imageQuality: 75);
     if (images.isEmpty) return;
-    setState(() => replacementProductImages = images);
+    if (images.length != 3) {
+      if (mounted) {
+        showError(context, Exception('Choose exactly 3 replacement images.'));
+      }
+      return;
+    }
+    setState(() => replacementProductImages = images.take(3).toList());
+  }
+
+  Future<void> pickReplacementProductVideo() async {
+    if (replacementProductVideos.length >= 2) return;
+    final video = await picker.pickVideo(
+      source: ImageSource.gallery,
+      maxDuration: const Duration(minutes: 2),
+    );
+    if (video == null || !mounted) return;
+    setState(
+      () => replacementProductVideos = [...replacementProductVideos, video],
+    );
   }
 
   Future<void> saveProductEdit(Map<String, dynamic> product) async {
     final draft = productDraft;
     if (draft == null) return;
     try {
-      if (replacementProductImages.isNotEmpty) {
-        if (replacementProductImages.length < 3) {
-          throw Exception('Choose at least 3 product images.');
+      if (replacementProductImages.isNotEmpty ||
+          replacementProductVideos.isNotEmpty ||
+          clearReplacementProductVideos) {
+        if (replacementProductImages.isNotEmpty &&
+            replacementProductImages.length != 3) {
+          throw Exception('Choose exactly 3 product images.');
         }
-        await widget.client.postMultipartFiles(
+        await widget.client.postMultipartMedia(
           '/products/${product['id']}',
           fields: {
             'name': draft.name.text.trim(),
@@ -3932,9 +4353,13 @@ class _SellerPageState extends State<SellerPage> {
             'discount_percent': draft.discount.text,
             'delivery_price': draft.delivery.text,
             'stock': draft.stock.text,
+            if (clearReplacementProductVideos) 'clear_videos': '1',
           },
-          files: replacementProductImages
+          images: replacementProductImages
               .map((image) => File(image.path))
+              .toList(),
+          videos: replacementProductVideos
+              .map((video) => File(video.path))
               .toList(),
         );
       } else {
@@ -4014,6 +4439,7 @@ class _SellerPageState extends State<SellerPage> {
     stock.dispose();
     delivererName.dispose();
     delivererPhone.dispose();
+    campaignPhone.dispose();
     shopDraft?.dispose();
     productDraft?.dispose();
     super.dispose();
@@ -4058,6 +4484,32 @@ class _SellerPageState extends State<SellerPage> {
                 label: 'Address',
                 icon: Icons.place_outlined,
               ),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => pickShopTime(opening: true),
+                      icon: const Icon(Icons.storefront_outlined),
+                      label: Text('Opens ${openingTime.format(context)}'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => pickShopTime(opening: false),
+                      icon: const Icon(Icons.nightlight_outlined),
+                      label: Text('Closes ${closingTime.format(context)}'),
+                    ),
+                  ),
+                ],
+              ),
+              const Padding(
+                padding: EdgeInsets.only(bottom: 10),
+                child: Text(
+                  'Times use the shop timezone (Africa/Dar_es_Salaam). Overnight hours are supported.',
+                  style: TextStyle(color: kTextColor, fontSize: 12),
+                ),
+              ),
               PaymentInfoBox(
                 icon: registrationFeeEnabled()
                     ? Icons.payments_outlined
@@ -4077,6 +4529,165 @@ class _SellerPageState extends State<SellerPage> {
                       : 'Save shop',
                 ),
               ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        SurfacePanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SectionTitle(title: 'Product campaigns'),
+              const SizedBox(height: 6),
+              const Text(
+                'Promote one of your products to all currently eligible users. DiscountLink creates the message; sellers cannot edit campaign copy.',
+                style: TextStyle(color: kTextColor, fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+              if (sellerProducts().isEmpty)
+                const PaymentInfoBox(
+                  icon: Icons.inventory_2_outlined,
+                  text: 'Publish an active product before creating a campaign.',
+                )
+              else ...[
+                DropdownButtonFormField<int>(
+                  initialValue: campaignProductId,
+                  items: [
+                    for (final product in sellerProducts())
+                      DropdownMenuItem(
+                        value: product['id'] as int,
+                        child: Text(
+                          '${product['name']} · ${product['shop_name'] ?? ''}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => campaignProductId = value),
+                  decoration: const InputDecoration(labelText: 'Product'),
+                ),
+                const SizedBox(height: 10),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                      value: 'fcm',
+                      icon: Icon(Icons.notifications_active_outlined),
+                      label: Text('FCM'),
+                    ),
+                    ButtonSegment(
+                      value: 'sms',
+                      icon: Icon(Icons.sms_outlined),
+                      label: Text('SMS'),
+                    ),
+                  ],
+                  selected: {campaignChannel},
+                  onSelectionChanged: (selection) =>
+                      setState(() => campaignChannel = selection.first),
+                ),
+                const SizedBox(height: 10),
+                Builder(
+                  builder: (context) {
+                    final pricing = selectedCampaignPricing();
+                    final unit =
+                        num.tryParse('${pricing['unit_price'] ?? 0}') ?? 0;
+                    final count = pricing['eligible_recipient_count'] ?? 0;
+                    final total =
+                        num.tryParse('${pricing['estimated_total'] ?? 0}') ?? 0;
+                    return PaymentInfoBox(
+                      icon: Icons.campaign_outlined,
+                      active: total > 0,
+                      text:
+                          '${campaignChannel.toUpperCase()}: TZS ${money.format(unit)} per recipient · $count eligible users · estimated TZS ${money.format(total)}',
+                    );
+                  },
+                ),
+                if ((num.tryParse(
+                          '${selectedCampaignPricing()['estimated_total'] ?? 0}',
+                        ) ??
+                        0) >
+                    0)
+                  Field(
+                    controller: campaignPhone,
+                    label: 'ClickPesa payment phone',
+                    icon: Icons.phone_android_outlined,
+                    keyboard: TextInputType.phone,
+                  ),
+                FilledButton.icon(
+                  onPressed: creatingCampaign || !campaignQuoteIsReady()
+                      ? null
+                      : createCampaign,
+                  icon: creatingCampaign
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.campaign_outlined),
+                  label: Text(
+                    creatingCampaign
+                        ? 'Creating campaign...'
+                        : loadingCampaigns
+                        ? 'Loading campaign price...'
+                        : !campaignQuoteIsReady()
+                        ? 'Campaign unavailable'
+                        : 'Create campaign',
+                  ),
+                ),
+              ],
+              if (loadingCampaigns) ...[
+                const SizedBox(height: 10),
+                const LinearProgressIndicator(),
+              ] else if (campaigns.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Recent campaigns',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                for (final rawCampaign in campaigns.take(5))
+                  Builder(
+                    builder: (context) {
+                      final campaign = (rawCampaign as Map)
+                          .cast<String, dynamic>();
+                      final status = '${campaign['status'] ?? 'pending'}';
+                      final pendingPayment =
+                          status == 'pending_payment' ||
+                          status == 'payment_failed';
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          backgroundColor: kPrimaryLightColor,
+                          child: Icon(
+                            campaign['channel'] == 'sms'
+                                ? Icons.sms_outlined
+                                : Icons.notifications_outlined,
+                            color: kPrimaryColor,
+                          ),
+                        ),
+                        title: Text(
+                          '${campaign['product']?['name'] ?? 'Product campaign'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(
+                          '${campaign['sent_count'] ?? 0}/${campaign['recipient_count'] ?? 0} sent · $status · TZS ${money.format(num.tryParse('${campaign['total_cost'] ?? 0}') ?? 0)}',
+                        ),
+                        trailing:
+                            pendingPayment &&
+                                (campaign['payment'] as Map?)?['id'] != null
+                            ? IconButton(
+                                tooltip: 'Resend payment request',
+                                onPressed: () =>
+                                    resendCampaignPayment(campaign),
+                                icon: const Icon(Icons.refresh_outlined),
+                              )
+                            : null,
+                      );
+                    },
+                  ),
+              ],
             ],
           ),
         ),
@@ -4267,18 +4878,51 @@ class _SellerPageState extends State<SellerPage> {
                 ),
                 const SizedBox(height: 8),
               ],
+              OutlinedButton.icon(
+                onPressed: selectedProductVideos.length >= 2
+                    ? null
+                    : pickProductVideo,
+                icon: const Icon(Icons.video_library_outlined),
+                label: Text(
+                  selectedProductVideos.isEmpty
+                      ? 'Add product video (up to 2)'
+                      : '${selectedProductVideos.length} of 2 videos chosen',
+                ),
+              ),
+              if (selectedProductVideos.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (
+                      var index = 0;
+                      index < selectedProductVideos.length;
+                      index++
+                    )
+                      InputChip(
+                        avatar: const Icon(Icons.videocam_outlined, size: 18),
+                        label: Text('Video ${index + 1}'),
+                        onDeleted: () => setState(
+                          () => selectedProductVideos.removeAt(index),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
               FilledButton.icon(
                 onPressed: selectedShopId == null || !selectedShopCanPublish
                     ? null
                     : () async {
                         try {
                           final images = productImagePaths();
-                          if (images.length < 3) {
+                          if (images.length != 3) {
                             throw Exception(
-                              'Choose at least 3 product images from phone.',
+                              'Choose exactly 3 product images from phone.',
                             );
                           }
-                          await widget.client.postMultipartFiles(
+                          await widget.client.postMultipartMedia(
                             '/shops/$selectedShopId/products',
                             fields: {
                               'name': productName.text,
@@ -4288,11 +4932,17 @@ class _SellerPageState extends State<SellerPage> {
                               'delivery_price': delivery.text,
                               'stock': stock.text,
                             },
-                            files: selectedProductImages
+                            images: selectedProductImages
                                 .map((image) => File(image.path))
                                 .toList(),
+                            videos: selectedProductVideos
+                                .map((video) => File(video.path))
+                                .toList(),
                           );
-                          setState(() => selectedProductImages = []);
+                          setState(() {
+                            selectedProductImages = [];
+                            selectedProductVideos = [];
+                          });
                           await load();
                         } catch (error) {
                           if (context.mounted) showError(context, error);
@@ -4349,6 +4999,17 @@ class _SellerPageState extends State<SellerPage> {
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
+                            const SizedBox(height: 3),
+                            Text(
+                              '${s['is_open'] == true ? 'Open now' : 'Closed now'} · ${s['opening_time'] ?? '--:--'}–${s['closing_time'] ?? '--:--'}',
+                              style: TextStyle(
+                                color: s['is_open'] == true
+                                    ? Colors.green.shade700
+                                    : Colors.red.shade700,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -4389,6 +5050,31 @@ class _SellerPageState extends State<SellerPage> {
                               controller: shopDraft!.address,
                               label: 'Address',
                               icon: Icons.place_outlined,
+                            ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () =>
+                                        pickDraftShopTime(opening: true),
+                                    icon: const Icon(Icons.storefront_outlined),
+                                    label: Text(
+                                      'Opens ${shopDraft!.openingTime}',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () =>
+                                        pickDraftShopTime(opening: false),
+                                    icon: const Icon(Icons.nightlight_outlined),
+                                    label: Text(
+                                      'Closes ${shopDraft!.closingTime}',
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                             Row(
                               children: [
@@ -4577,6 +5263,65 @@ class _SellerPageState extends State<SellerPage> {
                                   ),
                                   const SizedBox(height: 8),
                                 ],
+                                OutlinedButton.icon(
+                                  onPressed:
+                                      clearReplacementProductVideos ||
+                                          replacementProductVideos.length >= 2
+                                      ? null
+                                      : pickReplacementProductVideo,
+                                  icon: const Icon(
+                                    Icons.video_library_outlined,
+                                  ),
+                                  label: Text(
+                                    replacementProductVideos.isEmpty
+                                        ? productVideoCount(product) > 0
+                                              ? 'Replace all videos (up to 2)'
+                                              : 'Add videos (up to 2)'
+                                        : '${replacementProductVideos.length} replacement videos',
+                                  ),
+                                ),
+                                if (replacementProductVideos.isNotEmpty) ...[
+                                  Wrap(
+                                    spacing: 8,
+                                    children: [
+                                      for (
+                                        var index = 0;
+                                        index < replacementProductVideos.length;
+                                        index++
+                                      )
+                                        InputChip(
+                                          avatar: const Icon(
+                                            Icons.videocam_outlined,
+                                            size: 18,
+                                          ),
+                                          label: Text('Video ${index + 1}'),
+                                          onDeleted: () => setState(
+                                            () => replacementProductVideos
+                                                .removeAt(index),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                ],
+                                if (productVideoCount(product) > 0)
+                                  CheckboxListTile(
+                                    value: clearReplacementProductVideos,
+                                    onChanged: (value) => setState(() {
+                                      clearReplacementProductVideos =
+                                          value ?? false;
+                                      if (clearReplacementProductVideos) {
+                                        replacementProductVideos = [];
+                                      }
+                                    }),
+                                    controlAffinity:
+                                        ListTileControlAffinity.leading,
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('Remove all videos'),
+                                    subtitle: const Text(
+                                      'Saving will remove every current product video.',
+                                    ),
+                                  ),
                                 Row(
                                   children: [
                                     Expanded(
@@ -4640,6 +5385,8 @@ class _ShopEditDraft {
     required String name,
     required String address,
     required Set<String> categories,
+    required this.openingTime,
+    required this.closingTime,
   }) : name = TextEditingController(text: name),
        address = TextEditingController(text: address),
        categories = {...categories};
@@ -4647,6 +5394,8 @@ class _ShopEditDraft {
   final TextEditingController name;
   final TextEditingController address;
   final Set<String> categories;
+  String openingTime;
+  String closingTime;
 
   void dispose() {
     name.dispose();
@@ -6819,6 +7568,36 @@ List<String> productImageSources(
   return [fallback];
 }
 
+List<Map<String, dynamic>> productMediaSources(
+  Map<String, dynamic> product, {
+  required String fallback,
+}) {
+  final media = product['media'];
+  if (media is List) {
+    final sources =
+        media
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .where((item) => '${item['url'] ?? ''}'.trim().isNotEmpty)
+            .toList()
+          ..sort(
+            (a, b) => (int.tryParse('${a['position'] ?? 0}') ?? 0).compareTo(
+              int.tryParse('${b['position'] ?? 0}') ?? 0,
+            ),
+          );
+    if (sources.isNotEmpty) return sources;
+  }
+  return [
+    for (final source in productImageSources(product, fallback: fallback))
+      {'type': 'image', 'url': source},
+  ];
+}
+
+int productVideoCount(Map<String, dynamic> product) => productMediaSources(
+  product,
+  fallback: '',
+).where((item) => item['type'] == 'video').length;
+
 class ProductImage extends StatelessWidget {
   const ProductImage({super.key, required this.source, this.fit});
   final String source;
@@ -6849,6 +7628,210 @@ class ProductImage extends StatelessWidget {
   }
 }
 
+class ProductMediaTile extends StatefulWidget {
+  const ProductMediaTile({
+    super.key,
+    required this.media,
+    required this.active,
+    this.fit = BoxFit.contain,
+  });
+
+  final Map<String, dynamic> media;
+  final bool active;
+  final BoxFit fit;
+
+  @override
+  State<ProductMediaTile> createState() => _ProductMediaTileState();
+}
+
+class _ProductMediaTileState extends State<ProductMediaTile> {
+  VideoPlayerController? controller;
+  Future<void>? initialization;
+
+  bool get isVideo => widget.media['type'] == 'video';
+  String get source => '${widget.media['url'] ?? ''}';
+
+  @override
+  void initState() {
+    super.initState();
+    initializeVideo();
+  }
+
+  @override
+  void didUpdateWidget(covariant ProductMediaTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.media['url'] != widget.media['url'] ||
+        oldWidget.media['type'] != widget.media['type']) {
+      disposeVideo();
+      initializeVideo();
+      return;
+    }
+    if (oldWidget.active && !widget.active) {
+      pauseVideo();
+    }
+  }
+
+  void initializeVideo() {
+    if (!isVideo || source.isEmpty) return;
+    final uri = Uri.tryParse(source);
+    final nextController =
+        uri != null && (uri.scheme == 'http' || uri.scheme == 'https')
+        ? VideoPlayerController.networkUrl(uri)
+        : VideoPlayerController.file(File(source));
+    controller = nextController;
+    initialization = nextController.initialize().then((_) async {
+      if (!mounted || controller != nextController) return;
+      await nextController.setLooping(true);
+      if (!mounted || controller != nextController) return;
+      if (!widget.active) await nextController.pause();
+      if (mounted && controller == nextController) setState(() {});
+    });
+  }
+
+  void pauseVideo() {
+    final player = controller;
+    if (player == null ||
+        !player.value.isInitialized ||
+        !player.value.isPlaying) {
+      return;
+    }
+    unawaited(
+      player.pause().whenComplete(() {
+        if (mounted && controller == player) setState(() {});
+      }),
+    );
+  }
+
+  void disposeVideo() {
+    final player = controller;
+    controller = null;
+    initialization = null;
+    if (player != null) unawaited(player.dispose());
+  }
+
+  @override
+  void dispose() {
+    disposeVideo();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isVideo) {
+      return ProductImage(source: source, fit: widget.fit);
+    }
+    final player = controller;
+    return FutureBuilder<void>(
+      future: initialization,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Center(child: Icon(Icons.broken_image_outlined));
+        }
+        if (snapshot.connectionState != ConnectionState.done ||
+            player == null ||
+            !player.value.isInitialized) {
+          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+        }
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Center(
+              child: AspectRatio(
+                aspectRatio: player.value.aspectRatio == 0
+                    ? 1
+                    : player.value.aspectRatio,
+                child: VideoPlayer(player),
+              ),
+            ),
+            Center(
+              child: IconButton.filled(
+                tooltip: player.value.isPlaying ? 'Pause video' : 'Play video',
+                onPressed: widget.active
+                    ? () async {
+                        if (player.value.isPlaying) {
+                          await player.pause();
+                        } else {
+                          await player.play();
+                        }
+                        if (mounted && controller == player && !widget.active) {
+                          await player.pause();
+                        }
+                        if (mounted && controller == player) setState(() {});
+                      }
+                    : null,
+                icon: Icon(
+                  player.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class ProductMediaCarousel extends StatefulWidget {
+  const ProductMediaCarousel({super.key, required this.media});
+
+  final List<Map<String, dynamic>> media;
+
+  @override
+  State<ProductMediaCarousel> createState() => _ProductMediaCarouselState();
+}
+
+class _ProductMediaCarouselState extends State<ProductMediaCarousel> {
+  int current = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        AspectRatio(
+          aspectRatio: 1.15,
+          child: PageView.builder(
+            itemCount: widget.media.length,
+            onPageChanged: (index) => setState(() => current = index),
+            itemBuilder: (context, index) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(color: kSurfaceColor),
+                  child: ProductMediaTile(
+                    media: widget.media[index],
+                    active: index == current,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (widget.media.length > 1) ...[
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (var index = 0; index < widget.media.length; index++)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: current == index ? 18 : 7,
+                  height: 7,
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  decoration: BoxDecoration(
+                    color: current == index ? kPrimaryColor : Colors.black26,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 class ProductDealCard extends StatelessWidget {
   const ProductDealCard({
     super.key,
@@ -6875,6 +7858,8 @@ class ProductDealCard extends StatelessWidget {
     final itemPrice = discounted ?? original;
     final discount = num.tryParse('${product['discount_percent']}') ?? 0;
     final matchPercent = productImageMatchPercent(product);
+    final videoCount = productVideoCount(product);
+    final shopOpen = product['shop']?['is_open'] == true;
     return Material(
       color: Colors.white,
       elevation: 0,
@@ -6945,6 +7930,15 @@ class ProductDealCard extends StatelessWidget {
                                 color: kPrimaryColor,
                               ),
                             ),
+                          if (videoCount > 0)
+                            Align(
+                              alignment: Alignment.bottomLeft,
+                              child: _ProductBadge(
+                                label:
+                                    '$videoCount video${videoCount == 1 ? '' : 's'}',
+                                color: Colors.black87,
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -6962,10 +7956,16 @@ class ProductDealCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  product['shop']?['name'] ?? '',
+                  '${product['shop']?['name'] ?? ''} · ${shopOpen ? 'Open' : 'Closed'}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: kTextColor, fontSize: 12),
+                  style: TextStyle(
+                    color: shopOpen
+                        ? Colors.green.shade700
+                        : Colors.red.shade700,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 RatingSummary(product: product, compact: true),
@@ -7096,7 +8096,7 @@ class ProductQuickView extends StatelessWidget {
   Widget build(BuildContext context) {
     final total = num.tryParse('${product['auto_total']}') ?? 0;
     final maxHeight = MediaQuery.sizeOf(context).height * 0.86;
-    final images = productImageSources(product, fallback: imageAsset);
+    final media = productMediaSources(product, fallback: imageAsset);
     final matchPercent = productImageMatchPercent(product);
     return SafeArea(
       child: ConstrainedBox(
@@ -7107,27 +8107,7 @@ class ProductQuickView extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(
-                height: 170,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: images.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 10),
-                  itemBuilder: (context, index) => AspectRatio(
-                    aspectRatio: 1,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: DecoratedBox(
-                        decoration: const BoxDecoration(color: kSurfaceColor),
-                        child: ProductImage(
-                          source: images[index],
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+              ProductMediaCarousel(media: media),
               const SizedBox(height: 12),
               Text(
                 product['name'] ?? 'Product',
@@ -7142,6 +8122,20 @@ class ProductQuickView extends StatelessWidget {
                 product['description'] ?? '',
                 style: const TextStyle(color: kTextColor),
               ),
+              if (product['shop'] is Map) ...[
+                const SizedBox(height: 8),
+                Builder(
+                  builder: (context) {
+                    final shop = product['shop'] as Map;
+                    final open = shop['is_open'] == true;
+                    return StatusPill(
+                      label:
+                          '${open ? 'Open now' : 'Closed now'} · ${shop['opening_time'] ?? '--:--'}–${shop['closing_time'] ?? '--:--'}',
+                      color: open ? Colors.green.shade700 : Colors.red.shade700,
+                    );
+                  },
+                ),
+              ],
               if (matchPercent != null) ...[
                 const SizedBox(height: 8),
                 StatusPill(

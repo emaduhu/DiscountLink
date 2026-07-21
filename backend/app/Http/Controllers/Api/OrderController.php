@@ -33,7 +33,7 @@ class OrderController extends Controller
             : $orders->get();
 
         $orders->each(function (Order $order) {
-            $order->setAttribute('delivery_code', $order->delivery_code_demo);
+            $order->setAttribute('delivery_code', $order->deliveryCodeForBuyer());
             $order->setAttribute(
                 'delivery_code_notice',
                 'Share this code only after the order arrives. It releases seller and delivery payments.'

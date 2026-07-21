@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\DeliveryController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PaymentWebhookController;
+use App\Http\Controllers\Api\ProductCampaignController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ShopController;
 use App\Http\Middleware\AuthenticateApiToken;
@@ -42,10 +43,15 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
     Route::get('/seller/shops', [ShopController::class, 'mine']);
     Route::post('/seller/deliverer-invitations', [ShopController::class, 'inviteDeliverer']);
     Route::put('/shops/{shop}', [ShopController::class, 'update']);
+    Route::put('/shops/{shop}/hours', [ShopController::class, 'updateHours']);
     Route::post('/shops/{shop}/products', [ShopController::class, 'product']);
     Route::post('/products/{product}', [ShopController::class, 'updateProduct']);
     Route::put('/products/{product}', [ShopController::class, 'updateProduct']);
     Route::delete('/products/{product}', [ShopController::class, 'destroyProduct']);
+
+    Route::get('/seller/campaigns', [ProductCampaignController::class, 'index']);
+    Route::post('/seller/campaigns', [ProductCampaignController::class, 'store']);
+    Route::post('/seller/campaign-payments/{payment}/ussd-push', [ProductCampaignController::class, 'resendPaymentPrompt']);
 
     Route::get('/cart', [CartController::class, 'index']);
     Route::post('/cart/{product}', [CartController::class, 'add']);

@@ -13,6 +13,7 @@ use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\ClickPesaService;
+use App\Services\DeliveryCodeNotificationService;
 use App\Services\FcmService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -130,10 +131,14 @@ class CartController extends Controller
         return response()->json(['message' => 'Item removed from cart.']);
     }
 
-    public function checkout(Request $request, FcmService $fcm, ClickPesaService $clickPesa): JsonResponse
-    {
+    public function checkout(
+        Request $request,
+        FcmService $fcm,
+        ClickPesaService $clickPesa,
+        DeliveryCodeNotificationService $deliveryCodeNotifications,
+    ): JsonResponse {
         abort_unless($request->user()->role === 'buyer', 403);
-        abort_unless($request->user()->phone_verified_at, 422, 'Verify your phone before payment.');
+        abort_unless($request->user()->phone && $request->user()->phone_verified_at, 422, 'Verify your phone before payment.');
         $data = $request->validate([
             'delivery_address' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'regex:/^\d{12}$/'],
@@ -142,6 +147,21 @@ class CartController extends Controller
         ]);
         $items = Cart::with(['product.shop', 'discountLink'])->where('buyer_id', $request->user()->id)->get();
         abort_if($items->isEmpty(), 422, 'Cart is empty.');
+        $closedItem = $items->first(fn (Cart $item) => ! $item->product->shop->isOpenAt());
+        if ($closedItem !== null) {
+            $shop = $closedItem->product->shop;
+            $nextOpeningAt = $shop->next_status_change_at;
+
+            return response()->json([
+                'message' => $shop->name.' is currently closed.'.($nextOpeningAt ? " It opens at {$nextOpeningAt}." : ''),
+                'shop' => [
+                    'id' => $shop->id,
+                    'name' => $shop->name,
+                    'is_open' => false,
+                    'next_opening_at' => $nextOpeningAt,
+                ],
+            ], 422);
+        }
 
         $order = DB::transaction(function () use ($request, $items, $data) {
             $first = $items->first()->product;
@@ -162,7 +182,8 @@ class CartController extends Controller
                 'service_fee_total' => $serviceFee,
                 'grand_total' => $subtotal + $delivery + $serviceFee,
                 'delivery_code_hash' => Hash::make($code),
-                'delivery_code_demo' => $code,
+                'delivery_code_demo' => null,
+                'delivery_code_encrypted' => $code,
             ]);
             foreach ($items as $item) {
                 $unit = $this->cartUnitPrice($item);
@@ -226,6 +247,7 @@ class CartController extends Controller
         ]));
 
         $deliveryCode = $order->plain_delivery_code;
+        $notificationStatus = $deliveryCodeNotifications->send($request->user(), $order, $deliveryCode);
         $loadedOrder = $order->load('items');
         $loadedOrder->setAttribute('delivery_code', $deliveryCode);
 
@@ -235,6 +257,7 @@ class CartController extends Controller
             'ussd_push' => $ussdPush,
             'delivery_code' => $deliveryCode,
             'delivery_code_demo' => $deliveryCode,
+            'delivery_code_notifications' => $notificationStatus,
             'message' => $this->paymentRequestMessage($payment->fresh(), $ussdPush).' Keep this buyer delivery code. Share it only after receiving the order to release seller and delivery payments.',
         ], 201);
     }

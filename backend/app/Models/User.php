@@ -7,9 +7,9 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable([
     'role', 'name', 'email', 'google_id', 'email_verified_at', 'password', 'phone', 'pending_phone', 'phone_verified_at',
@@ -42,6 +42,11 @@ class User extends Authenticatable
     public function products(): HasMany
     {
         return $this->hasMany(Product::class, 'seller_id');
+    }
+
+    public function productCampaigns(): HasMany
+    {
+        return $this->hasMany(ProductCampaign::class, 'seller_id');
     }
 
     public function orders(): HasMany

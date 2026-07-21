@@ -120,7 +120,6 @@ class ProcessClickPesaPayment implements ShouldQueue
         $payload = is_array($payment->payload) ? $payment->payload : [];
 
         $payment->update([
-            'status' => 'processing',
             'payload' => array_merge($payload, [
                 'queued_operation' => $this->operation,
                 'last_queue_attempt_at' => now()->toIso8601String(),

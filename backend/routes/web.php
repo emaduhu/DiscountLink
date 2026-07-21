@@ -17,5 +17,6 @@ Route::post('/dashboard/otp-settings', [DashboardController::class, 'updateOtpSe
 Route::post('/dashboard/categories', [DashboardController::class, 'updateCategories'])->name('dashboard.categories');
 Route::post('/dashboard/shop-registration-fee', [DashboardController::class, 'updateShopRegistrationFee'])->name('dashboard.shop-registration-fee');
 Route::post('/dashboard/service-fee', [DashboardController::class, 'updateServiceFee'])->name('dashboard.service-fee');
+Route::post('/dashboard/campaign-pricing', [DashboardController::class, 'updateCampaignPricing'])->name('dashboard.campaign-pricing');
 Route::post('/dashboard/payments/{payment}/ussd-push', [DashboardController::class, 'resendPaymentPrompt'])->name('dashboard.payments.ussd-push');
 Route::get('/dashboard', DashboardController::class)->name('dashboard');
