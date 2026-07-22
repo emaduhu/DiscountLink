@@ -26,6 +26,7 @@ class ShopController extends Controller
     public function store(Request $request, ClickPesaService $clickPesa): JsonResponse
     {
         abort_unless($request->user()->role === 'seller', 403, 'Only sellers can open shops.');
+        $this->normalizeRegistrationPaymentPhone($request);
         $data = $request->validate([
             'name' => ['required', 'string', 'max:160'],
             'category' => ['nullable', 'string', 'max:100'],
@@ -55,6 +56,7 @@ class ShopController extends Controller
         $data['categories'] = $categories->all();
         $this->abortForMatchingBusinessHours($data);
         $data['timezone'] = $data['timezone'] ?? Shop::DEFAULT_TIMEZONE;
+        $registrationPaymentPhone = $data['registration_payment_phone'] ?? null;
         unset($data['registration_payment_phone']);
 
         $feeAmount = $this->shopRegistrationFeeAmount();
@@ -88,7 +90,7 @@ class ShopController extends Controller
             'provider' => 'clickpesa',
             'status' => 'pending',
             'amount' => $feeAmount,
-            'phone' => $request->input('registration_payment_phone') ?: $request->user()->phone,
+            'phone' => $registrationPaymentPhone ?: $request->user()->phone,
             'payload' => ['shop_id' => $shop->id],
         ]);
         $shop->update(['registration_fee_payment_id' => $payment->id]);
@@ -375,6 +377,23 @@ class ShopController extends Controller
         $closing = $data['closing_time'] ?? null;
 
         abort_if($opening !== null && $opening === $closing, 422, 'Opening and closing times must be different.');
+    }
+
+    private function normalizeRegistrationPaymentPhone(Request $request): void
+    {
+        $phone = $request->input('registration_payment_phone');
+        if (! is_string($phone)) {
+            return;
+        }
+
+        $phone = trim($phone);
+        if (str_starts_with($phone, '+')) {
+            $phone = substr($phone, 1);
+        }
+
+        $request->merge([
+            'registration_payment_phone' => preg_replace('/[\s-]+/', '', $phone) ?? '',
+        ]);
     }
 
     private function shopRegistrationFeeAmount(): float

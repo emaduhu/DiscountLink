@@ -1,6 +1,5 @@
-Version 1.0.19
-- Sellers can set shop opening and closing times so buyers know when checkout is available.
-- Buyers receive delivery codes by SMS and FCM notification after checkout.
-- Sellers can launch paid SMS or FCM product campaigns using platform-generated messages.
-- Admins can configure per-message campaign pricing and view campaign revenue.
-- Products now support exactly three optimized images and up to two videos in a swipeable carousel.
+Version 1.0.20
+- Sellers can choose the ClickPesa payment phone when opening a shop.
+- Improved spacing keeps campaign pricing and payment details clear on smaller screens.
+- Opening and closing time controls are now compact and evenly sized.
+- Seller products and campaign history now use pages for easier navigation as lists grow.

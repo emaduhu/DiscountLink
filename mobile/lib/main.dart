@@ -3813,8 +3813,12 @@ class SellerPage extends StatefulWidget {
 }
 
 class _SellerPageState extends State<SellerPage> {
+  static const int campaignPageSize = 5;
+  static const int productPageSize = 5;
+
   final shopName = TextEditingController();
   final address = TextEditingController();
+  final shopRegistrationPhone = TextEditingController();
   final productName = TextEditingController();
   final description = TextEditingController();
   final price = TextEditingController();
@@ -3859,11 +3863,16 @@ class _SellerPageState extends State<SellerPage> {
   int shopPage = 1;
   int? shopTotal;
   bool shopHasMore = false;
+  int campaignPage = 1;
+  int? campaignTotal;
+  bool campaignHasMore = false;
+  final Map<int, int> productPageByShop = {};
 
   @override
   void initState() {
     super.initState();
     address.text = widget.user['address'] ?? '';
+    shopRegistrationPhone.text = widget.user['phone'] ?? '';
     campaignPhone.text = widget.user['phone'] ?? '';
     loadCategories();
     load();
@@ -3920,6 +3929,7 @@ class _SellerPageState extends State<SellerPage> {
         } else {
           selectedShopId = null;
         }
+        clampProductPages();
         final products = sellerProducts();
         if (products.isNotEmpty) {
           campaignProductId ??= products.first['id'] as int?;
@@ -3992,6 +4002,30 @@ class _SellerPageState extends State<SellerPage> {
     });
   }
 
+  Widget compactScheduleButton({
+    required Key key,
+    required VoidCallback onPressed,
+    required IconData icon,
+    required String label,
+  }) {
+    return SizedBox(
+      height: 40,
+      child: OutlinedButton.icon(
+        key: key,
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(0, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+        ),
+        icon: Icon(icon, size: 18),
+        label: FittedBox(fit: BoxFit.scaleDown, child: Text(label)),
+      ),
+    );
+  }
+
   List<Map<String, dynamic>> sellerProducts() {
     return [
       for (final shop in shops)
@@ -4002,18 +4036,126 @@ class _SellerPageState extends State<SellerPage> {
     ];
   }
 
-  Future<void> loadCampaigns() async {
+  List<dynamic> productsForShop(dynamic shop) {
+    if (shop is! Map) return const <dynamic>[];
+    return (shop['products'] as List?) ?? const <dynamic>[];
+  }
+
+  int? idForShop(dynamic shop) {
+    if (shop is! Map) return null;
+    return int.tryParse('${shop['id'] ?? ''}');
+  }
+
+  int productPageCount(dynamic shop) {
+    final count = productsForShop(shop).length;
+    return count == 0 ? 1 : ((count - 1) ~/ productPageSize) + 1;
+  }
+
+  int productPageForShop(dynamic shop) {
+    final shopId = idForShop(shop);
+    var page = shopId == null ? 1 : (productPageByShop[shopId] ?? 1);
+    final lastPage = productPageCount(shop);
+    if (page < 1) page = 1;
+    if (page > lastPage) page = lastPage;
+    return page;
+  }
+
+  List<dynamic> visibleProductsForShop(dynamic shop) {
+    final products = productsForShop(shop);
+    final page = productPageForShop(shop);
+    final start = (page - 1) * productPageSize;
+    final end = start + productPageSize < products.length
+        ? start + productPageSize
+        : products.length;
+    return products.sublist(start, end);
+  }
+
+  void clampProductPages() {
+    final loadedShopIds = <int>{};
+    for (final shop in shops) {
+      final shopId = idForShop(shop);
+      if (shopId == null) continue;
+      loadedShopIds.add(shopId);
+      productPageByShop[shopId] = productPageForShop(shop);
+    }
+    productPageByShop.removeWhere(
+      (shopId, _) => !loadedShopIds.contains(shopId),
+    );
+  }
+
+  void changeProductPage(dynamic shop, int requestedPage) {
+    final shopId = idForShop(shop);
+    if (shopId == null) return;
+    var nextPage = requestedPage;
+    final lastPage = productPageCount(shop);
+    if (nextPage < 1) nextPage = 1;
+    if (nextPage > lastPage) nextPage = lastPage;
+    setState(() => productPageByShop[shopId] = nextPage);
+  }
+
+  String productPageLabel(dynamic shop) {
+    final count = productsForShop(shop).length;
+    final page = productPageForShop(shop);
+    final first = count == 0 ? 0 : ((page - 1) * productPageSize) + 1;
+    final last = count == 0
+        ? 0
+        : (first + productPageSize - 1 < count
+              ? first + productPageSize - 1
+              : count);
+    return 'Showing $first–$last of $count products';
+  }
+
+  String campaignPageLabel() {
+    final first = campaigns.isEmpty
+        ? 0
+        : ((campaignPage - 1) * campaignPageSize) + 1;
+    final last = campaigns.isEmpty ? 0 : first + campaigns.length - 1;
+    final total = campaignTotal;
+    return total == null
+        ? 'Showing $first–$last campaigns'
+        : 'Showing $first–$last of $total campaigns';
+  }
+
+  Future<Map<String, dynamic>> fetchCampaignPage(int page) {
+    return widget.client.get('/seller/campaigns', {
+      'page': '$page',
+      'per_page': '$campaignPageSize',
+    });
+  }
+
+  Future<void> loadCampaigns({int page = 1}) async {
+    var requestedPage = page < 1 ? 1 : page;
     setState(() {
       loadingCampaigns = true;
       campaignPricing = {};
     });
     try {
-      final response = await widget.client.get('/seller/campaigns', {
-        'per_page': '20',
-      });
+      var response = await fetchCampaignPage(requestedPage);
+      var campaignResponse = response['campaigns'];
+      if (campaignResponse is Map) {
+        final parsedLastPage = int.tryParse(
+          '${campaignResponse['last_page'] ?? ''}',
+        );
+        final lastPage = parsedLastPage != null && parsedLastPage > 0
+            ? parsedLastPage
+            : 1;
+        if (requestedPage > lastPage) {
+          requestedPage = lastPage;
+          response = await fetchCampaignPage(requestedPage);
+          campaignResponse = response['campaigns'];
+        }
+      }
       if (!mounted) return;
       setState(() {
-        campaigns = responseItems(response['campaigns']);
+        final returnedPage = campaignResponse is Map
+            ? int.tryParse('${campaignResponse['current_page'] ?? ''}')
+            : null;
+        campaigns = responseItems(campaignResponse);
+        campaignPage = returnedPage != null && returnedPage > 0
+            ? returnedPage
+            : requestedPage;
+        campaignTotal = responseTotal(campaignResponse);
+        campaignHasMore = responseHasMore(campaignResponse);
         campaignPricing =
             (response['pricing'] as Map?)?.cast<String, dynamic>() ?? {};
       });
@@ -4096,7 +4238,7 @@ class _SellerPageState extends State<SellerPage> {
         if (campaignPhone.text.trim().isNotEmpty)
           'payment_phone': requireTwelveDigitPhone(campaignPhone.text),
       });
-      await loadCampaigns();
+      await loadCampaigns(page: 1);
       if (!mounted) return;
       final payment = response['payment'] as Map?;
       await showDialog<void>(
@@ -4136,7 +4278,7 @@ class _SellerPageState extends State<SellerPage> {
           content: Text('${response['message'] ?? 'Payment request sent.'}'),
         ),
       );
-      await loadCampaigns();
+      await loadCampaigns(page: campaignPage);
     } catch (error) {
       if (mounted) showError(context, error);
     }
@@ -4198,6 +4340,9 @@ class _SellerPageState extends State<SellerPage> {
 
   Future<void> saveShop() async {
     try {
+      final registrationPaymentPhone = registrationFeeEnabled()
+          ? requireTwelveDigitPhone(shopRegistrationPhone.text)
+          : null;
       final r = await widget.client.post('/shops', {
         'name': shopName.text,
         'category': selectedCategories.first,
@@ -4206,6 +4351,8 @@ class _SellerPageState extends State<SellerPage> {
         'opening_time': apiTime(openingTime),
         'closing_time': apiTime(closingTime),
         'timezone': 'Africa/Dar_es_Salaam',
+        if (registrationPaymentPhone != null)
+          'registration_payment_phone': registrationPaymentPhone,
       });
       shopName.clear();
       await load();
@@ -4217,7 +4364,7 @@ class _SellerPageState extends State<SellerPage> {
           builder: (context) => AlertDialog(
             title: const Text('Registration fee push sent'),
             content: Text(
-              'Approve the ClickPesa USSD prompt on ${payment['phone'] ?? widget.user['phone'] ?? 'your phone'}.\n\n'
+              'Approve the ClickPesa USSD prompt on ${payment['phone'] ?? shopRegistrationPhone.text}.\n\n'
               'Amount: TZS ${money.format(double.tryParse('${payment['amount'] ?? registrationFeeAmount()}') ?? registrationFeeAmount())}\n'
               'Shop activates after payment confirmation.',
             ),
@@ -4431,6 +4578,7 @@ class _SellerPageState extends State<SellerPage> {
   void dispose() {
     shopName.dispose();
     address.dispose();
+    shopRegistrationPhone.dispose();
     productName.dispose();
     description.dispose();
     price.dispose();
@@ -4487,18 +4635,20 @@ class _SellerPageState extends State<SellerPage> {
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
+                    child: compactScheduleButton(
+                      key: const ValueKey('shop-opening-time'),
                       onPressed: () => pickShopTime(opening: true),
-                      icon: const Icon(Icons.storefront_outlined),
-                      label: Text('Opens ${openingTime.format(context)}'),
+                      icon: Icons.storefront_outlined,
+                      label: 'Opens ${openingTime.format(context)}',
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: OutlinedButton.icon(
+                    child: compactScheduleButton(
+                      key: const ValueKey('shop-closing-time'),
                       onPressed: () => pickShopTime(opening: false),
-                      icon: const Icon(Icons.nightlight_outlined),
-                      label: Text('Closes ${closingTime.format(context)}'),
+                      icon: Icons.nightlight_outlined,
+                      label: 'Closes ${closingTime.format(context)}',
                     ),
                   ),
                 ],
@@ -4516,10 +4666,17 @@ class _SellerPageState extends State<SellerPage> {
                     : Icons.check_circle_outline,
                 active: registrationFeeEnabled(),
                 text: registrationFeeEnabled()
-                    ? 'New shops pay TZS ${money.format(registrationFeeAmount())} via ClickPesa USSD before they become active. The prompt is sent to your verified seller phone ${widget.user['phone'] ?? ''}.'
+                    ? 'New shops pay TZS ${money.format(registrationFeeAmount())} via ClickPesa USSD before they become active. The prompt is sent to the payment phone below.'
                     : 'Shop registration fee is currently waived by the backend.',
               ),
               const SizedBox(height: 12),
+              if (registrationFeeEnabled())
+                Field(
+                  controller: shopRegistrationPhone,
+                  label: 'ClickPesa payment phone',
+                  icon: Icons.phone_android_outlined,
+                  keyboard: TextInputType.phone,
+                ),
               FilledButton.icon(
                 onPressed: saveShop,
                 icon: const Icon(Icons.add_business),
@@ -4601,6 +4758,7 @@ class _SellerPageState extends State<SellerPage> {
                     );
                   },
                 ),
+                const SizedBox(height: 12),
                 if ((num.tryParse(
                           '${selectedCampaignPricing()['estimated_total'] ?? 0}',
                         ) ??
@@ -4646,7 +4804,7 @@ class _SellerPageState extends State<SellerPage> {
                   ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 8),
-                for (final rawCampaign in campaigns.take(5))
+                for (final rawCampaign in campaigns)
                   Builder(
                     builder: (context) {
                       final campaign = (rawCampaign as Map)
@@ -4687,6 +4845,20 @@ class _SellerPageState extends State<SellerPage> {
                       );
                     },
                   ),
+                if (campaignPage > 1 || campaignHasMore) ...[
+                  const SizedBox(height: 8),
+                  _SellerPaginationControls(
+                    label: campaignPageLabel(),
+                    previousKey: const ValueKey('campaign-page-previous'),
+                    nextKey: const ValueKey('campaign-page-next'),
+                    onPrevious: campaignPage > 1
+                        ? () => loadCampaigns(page: campaignPage - 1)
+                        : null,
+                    onNext: campaignHasMore
+                        ? () => loadCampaigns(page: campaignPage + 1)
+                        : null,
+                  ),
+                ],
               ],
             ],
           ),
@@ -4916,6 +5088,7 @@ class _SellerPageState extends State<SellerPage> {
                     ? null
                     : () async {
                         try {
+                          final targetShopId = selectedShopId!;
                           final images = productImagePaths();
                           if (images.length != 3) {
                             throw Exception(
@@ -4923,7 +5096,7 @@ class _SellerPageState extends State<SellerPage> {
                             );
                           }
                           await widget.client.postMultipartMedia(
-                            '/shops/$selectedShopId/products',
+                            '/shops/$targetShopId/products',
                             fields: {
                               'name': productName.text,
                               'description': description.text,
@@ -4942,6 +5115,7 @@ class _SellerPageState extends State<SellerPage> {
                           setState(() {
                             selectedProductImages = [];
                             selectedProductVideos = [];
+                            productPageByShop[targetShopId] = 1;
                           });
                           await load();
                         } catch (error) {
@@ -5054,24 +5228,26 @@ class _SellerPageState extends State<SellerPage> {
                             Row(
                               children: [
                                 Expanded(
-                                  child: OutlinedButton.icon(
+                                  child: compactScheduleButton(
+                                    key: ValueKey(
+                                      'shop-${s['id']}-opening-time',
+                                    ),
                                     onPressed: () =>
                                         pickDraftShopTime(opening: true),
-                                    icon: const Icon(Icons.storefront_outlined),
-                                    label: Text(
-                                      'Opens ${shopDraft!.openingTime}',
-                                    ),
+                                    icon: Icons.storefront_outlined,
+                                    label: 'Opens ${shopDraft!.openingTime}',
                                   ),
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
-                                  child: OutlinedButton.icon(
+                                  child: compactScheduleButton(
+                                    key: ValueKey(
+                                      'shop-${s['id']}-closing-time',
+                                    ),
                                     onPressed: () =>
                                         pickDraftShopTime(opening: false),
-                                    icon: const Icon(Icons.nightlight_outlined),
-                                    label: Text(
-                                      'Closes ${shopDraft!.closingTime}',
-                                    ),
+                                    icon: Icons.nightlight_outlined,
+                                    label: 'Closes ${shopDraft!.closingTime}',
                                   ),
                                 ),
                               ],
@@ -5099,7 +5275,7 @@ class _SellerPageState extends State<SellerPage> {
                     ),
                   ],
                   const SizedBox(height: 12),
-                  for (final product in ((s['products'] as List?) ?? []))
+                  for (final product in visibleProductsForShop(s))
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: DecoratedBox(
@@ -5346,7 +5522,25 @@ class _SellerPageState extends State<SellerPage> {
                         ),
                       ),
                     ),
-                  if (((s['products'] as List?) ?? []).isEmpty)
+                  if (productsForShop(s).length > productPageSize) ...[
+                    const SizedBox(height: 2),
+                    _SellerPaginationControls(
+                      label: productPageLabel(s),
+                      previousKey: ValueKey(
+                        'shop-${s['id']}-products-previous',
+                      ),
+                      nextKey: ValueKey('shop-${s['id']}-products-next'),
+                      onPrevious: productPageForShop(s) > 1
+                          ? () =>
+                                changeProductPage(s, productPageForShop(s) - 1)
+                          : null,
+                      onNext: productPageForShop(s) < productPageCount(s)
+                          ? () =>
+                                changeProductPage(s, productPageForShop(s) + 1)
+                          : null,
+                    ),
+                  ],
+                  if (productsForShop(s).isEmpty)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 4),
                       child: Text(
@@ -5375,6 +5569,58 @@ class _SellerPageState extends State<SellerPage> {
           ),
         ],
         const SizedBox(height: 48),
+      ],
+    );
+  }
+}
+
+class _SellerPaginationControls extends StatelessWidget {
+  const _SellerPaginationControls({
+    required this.label,
+    required this.previousKey,
+    required this.nextKey,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final String label;
+  final Key previousKey;
+  final Key nextKey;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: kTextColor, fontSize: 12),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                key: previousKey,
+                onPressed: onPrevious,
+                icon: const Icon(Icons.chevron_left, size: 18),
+                label: const Text('Previous'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
+                key: nextKey,
+                onPressed: onNext,
+                icon: const Icon(Icons.chevron_right, size: 18),
+                label: const Text('Next'),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
