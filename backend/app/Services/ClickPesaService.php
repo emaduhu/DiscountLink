@@ -276,19 +276,26 @@ class ClickPesaService
         }
 
         if ($payment->type === 'shop_registration_fee') {
-            if (in_array($status, ['paid', 'success', 'completed'], true)) {
-                $payment->shop?->update([
-                    'is_active' => true,
+            $shop = $payment->shop;
+            if ($shop && in_array($status, ['paid', 'success', 'completed'], true)) {
+                $updates = [
                     'registration_fee_status' => 'paid',
                     'registration_fee_payment_id' => $payment->id,
                     'registration_paid_at' => now(),
-                ]);
-            } elseif (in_array($status, ['failed', 'cancelled', 'canceled', 'expired'], true)) {
-                $payment->shop?->update([
-                    'is_active' => false,
+                ];
+                if (! $shop->trashed()) {
+                    $updates['is_active'] = true;
+                }
+                $shop->update($updates);
+            } elseif ($shop && in_array($status, ['failed', 'cancelled', 'canceled', 'expired'], true)) {
+                $updates = [
                     'registration_fee_status' => 'failed',
                     'registration_fee_payment_id' => $payment->id,
-                ]);
+                ];
+                if (! $shop->trashed()) {
+                    $updates['is_active'] = false;
+                }
+                $shop->update($updates);
             }
         }
 

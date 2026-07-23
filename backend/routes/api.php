@@ -41,9 +41,11 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
 
     Route::post('/shops', [ShopController::class, 'store']);
     Route::get('/seller/shops', [ShopController::class, 'mine']);
+    Route::post('/seller/shop-payments/{payment}/ussd-push', [ShopController::class, 'resendRegistrationFeePayment']);
     Route::post('/seller/deliverer-invitations', [ShopController::class, 'inviteDeliverer']);
     Route::put('/shops/{shop}', [ShopController::class, 'update']);
     Route::put('/shops/{shop}/hours', [ShopController::class, 'updateHours']);
+    Route::delete('/shops/{shop}', [ShopController::class, 'destroy']);
     Route::post('/shops/{shop}/products', [ShopController::class, 'product']);
     Route::post('/products/{product}', [ShopController::class, 'updateProduct']);
     Route::put('/products/{product}', [ShopController::class, 'updateProduct']);

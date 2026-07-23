@@ -18,8 +18,13 @@ class Payment extends Model
     public function canReceiveUssdPrompt(): bool
     {
         return in_array($this->type, ['collection', 'shop_registration_fee', 'product_campaign'], true)
-            && ! in_array($this->status, ['paid', 'success', 'completed'], true)
+            && ! $this->isPaid()
             && filled($this->phone);
+    }
+
+    public function isPaid(): bool
+    {
+        return in_array($this->status, ['paid', 'success', 'completed'], true);
     }
 
     public function order(): BelongsTo
@@ -29,7 +34,7 @@ class Payment extends Model
 
     public function shop(): BelongsTo
     {
-        return $this->belongsTo(Shop::class);
+        return $this->belongsTo(Shop::class)->withTrashed();
     }
 
     public function productCampaign(): HasOne

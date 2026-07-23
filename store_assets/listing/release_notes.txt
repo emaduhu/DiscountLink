@@ -1,5 +1,5 @@
-Version 1.0.20
-- Sellers can choose the ClickPesa payment phone when opening a shop.
-- Improved spacing keeps campaign pricing and payment details clear on smaller screens.
-- Opening and closing time controls are now compact and evenly sized.
-- Seller products and campaign history now use pages for easier navigation as lists grow.
+Version 1.0.21
+- ClickPesa actions now show progress and prevent duplicate USSD requests while waiting.
+- Improved shop form spacing prevents time controls and save actions from overlapping.
+- Sellers can resend shop registration payment prompts and safely remove shops.
+- Admins can view and restore removed shops while preserving their payment history.

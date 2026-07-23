@@ -2871,6 +2871,8 @@ class _CartPageState extends State<CartPage> {
   }
 
   Future<void> checkout() async {
+    if (checkingOut || resendingPaymentPrompt) return;
+    var resendAfterCheckout = false;
     setState(() {
       checkingOut = true;
       checkoutPaymentStatus = tx(
@@ -2912,41 +2914,42 @@ class _CartPageState extends State<CartPage> {
         if (deliveryNotifications['sms'] == true) 'SMS',
         if (deliveryNotifications['fcm'] == true) 'push notification',
       ];
-      await showDialog<void>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: Text(tx('Payment request sent', 'Ombi la malipo limetumwa')),
-          content: SingleChildScrollView(
-            child: Text(
-              '${tx('Order', 'Oda')}: ${r['order']['reference']}\n'
-              '${tx('Amount', 'Kiasi')}: TZS ${money.format(num.tryParse('${r['order']['grand_total'] ?? cartGrandTotal()}') ?? cartGrandTotal())}\n'
-              '${paymentRequestDetails(payment: payment, push: push, fallbackPhone: paymentPhone)}\n\n'
-              '${tx('Approve the USSD prompt on your phone. Keep this buyer delivery code:', 'Kubali ombi la USSD kwenye simu yako. Hifadhi kodi hii ya kupokea mzigo:')} '
-              '${r['delivery_code'] ?? r['delivery_code_demo']}\n\n'
-              '${deliveryNotificationSummary.isEmpty ? tx('We could not confirm an SMS or push copy; keep the code shown here.', 'Hatujaweza kuthibitisha nakala ya SMS au arifa; hifadhi kodi iliyo hapa.') : tx('A copy was also sent by ${deliveryNotificationSummary.join(' and ')}.', 'Nakala pia imetumwa kwa ${deliveryNotificationSummary.join(' na ')}.')}\n\n'
-              '${tx('Share the delivery code only after the order arrives.', 'Toa kodi ya mzigo baada tu ya kupokea oda yako.')}',
-            ),
-          ),
-          actionsOverflowButtonSpacing: 8,
-          actions: [
-            if (payment?['id'] != null)
-              TextButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  resendPaymentPrompt();
-                },
-                icon: const Icon(Icons.refresh_outlined),
-                label: Text(
-                  tx('Resend Payment request', 'Tuma tena ombi la malipo'),
+      resendAfterCheckout =
+          await showDialog<bool>(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: Text(
+                tx('Payment request sent', 'Ombi la malipo limetumwa'),
+              ),
+              content: SingleChildScrollView(
+                child: Text(
+                  '${tx('Order', 'Oda')}: ${r['order']['reference']}\n'
+                  '${tx('Amount', 'Kiasi')}: TZS ${money.format(num.tryParse('${r['order']['grand_total'] ?? cartGrandTotal()}') ?? cartGrandTotal())}\n'
+                  '${paymentRequestDetails(payment: payment, push: push, fallbackPhone: paymentPhone)}\n\n'
+                  '${tx('Approve the USSD prompt on your phone. Keep this buyer delivery code:', 'Kubali ombi la USSD kwenye simu yako. Hifadhi kodi hii ya kupokea mzigo:')} '
+                  '${r['delivery_code'] ?? r['delivery_code_demo']}\n\n'
+                  '${deliveryNotificationSummary.isEmpty ? tx('We could not confirm an SMS or push copy; keep the code shown here.', 'Hatujaweza kuthibitisha nakala ya SMS au arifa; hifadhi kodi iliyo hapa.') : tx('A copy was also sent by ${deliveryNotificationSummary.join(' and ')}.', 'Nakala pia imetumwa kwa ${deliveryNotificationSummary.join(' na ')}.')}\n\n'
+                  '${tx('Share the delivery code only after the order arrives.', 'Toa kodi ya mzigo baada tu ya kupokea oda yako.')}',
                 ),
               ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
+              actionsOverflowButtonSpacing: 8,
+              actions: [
+                if (payment?['id'] != null)
+                  TextButton.icon(
+                    onPressed: () => Navigator.pop(context, true),
+                    icon: const Icon(Icons.refresh_outlined),
+                    label: Text(
+                      tx('Resend Payment request', 'Tuma tena ombi la malipo'),
+                    ),
+                  ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('OK'),
+                ),
+              ],
             ),
-          ],
-        ),
-      );
+          ) ??
+          false;
       await load();
     } catch (error) {
       if (mounted) await showPaymentError(context, error);
@@ -2958,9 +2961,13 @@ class _CartPageState extends State<CartPage> {
         });
       }
     }
+    if (resendAfterCheckout && mounted) {
+      await resendPaymentPrompt();
+    }
   }
 
   Future<void> resendPaymentPrompt() async {
+    if (checkingOut || resendingPaymentPrompt) return;
     final paymentId = lastCheckoutPayment?['id'];
     if (paymentId == null) return;
     setState(() {
@@ -3197,7 +3204,7 @@ class _CartPageState extends State<CartPage> {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: resendingPaymentPrompt
+                        onPressed: checkingOut || resendingPaymentPrompt
                             ? null
                             : resendPaymentPrompt,
                         icon: resendingPaymentPrompt
@@ -3279,7 +3286,11 @@ class _CartPageState extends State<CartPage> {
                   ),
                   const SizedBox(height: 8),
                   FilledButton.icon(
-                    onPressed: cart.isEmpty || loading || checkingOut
+                    onPressed:
+                        cart.isEmpty ||
+                            loading ||
+                            checkingOut ||
+                            resendingPaymentPrompt
                         ? null
                         : checkout,
                     icon: checkingOut
@@ -3860,6 +3871,10 @@ class _SellerPageState extends State<SellerPage> {
   bool invitingDeliverer = false;
   bool loadingCampaigns = true;
   bool creatingCampaign = false;
+  bool creatingShop = false;
+  int? resendingCampaignPaymentId;
+  int? resendingShopPaymentId;
+  int? deletingShopId;
   int shopPage = 1;
   int? shopTotal;
   bool shopHasMore = false;
@@ -3867,6 +3882,12 @@ class _SellerPageState extends State<SellerPage> {
   int? campaignTotal;
   bool campaignHasMore = false;
   final Map<int, int> productPageByShop = {};
+
+  bool get sellerUssdBusy =>
+      creatingCampaign ||
+      creatingShop ||
+      resendingCampaignPaymentId != null ||
+      resendingShopPaymentId != null;
 
   @override
   void initState() {
@@ -4023,6 +4044,47 @@ class _SellerPageState extends State<SellerPage> {
         icon: Icon(icon, size: 18),
         label: FittedBox(fit: BoxFit.scaleDown, child: Text(label)),
       ),
+    );
+  }
+
+  Widget responsiveScheduleButtons({
+    required Key openingKey,
+    required Key closingKey,
+    required VoidCallback onOpeningPressed,
+    required VoidCallback onClosingPressed,
+    required String openingLabel,
+    required String closingLabel,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final openingButton = compactScheduleButton(
+          key: openingKey,
+          onPressed: onOpeningPressed,
+          icon: Icons.storefront_outlined,
+          label: openingLabel,
+        );
+        final closingButton = compactScheduleButton(
+          key: closingKey,
+          onPressed: onClosingPressed,
+          icon: Icons.nightlight_outlined,
+          label: closingLabel,
+        );
+
+        if (constraints.maxWidth < 360) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [openingButton, const SizedBox(height: 8), closingButton],
+          );
+        }
+
+        return Row(
+          children: [
+            Expanded(child: openingButton),
+            const SizedBox(width: 10),
+            Expanded(child: closingButton),
+          ],
+        );
+      },
     );
   }
 
@@ -4190,6 +4252,7 @@ class _SellerPageState extends State<SellerPage> {
   }
 
   Future<void> createCampaign() async {
+    if (sellerUssdBusy) return;
     final productId = campaignProductId;
     if (productId == null) {
       showError(context, Exception('Choose a product to promote.'));
@@ -4229,6 +4292,7 @@ class _SellerPageState extends State<SellerPage> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    if (sellerUssdBusy) return;
 
     setState(() => creatingCampaign = true);
     try {
@@ -4265,8 +4329,12 @@ class _SellerPageState extends State<SellerPage> {
   }
 
   Future<void> resendCampaignPayment(Map<String, dynamic> campaign) async {
-    final paymentId = (campaign['payment'] as Map?)?['id'];
+    if (sellerUssdBusy) return;
+    final paymentId = int.tryParse(
+      '${(campaign['payment'] as Map?)?['id'] ?? ''}',
+    );
     if (paymentId == null) return;
+    setState(() => resendingCampaignPaymentId = paymentId);
     try {
       final response = await widget.client.post(
         '/seller/campaign-payments/$paymentId/ussd-push',
@@ -4281,6 +4349,10 @@ class _SellerPageState extends State<SellerPage> {
       await loadCampaigns(page: campaignPage);
     } catch (error) {
       if (mounted) showError(context, error);
+    } finally {
+      if (mounted && resendingCampaignPaymentId == paymentId) {
+        setState(() => resendingCampaignPaymentId = null);
+      }
     }
   }
 
@@ -4338,7 +4410,103 @@ class _SellerPageState extends State<SellerPage> {
     return 'Registration fee pending';
   }
 
+  int? shopRegistrationPaymentId(Map<String, dynamic> shop) {
+    final payment =
+        shop['registration_fee_payment'] ?? shop['registrationFeePayment'];
+    final value = payment is Map
+        ? payment['id']
+        : shop['registration_fee_payment_id'];
+    return int.tryParse('${value ?? ''}');
+  }
+
+  bool canRetryShopRegistration(Map<String, dynamic> shop) {
+    if (shop['is_active'] == true || shopRegistrationPaymentId(shop) == null) {
+      return false;
+    }
+    return const {
+      'pending',
+      'processing',
+      'failed',
+      'payment_failed',
+    }.contains('${shop['registration_fee_status'] ?? ''}');
+  }
+
+  Future<void> resendShopRegistrationPayment(Map<String, dynamic> shop) async {
+    if (sellerUssdBusy) return;
+    final paymentId = shopRegistrationPaymentId(shop);
+    if (paymentId == null) return;
+    setState(() => resendingShopPaymentId = paymentId);
+    try {
+      final response = await widget.client.post(
+        '/seller/shop-payments/$paymentId/ussd-push',
+        {},
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${response['message'] ?? 'Registration payment request sent.'}',
+          ),
+        ),
+      );
+      await load();
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted && resendingShopPaymentId == paymentId) {
+        setState(() => resendingShopPaymentId = null);
+      }
+    }
+  }
+
+  Future<void> deleteShop(Map<String, dynamic> shop) async {
+    if (deletingShopId != null || sellerUssdBusy) return;
+    final shopId = int.tryParse('${shop['id'] ?? ''}');
+    if (shopId == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete shop?'),
+        content: Text(
+          '${shop['name'] ?? 'This shop'} and its products will no longer be visible to buyers.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            child: const Text('Delete shop'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || deletingShopId != null) return;
+
+    setState(() => deletingShopId = shopId);
+    try {
+      final response = await widget.client.delete('/shops/$shopId');
+      if (!mounted) return;
+      if (editingShopId == shopId) cancelShopEdit();
+      await load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${response['message'] ?? 'Shop deleted.'}')),
+      );
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted && deletingShopId == shopId) {
+        setState(() => deletingShopId = null);
+      }
+    }
+  }
+
   Future<void> saveShop() async {
+    if (sellerUssdBusy) return;
+    setState(() => creatingShop = true);
     try {
       final registrationPaymentPhone = registrationFeeEnabled()
           ? requireTwelveDigitPhone(shopRegistrationPhone.text)
@@ -4384,6 +4552,8 @@ class _SellerPageState extends State<SellerPage> {
     } catch (error) {
       if (mounted) showError(context, error);
       await load();
+    } finally {
+      if (mounted) setState(() => creatingShop = false);
     }
   }
 
@@ -4632,27 +4802,15 @@ class _SellerPageState extends State<SellerPage> {
                 label: 'Address',
                 icon: Icons.place_outlined,
               ),
-              Row(
-                children: [
-                  Expanded(
-                    child: compactScheduleButton(
-                      key: const ValueKey('shop-opening-time'),
-                      onPressed: () => pickShopTime(opening: true),
-                      icon: Icons.storefront_outlined,
-                      label: 'Opens ${openingTime.format(context)}',
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: compactScheduleButton(
-                      key: const ValueKey('shop-closing-time'),
-                      onPressed: () => pickShopTime(opening: false),
-                      icon: Icons.nightlight_outlined,
-                      label: 'Closes ${closingTime.format(context)}',
-                    ),
-                  ),
-                ],
+              responsiveScheduleButtons(
+                openingKey: const ValueKey('shop-opening-time'),
+                closingKey: const ValueKey('shop-closing-time'),
+                onOpeningPressed: () => pickShopTime(opening: true),
+                onClosingPressed: () => pickShopTime(opening: false),
+                openingLabel: 'Opens ${openingTime.format(context)}',
+                closingLabel: 'Closes ${closingTime.format(context)}',
               ),
+              const SizedBox(height: 10),
               const Padding(
                 padding: EdgeInsets.only(bottom: 10),
                 child: Text(
@@ -4678,10 +4836,21 @@ class _SellerPageState extends State<SellerPage> {
                   keyboard: TextInputType.phone,
                 ),
               FilledButton.icon(
-                onPressed: saveShop,
-                icon: const Icon(Icons.add_business),
+                key: const ValueKey('save-shop'),
+                onPressed: sellerUssdBusy ? null : saveShop,
+                icon: creatingShop
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.add_business),
                 label: Text(
-                  registrationFeeEnabled()
+                  creatingShop
+                      ? registrationFeeEnabled()
+                            ? 'Sending registration payment...'
+                            : 'Saving shop...'
+                      : registrationFeeEnabled()
                       ? 'Save shop and send fee push'
                       : 'Save shop',
                 ),
@@ -4708,6 +4877,7 @@ class _SellerPageState extends State<SellerPage> {
                 )
               else ...[
                 DropdownButtonFormField<int>(
+                  isExpanded: true,
                   initialValue: campaignProductId,
                   items: [
                     for (final product in sellerProducts())
@@ -4771,7 +4941,7 @@ class _SellerPageState extends State<SellerPage> {
                     keyboard: TextInputType.phone,
                   ),
                 FilledButton.icon(
-                  onPressed: creatingCampaign || !campaignQuoteIsReady()
+                  onPressed: sellerUssdBusy || !campaignQuoteIsReady()
                       ? null
                       : createCampaign,
                   icon: creatingCampaign
@@ -4813,6 +4983,12 @@ class _SellerPageState extends State<SellerPage> {
                       final pendingPayment =
                           status == 'pending_payment' ||
                           status == 'payment_failed';
+                      final paymentId = int.tryParse(
+                        '${(campaign['payment'] as Map?)?['id'] ?? ''}',
+                      );
+                      final isResending =
+                          paymentId != null &&
+                          resendingCampaignPaymentId == paymentId;
                       return ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: CircleAvatar(
@@ -4832,14 +5008,26 @@ class _SellerPageState extends State<SellerPage> {
                         subtitle: Text(
                           '${campaign['sent_count'] ?? 0}/${campaign['recipient_count'] ?? 0} sent · $status · TZS ${money.format(num.tryParse('${campaign['total_cost'] ?? 0}') ?? 0)}',
                         ),
-                        trailing:
-                            pendingPayment &&
-                                (campaign['payment'] as Map?)?['id'] != null
+                        trailing: pendingPayment && paymentId != null
                             ? IconButton(
-                                tooltip: 'Resend payment request',
-                                onPressed: () =>
-                                    resendCampaignPayment(campaign),
-                                icon: const Icon(Icons.refresh_outlined),
+                                key: ValueKey(
+                                  'campaign-${campaign['id']}-payment-resend',
+                                ),
+                                tooltip: isResending
+                                    ? 'Sending payment request'
+                                    : 'Resend payment request',
+                                onPressed: sellerUssdBusy
+                                    ? null
+                                    : () => resendCampaignPayment(campaign),
+                                icon: isResending
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.refresh_outlined),
                               )
                             : null,
                       );
@@ -4960,6 +5148,7 @@ class _SellerPageState extends State<SellerPage> {
               const SizedBox(height: 12),
               if (shops.isNotEmpty)
                 DropdownButtonFormField<int>(
+                  isExpanded: true,
                   initialValue: selectedShopId,
                   items: [
                     for (final s in shops)
@@ -4969,6 +5158,7 @@ class _SellerPageState extends State<SellerPage> {
                           s['is_active'] == true
                               ? s['name']
                               : '${s['name']} - fee pending',
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                   ],
@@ -5188,12 +5378,70 @@ class _SellerPageState extends State<SellerPage> {
                         ),
                       ),
                       IconButton(
+                        key: ValueKey('shop-${s['id']}-edit'),
                         tooltip: 'Edit shop',
-                        onPressed: () => startEditShop(s),
+                        onPressed: deletingShopId == null && !sellerUssdBusy
+                            ? () => startEditShop(s)
+                            : null,
                         icon: const Icon(Icons.edit_outlined),
+                      ),
+                      IconButton(
+                        key: ValueKey('shop-${s['id']}-delete'),
+                        tooltip: deletingShopId == s['id']
+                            ? 'Deleting shop'
+                            : 'Delete shop',
+                        onPressed: deletingShopId == null && !sellerUssdBusy
+                            ? () => deleteShop(s)
+                            : null,
+                        color: Colors.red.shade700,
+                        icon: deletingShopId == s['id']
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.delete_outline),
                       ),
                     ],
                   ),
+                  if (canRetryShopRegistration(s)) ...[
+                    const SizedBox(height: 10),
+                    Builder(
+                      builder: (context) {
+                        final paymentId = shopRegistrationPaymentId(s);
+                        final isResending =
+                            paymentId != null &&
+                            resendingShopPaymentId == paymentId;
+                        return SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            key: ValueKey(
+                              'shop-${s['id']}-registration-payment-resend',
+                            ),
+                            onPressed: sellerUssdBusy
+                                ? null
+                                : () => resendShopRegistrationPayment(s),
+                            icon: isResending
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.refresh_outlined),
+                            label: Text(
+                              isResending
+                                  ? 'Sending registration payment...'
+                                  : 'Resend registration payment',
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                   if (editingShopId == s['id'] && shopDraft != null) ...[
                     const SizedBox(height: 12),
                     DecoratedBox(
@@ -5225,33 +5473,21 @@ class _SellerPageState extends State<SellerPage> {
                               label: 'Address',
                               icon: Icons.place_outlined,
                             ),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: compactScheduleButton(
-                                    key: ValueKey(
-                                      'shop-${s['id']}-opening-time',
-                                    ),
-                                    onPressed: () =>
-                                        pickDraftShopTime(opening: true),
-                                    icon: Icons.storefront_outlined,
-                                    label: 'Opens ${shopDraft!.openingTime}',
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: compactScheduleButton(
-                                    key: ValueKey(
-                                      'shop-${s['id']}-closing-time',
-                                    ),
-                                    onPressed: () =>
-                                        pickDraftShopTime(opening: false),
-                                    icon: Icons.nightlight_outlined,
-                                    label: 'Closes ${shopDraft!.closingTime}',
-                                  ),
-                                ),
-                              ],
+                            responsiveScheduleButtons(
+                              openingKey: ValueKey(
+                                'shop-${s['id']}-opening-time',
+                              ),
+                              closingKey: ValueKey(
+                                'shop-${s['id']}-closing-time',
+                              ),
+                              onOpeningPressed: () =>
+                                  pickDraftShopTime(opening: true),
+                              onClosingPressed: () =>
+                                  pickDraftShopTime(opening: false),
+                              openingLabel: 'Opens ${shopDraft!.openingTime}',
+                              closingLabel: 'Closes ${shopDraft!.closingTime}',
                             ),
+                            const SizedBox(height: 10),
                             Row(
                               children: [
                                 Expanded(
@@ -5263,6 +5499,7 @@ class _SellerPageState extends State<SellerPage> {
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: FilledButton(
+                                    key: ValueKey('shop-${s['id']}-save-edit'),
                                     onPressed: () => saveShopEdit(s),
                                     child: const Text('Save shop'),
                                   ),

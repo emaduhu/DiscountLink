@@ -10,6 +10,7 @@ Route::post('/admin/logout', [DashboardController::class, 'logout'])->name('admi
 Route::post('/dashboard/notifications', [DashboardController::class, 'sendNotification'])->name('dashboard.notifications');
 Route::post('/dashboard/users/{user}/toggle', [DashboardController::class, 'toggleUser'])->name('dashboard.users.toggle');
 Route::post('/dashboard/users/{user}/restore', [DashboardController::class, 'restoreUser'])->name('dashboard.users.restore');
+Route::post('/dashboard/shops/{shop}/restore', [DashboardController::class, 'restoreShop'])->name('dashboard.shops.restore');
 Route::post('/dashboard/products/{product}/toggle', [DashboardController::class, 'toggleProduct'])->name('dashboard.products.toggle');
 Route::post('/dashboard/conversations/{conversation}/toggle', [DashboardController::class, 'toggleConversation'])->name('dashboard.conversations.toggle');
 Route::post('/dashboard/conversation-reports/{report}/close', [DashboardController::class, 'closeConversationReport'])->name('dashboard.conversation-reports.close');

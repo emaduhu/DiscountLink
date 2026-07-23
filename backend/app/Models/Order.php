@@ -41,7 +41,7 @@ class Order extends Model
 
     public function shop(): BelongsTo
     {
-        return $this->belongsTo(Shop::class);
+        return $this->belongsTo(Shop::class)->withTrashed();
     }
 
     public function items(): HasMany

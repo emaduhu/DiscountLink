@@ -8,10 +8,13 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable(['seller_id', 'name', 'category', 'categories', 'address', 'latitude', 'longitude', 'opening_time', 'closing_time', 'timezone', 'is_active', 'registration_fee_amount', 'registration_fee_status', 'registration_fee_payment_id', 'registration_paid_at'])]
 class Shop extends Model
 {
+    use SoftDeletes;
+
     public const DEFAULT_TIMEZONE = 'Africa/Dar_es_Salaam';
 
     protected $appends = ['is_open', 'next_status_change_at'];

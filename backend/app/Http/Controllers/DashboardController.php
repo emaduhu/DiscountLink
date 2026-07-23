@@ -149,6 +149,37 @@ class DashboardController extends Controller
             ->with('status', 'User account restored.');
     }
 
+    public function restoreShop(string $shop): RedirectResponse
+    {
+        $this->authorizeAdmin();
+
+        $shop = Shop::withTrashed()->findOrFail($shop);
+        abort_unless($shop->trashed(), 422, 'This shop is not deleted.');
+
+        $registrationPaymentPaid = $shop->registrationFeePayment?->isPaid() ?? false;
+        if ($registrationPaymentPaid && $shop->registration_fee_status !== 'paid') {
+            $shop->forceFill([
+                'registration_fee_status' => 'paid',
+                'registration_paid_at' => $shop->registration_paid_at
+                    ?? $shop->registrationFeePayment?->updated_at
+                    ?? now(),
+            ]);
+        }
+        $shop->forceFill([
+            'is_active' => $registrationPaymentPaid
+                || in_array($shop->registration_fee_status, ['paid', 'waived'], true),
+        ]);
+        $shop->restore();
+
+        $message = $shop->is_active
+            ? 'Shop restored and activated.'
+            : 'Shop restored but remains inactive until its registration fee is paid.';
+
+        return redirect()
+            ->route('dashboard', ['page' => 'shops'])
+            ->with('status', $message);
+    }
+
     public function toggleProduct(Product $product): RedirectResponse
     {
         $this->authorizeAdmin();
@@ -335,7 +366,7 @@ class DashboardController extends Controller
             return redirect()->guest(route('admin.login'));
         }
 
-        $dashboardPages = ['dashboard', 'charts', 'settings', 'users', 'products', 'campaigns', 'reports', 'chats', 'notifications', 'orders', 'deliveries', 'payments'];
+        $dashboardPages = ['dashboard', 'charts', 'settings', 'users', 'shops', 'products', 'campaigns', 'reports', 'chats', 'notifications', 'orders', 'deliveries', 'payments'];
         $activePage = $request->query('page', 'dashboard');
         if (! in_array($activePage, $dashboardPages, true)) {
             $activePage = 'dashboard';
@@ -345,6 +376,7 @@ class DashboardController extends Controller
         }
 
         $usersPerPage = $this->perPage($request, 'users_per_page', 25);
+        $shopsPerPage = $this->perPage($request, 'shops_per_page', 25);
         $productsPerPage = $this->perPage($request, 'products_per_page', 25);
         $reportsPerPage = $this->perPage($request, 'reports_per_page', 25);
         $chatsPerPage = $this->perPage($request, 'chats_per_page', 25);
@@ -355,6 +387,7 @@ class DashboardController extends Controller
         $campaignsPerPage = $this->perPage($request, 'campaigns_per_page', 25);
 
         $usersSearch = $this->search($request, 'users_q');
+        $shopsSearch = $this->search($request, 'shops_q');
         $productsSearch = $this->search($request, 'products_q');
         $reportsSearch = $this->search($request, 'reports_q');
         $chatsSearch = $this->search($request, 'chats_q');
@@ -375,7 +408,8 @@ class DashboardController extends Controller
                 'sellers' => User::where('role', 'seller')->count(),
                 'deliverers' => User::where('role', 'deliverer')->count(),
                 'buyers' => User::where('role', 'buyer')->count(),
-                'shops' => Shop::count(),
+                'active_shops' => Shop::count(),
+                'deleted_shops' => Shop::onlyTrashed()->count(),
                 'products' => Product::count(),
                 'orders' => Order::count(),
                 'gmv' => Order::whereNotNull('paid_at')->sum('grand_total'),
@@ -439,6 +473,24 @@ class DashboardController extends Controller
                 ->latest()
                 ->paginate($usersPerPage, ['*'], 'users_page')
                 ->withQueryString(),
+            'shops' => Shop::withTrashed()
+                ->with([
+                    'seller' => fn ($query) => $query->withTrashed(),
+                    'registrationFeePayment',
+                ])
+                ->when($shopsSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
+                    ->where('name', 'like', "%{$search}%")
+                    ->orWhere('category', 'like', "%{$search}%")
+                    ->orWhere('address', 'like', "%{$search}%")
+                    ->orWhere('registration_fee_status', 'like', "%{$search}%")
+                    ->orWhereHas('seller', fn ($userQuery) => $this->userSearch($userQuery->withTrashed(), $search))
+                    ->orWhereHas('registrationFeePayment', fn ($paymentQuery) => $paymentQuery
+                        ->where('status', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%")
+                        ->orWhere('provider_reference', 'like', "%{$search}%"))))
+                ->latest()
+                ->paginate($shopsPerPage, ['*'], 'shops_page')
+                ->withQueryString(),
             'products' => Product::with(['shop', 'seller'])
                 ->when($productsSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
                     ->where('name', 'like', "%{$search}%")
@@ -497,6 +549,7 @@ class DashboardController extends Controller
             'shopCategories' => AppSetting::get('shop_categories', "Electronics\nFashion\nGroceries\nBooks\nArt\nHome\nOther"),
             'filters' => [
                 'users_q' => $usersSearch,
+                'shops_q' => $shopsSearch,
                 'products_q' => $productsSearch,
                 'reports_q' => $reportsSearch,
                 'chats_q' => $chatsSearch,
@@ -508,6 +561,7 @@ class DashboardController extends Controller
             ],
             'perPage' => [
                 'users_per_page' => $usersPerPage,
+                'shops_per_page' => $shopsPerPage,
                 'products_per_page' => $productsPerPage,
                 'reports_per_page' => $reportsPerPage,
                 'chats_per_page' => $chatsPerPage,

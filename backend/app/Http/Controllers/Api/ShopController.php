@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppSetting;
+use App\Models\Cart;
 use App\Models\DelivererInvitation;
 use App\Models\Payment;
 use App\Models\Product;
@@ -14,7 +15,10 @@ use App\Services\ProductMediaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class ShopController extends Controller
 {
@@ -95,8 +99,14 @@ class ShopController extends Controller
         ]);
         $shop->update(['registration_fee_payment_id' => $payment->id]);
 
-        $ussdPush = $clickPesa->requestUssdPush($payment);
-        $shop->update(['registration_fee_status' => 'processing']);
+        try {
+            $ussdPush = $clickPesa->requestUssdPush($payment);
+        } catch (Throwable $error) {
+            $this->syncRegistrationFeeStatus($shop, $payment->fresh());
+
+            throw $this->paymentRequestException($error);
+        }
+        $this->syncRegistrationFeeStatus($shop, $payment->fresh());
 
         return response()->json([
             'message' => 'Shop saved. The ClickPesa registration fee request has been sent.',
@@ -145,6 +155,52 @@ class ShopController extends Controller
         ]);
     }
 
+    public function resendRegistrationFeePayment(
+        Request $request,
+        Payment $payment,
+        ClickPesaService $clickPesa,
+    ): JsonResponse {
+        abort_unless($request->user()->role === 'seller', 403, 'Only sellers can pay shop registration fees.');
+        abort_unless(
+            $payment->type === 'shop_registration_fee' && $payment->user_id === $request->user()->id,
+            403,
+        );
+        abort_if($payment->isPaid(), 422, 'This shop registration payment is already complete.');
+        abort_unless($payment->phone, 422, 'This shop registration payment does not have a phone number.');
+
+        $shop = $payment->shop;
+        abort_unless(
+            $shop
+                && ! $shop->trashed()
+                && $shop->seller_id === $request->user()->id
+                && (int) $shop->registration_fee_payment_id === $payment->id,
+            404,
+        );
+        abort_if(
+            in_array($shop->registration_fee_status, ['paid', 'waived'], true),
+            422,
+            'This shop registration fee is already complete.',
+        );
+
+        try {
+            $ussdPush = $clickPesa->requestUssdPush($payment);
+        } catch (Throwable $error) {
+            $this->syncRegistrationFeeStatus($shop, $payment->fresh());
+
+            throw $this->paymentRequestException($error);
+        }
+
+        $payment->refresh();
+        $this->syncRegistrationFeeStatus($shop, $payment);
+
+        return response()->json([
+            'message' => $this->registrationPaymentRequestMessage($payment, $ussdPush),
+            'shop' => $shop->fresh('registrationFeePayment'),
+            'payment' => $payment,
+            'ussd_push' => $ussdPush,
+        ]);
+    }
+
     public function inviteDeliverer(Request $request, OtpProviderService $otp): JsonResponse
     {
         abort_unless($request->user()->role === 'seller', 403, 'Only sellers can invite deliverers.');
@@ -167,7 +223,7 @@ class ShopController extends Controller
         try {
             $providerReference = $otp->sendMessage($phone, $message);
             $sent = true;
-        } catch (\Throwable $error) {
+        } catch (Throwable $error) {
             Log::warning('DiscountLink deliverer invite could not be sent.', [
                 'seller_id' => $request->user()->id,
                 'phone' => $phone,
@@ -247,6 +303,33 @@ class ShopController extends Controller
         ]);
     }
 
+    public function destroy(Request $request, Shop $shop): JsonResponse
+    {
+        abort_unless($request->user()->role === 'seller', 403, 'Only sellers can delete shops.');
+        abort_unless($shop->seller_id === $request->user()->id, 403);
+
+        DB::transaction(function () use ($shop) {
+            $lockedShop = Shop::query()
+                ->whereKey($shop->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $productIds = $lockedShop->products()
+                ->lockForUpdate()
+                ->pluck('id');
+
+            if ($productIds->isNotEmpty()) {
+                Cart::whereIn('product_id', $productIds)->delete();
+            }
+
+            $lockedShop->update(['is_active' => false]);
+            $lockedShop->delete();
+        });
+
+        return response()->json([
+            'message' => 'Shop deleted. Its products are no longer available.',
+        ]);
+    }
+
     public function product(Request $request, Shop $shop, ProductMediaService $media): JsonResponse
     {
         abort_unless($shop->seller_id === $request->user()->id, 403);
@@ -286,7 +369,7 @@ class ShopController extends Controller
 
         try {
             $product = $media->synchronize($product, [], $imageFiles, $imageUrls, $videoFiles);
-        } catch (\Throwable $error) {
+        } catch (Throwable $error) {
             $product->delete();
 
             throw $error;
@@ -393,6 +476,70 @@ class ShopController extends Controller
 
         $request->merge([
             'registration_payment_phone' => preg_replace('/[\s-]+/', '', $phone) ?? '',
+        ]);
+    }
+
+    private function syncRegistrationFeeStatus(Shop $shop, Payment $payment): void
+    {
+        $status = strtolower($payment->status);
+
+        if ($payment->isPaid()) {
+            $shop->update([
+                'is_active' => true,
+                'registration_fee_status' => 'paid',
+                'registration_fee_payment_id' => $payment->id,
+                'registration_paid_at' => $shop->registration_paid_at ?: now(),
+            ]);
+
+            return;
+        }
+
+        if (in_array($status, ['failed', 'cancelled', 'canceled', 'expired'], true)) {
+            $shop->update([
+                'is_active' => false,
+                'registration_fee_status' => 'failed',
+                'registration_fee_payment_id' => $payment->id,
+            ]);
+
+            return;
+        }
+
+        $shop->update([
+            'is_active' => false,
+            'registration_fee_status' => 'processing',
+            'registration_fee_payment_id' => $payment->id,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $ussdPush
+     */
+    private function registrationPaymentRequestMessage(Payment $payment, array $ussdPush): string
+    {
+        $reference = $ussdPush['reference']
+            ?? $payment->provider_reference
+            ?? $ussdPush['orderReference']
+            ?? '-';
+        $channel = data_get($ussdPush, 'initiate.channel') ?: data_get($ussdPush, 'channel');
+
+        return trim(
+            'Shop registration payment request sent to '.$payment->phone
+            .'. Reference: '.$reference
+            .($channel ? '. Channel: '.$channel : '')
+            .'. Check your phone and approve the USSD prompt.',
+        );
+    }
+
+    private function paymentRequestException(Throwable $error): ValidationException
+    {
+        if ($error instanceof ValidationException) {
+            return $error;
+        }
+
+        report($error);
+
+        return ValidationException::withMessages([
+            'payment' => 'Shop registration payment request could not be sent. Check the payment provider configuration and try again.',
         ]);
     }
 

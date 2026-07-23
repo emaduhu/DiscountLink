@@ -17,7 +17,8 @@ class ProductController extends Controller
             ->withAvg('ratings', 'rating')
             ->withCount('ratings')
             ->where('is_active', true)
-            ->where('stock', '>', 0);
+            ->where('stock', '>', 0)
+            ->whereHas('shop', fn ($shopQuery) => $shopQuery->where('is_active', true));
 
         if ($search = trim((string) $request->query('q'))) {
             $query->where(fn ($builder) => $builder
@@ -53,6 +54,7 @@ class ProductController extends Controller
             ->withCount('ratings')
             ->where('is_active', true)
             ->where('stock', '>', 0)
+            ->whereHas('shop', fn ($shopQuery) => $shopQuery->where('is_active', true))
             ->get();
 
         $matches = $matcher->match($image->getRealPath(), $products);
@@ -74,7 +76,11 @@ class ProductController extends Controller
     public function rate(Request $request, Product $product): JsonResponse
     {
         abort_unless($request->user()->role === 'buyer', 403, 'Only buyers can rate products.');
-        abort_unless($product->is_active, 422, 'This product is no longer available.');
+        abort_unless(
+            $product->is_active && $product->stock > 0 && $product->shop?->is_active,
+            422,
+            'This product is no longer available.',
+        );
 
         $data = $request->validate([
             'rating' => ['required', 'integer', 'min:1', 'max:5'],

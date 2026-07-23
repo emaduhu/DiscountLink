@@ -41,6 +41,10 @@ class CartController extends Controller
     {
         $itemsQuery = Cart::with(['product.shop', 'discountLink'])
             ->where('buyer_id', $request->user()->id)
+            ->whereHas('product', fn ($productQuery) => $productQuery
+                ->where('is_active', true)
+                ->where('stock', '>', 0)
+                ->whereHas('shop', fn ($shopQuery) => $shopQuery->where('is_active', true)))
             ->when(trim((string) $request->query('q')), fn ($query, string $search) => $query
                 ->where(fn ($builder) => $builder
                     ->whereHas('product', fn ($productQuery) => $productQuery
@@ -79,7 +83,13 @@ class CartController extends Controller
     public function add(Request $request, Product $product): JsonResponse
     {
         abort_unless($request->user()->role === 'buyer', 403, 'Only buyers can add to cart.');
+        abort_unless(
+            $product->is_active && $product->stock > 0 && $product->shop?->is_active,
+            422,
+            'This product is no longer available.',
+        );
         $data = $request->validate(['quantity' => ['required', 'integer', 'min:1']]);
+        abort_unless($data['quantity'] <= $product->stock, 422, 'Requested quantity exceeds available stock.');
         $item = Cart::updateOrCreate(['buyer_id' => $request->user()->id, 'product_id' => $product->id], ['quantity' => $data['quantity']]);
 
         return response()->json(['item' => $item->load('product')], 201);
@@ -103,13 +113,19 @@ class CartController extends Controller
     {
         abort_unless($request->user()->role === 'buyer', 403, 'Only buyers can add discount links to cart.');
         $data = $request->validate(['quantity' => ['nullable', 'integer', 'min:1']]);
-        $discountLink = DiscountLink::with('product')
+        $discountLink = DiscountLink::with('product.shop')
             ->where('token', $token)
             ->firstOrFail();
 
         abort_unless($discountLink->buyer_id === $request->user()->id, 403, 'This discount link belongs to another buyer.');
         abort_unless($this->discountLinkIsValid($discountLink), 422, 'This discount link is expired or already used.');
-        abort_unless($discountLink->product->is_active && $discountLink->product->stock > 0, 422, 'This product is no longer available.');
+        abort_unless(
+            $discountLink->product->is_active
+                && $discountLink->product->stock > 0
+                && $discountLink->product->shop?->is_active,
+            422,
+            'This product is no longer available.',
+        );
 
         $item = Cart::updateOrCreate(
             ['buyer_id' => $request->user()->id, 'product_id' => $discountLink->product_id],
@@ -147,6 +163,13 @@ class CartController extends Controller
         ]);
         $items = Cart::with(['product.shop', 'discountLink'])->where('buyer_id', $request->user()->id)->get();
         abort_if($items->isEmpty(), 422, 'Cart is empty.');
+        abort_if(
+            $items->contains(fn (Cart $item) => ! $item->product->is_active
+                || $item->product->stock < $item->quantity
+                || ! $item->product->shop?->is_active),
+            422,
+            'One or more cart products are no longer available.',
+        );
         $closedItem = $items->first(fn (Cart $item) => ! $item->product->shop->isOpenAt());
         if ($closedItem !== null) {
             $shop = $closedItem->product->shop;
@@ -266,8 +289,18 @@ class CartController extends Controller
     {
         abort_unless($payment->user_id === $request->user()->id, 403);
         abort_unless(in_array($payment->type, ['collection', 'shop_registration_fee'], true), 422, 'This payment cannot receive a phone prompt.');
-        abort_if(in_array($payment->status, ['paid', 'success', 'completed'], true), 422, 'This payment is already complete.');
+        abort_if($payment->isPaid(), 422, 'This payment is already complete.');
         abort_unless($payment->phone, 422, 'This payment does not have a phone number.');
+
+        if ($payment->type === 'shop_registration_fee') {
+            abort_unless($request->user()->role === 'seller', 403);
+            abort_unless(
+                $payment->shop
+                    && ! $payment->shop->trashed()
+                    && $payment->shop->seller_id === $request->user()->id,
+                404,
+            );
+        }
 
         try {
             $ussdPush = $clickPesa->requestUssdPush($payment);
@@ -319,7 +352,10 @@ class CartController extends Controller
     private function discountLinkIsValid(DiscountLink $discountLink): bool
     {
         return $discountLink->used_at === null
-            && ($discountLink->expires_at === null || $discountLink->expires_at->isFuture());
+            && ($discountLink->expires_at === null || $discountLink->expires_at->isFuture())
+            && $discountLink->product?->is_active
+            && $discountLink->product->stock > 0
+            && $discountLink->product->shop?->is_active;
     }
 
     private function serviceFeeRate(): float

@@ -71,9 +71,14 @@ class ChatController extends Controller
             'order_id' => ['nullable', 'exists:orders,id'],
             'product_id' => ['nullable', 'exists:products,id'],
         ]);
-        $product = isset($data['product_id']) ? Product::find($data['product_id']) : null;
+        $product = isset($data['product_id']) ? Product::with('shop')->find($data['product_id']) : null;
         if ($product) {
             abort_unless($product->seller_id === (int) $data['user_id'] || $product->seller_id === $request->user()->id, 422, 'This product does not belong to the selected seller.');
+            abort_unless(
+                $product->is_active && $product->stock > 0 && $product->shop?->is_active,
+                422,
+                'This product is no longer available.',
+            );
         }
         $ids = collect([$request->user()->id, (int) $data['user_id']])->sort()->values();
         $conversation = Conversation::firstOrCreate([
@@ -126,7 +131,11 @@ class ChatController extends Controller
 
         $product = Product::with('shop')->findOrFail($conversation->product_id);
         abort_unless($product->seller_id === $request->user()->id, 403, 'You can only discount your own products.');
-        abort_unless($product->is_active && $product->stock > 0, 422, 'This product is no longer available.');
+        abort_unless(
+            $product->is_active && $product->stock > 0 && $product->shop?->is_active,
+            422,
+            'This product is no longer available.',
+        );
 
         $data = $request->validate([
             'discount_price' => ['required', 'numeric', 'min:1', 'lt:'.$product->price],
