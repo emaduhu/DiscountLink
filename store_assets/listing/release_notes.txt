@@ -1,4 +1,5 @@
 Version 1.0.21
+- Product media links are normalized to HTTPS so videos do not fail on Android cleartext restrictions.
 - Product videos now start playing when their product media page is opened.
 - New products now trigger a free platform FCM campaign to active app users with device tokens.
 - ClickPesa actions now show progress and prevent duplicate USSD requests while waiting.

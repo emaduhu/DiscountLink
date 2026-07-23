@@ -60,6 +60,34 @@ void main() {
     expect(activeTiles.single.media['url'], secondImage);
   });
 
+  test('product media sources normalize localhost urls to the API origin', () {
+    final sources = productMediaSources({
+      'media': [
+        {
+          'type': 'video',
+          'url': 'http://localhost/storage/products/7/videos/demo.mp4',
+          'position': 0,
+        },
+      ],
+    }, fallback: 'assets/images/product_popular_1.png');
+
+    expect(
+      sources.single['url'],
+      'https://dl.vigourtech.net/storage/products/7/videos/demo.mp4',
+    );
+  });
+
+  test('product image sources normalize cleartext same-host urls', () {
+    final sources = productImageSources({
+      'images': ['http://dl.vigourtech.net/storage/products/7/images/demo.jpg'],
+    }, fallback: 'assets/images/product_popular_1.png');
+
+    expect(
+      sources.single,
+      'https://dl.vigourtech.net/storage/products/7/images/demo.jpg',
+    );
+  });
+
   testWidgets('product carousel plays visible videos and pauses hidden ones', (
     tester,
   ) async {

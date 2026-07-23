@@ -8026,6 +8026,43 @@ String productImageSource(
   return productImageSources(product, fallback: fallback).first;
 }
 
+String normalizeMediaSource(String source) {
+  final trimmed = source.trim();
+  final uri = Uri.tryParse(trimmed);
+  if (uri == null || !uri.hasScheme || !uri.hasAuthority) {
+    return trimmed;
+  }
+  if (uri.scheme != 'http' && uri.scheme != 'https') {
+    return trimmed;
+  }
+
+  final apiUri = Uri.tryParse(apiBaseUrl);
+  if (apiUri == null || !apiUri.hasAuthority) {
+    return trimmed;
+  }
+
+  final mediaHost = uri.host.toLowerCase();
+  final apiHost = apiUri.host.toLowerCase();
+  final pointsAtLocalhost =
+      mediaHost == 'localhost' ||
+      mediaHost == '127.0.0.1' ||
+      mediaHost == '0.0.0.0';
+  final cleartextSameHost =
+      uri.scheme == 'http' && apiUri.scheme == 'https' && mediaHost == apiHost;
+  if (!pointsAtLocalhost && !cleartextSameHost) {
+    return trimmed;
+  }
+
+  return Uri(
+    scheme: apiUri.scheme,
+    host: apiUri.host,
+    port: apiUri.hasPort ? apiUri.port : null,
+    path: uri.path,
+    query: uri.hasQuery ? uri.query : null,
+    fragment: uri.hasFragment ? uri.fragment : null,
+  ).toString();
+}
+
 List<String> productImageSources(
   Map<String, dynamic> product, {
   required String fallback,
@@ -8033,7 +8070,7 @@ List<String> productImageSources(
   final images = product['images'];
   if (images is List) {
     final sources = images
-        .map((image) => '$image'.trim())
+        .map((image) => normalizeMediaSource('$image'))
         .where((image) => image.isNotEmpty)
         .toList();
     if (sources.isNotEmpty) return sources;
@@ -8050,7 +8087,11 @@ List<Map<String, dynamic>> productMediaSources(
     final sources =
         media
             .whereType<Map>()
-            .map((item) => Map<String, dynamic>.from(item))
+            .map((item) {
+              final next = Map<String, dynamic>.from(item);
+              next['url'] = normalizeMediaSource('${next['url'] ?? ''}');
+              return next;
+            })
             .where((item) => '${item['url'] ?? ''}'.trim().isNotEmpty)
             .toList()
           ..sort(
@@ -8122,7 +8163,7 @@ class _ProductMediaTileState extends State<ProductMediaTile> {
   Future<void>? initialization;
 
   bool get isVideo => widget.media['type'] == 'video';
-  String get source => '${widget.media['url'] ?? ''}';
+  String get source => normalizeMediaSource('${widget.media['url'] ?? ''}');
 
   @override
   void initState() {
