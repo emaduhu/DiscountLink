@@ -190,6 +190,94 @@ class ProductCampaignTest extends TestCase
         $this->assertNotNull($campaign->completed_at);
     }
 
+    public function test_new_product_creation_queues_a_free_fcm_campaign_to_all_active_app_users(): void
+    {
+        Queue::fake();
+        AppSetting::put('campaign_fcm_unit_price', '12.5000');
+
+        $seller = User::factory()->create([
+            'role' => 'seller',
+            'fcm_token' => 'new-product-seller-token',
+            'is_active' => true,
+        ]);
+        $token = 'new-product-seller-token-'.$seller->id;
+        ApiToken::create([
+            'user_id' => $seller->id,
+            'name' => 'test',
+            'token_hash' => hash('sha256', $token),
+        ]);
+        $shop = Shop::create([
+            'seller_id' => $seller->id,
+            'name' => 'Launch Shop',
+            'category' => 'General',
+            'address' => 'Dar es Salaam',
+            'is_active' => true,
+        ]);
+        $buyer = User::factory()->create([
+            'role' => 'buyer',
+            'fcm_token' => 'new-product-buyer-token',
+            'is_active' => true,
+        ]);
+        $deliverer = User::factory()->create([
+            'role' => 'deliverer',
+            'fcm_token' => 'new-product-deliverer-token',
+            'is_active' => true,
+        ]);
+        User::factory()->create([
+            'role' => 'buyer',
+            'fcm_token' => null,
+            'is_active' => true,
+        ]);
+        User::factory()->create([
+            'role' => 'buyer',
+            'fcm_token' => 'new-product-inactive-token',
+            'is_active' => false,
+        ]);
+        User::factory()->create([
+            'role' => 'admin',
+            'fcm_token' => 'new-product-admin-token',
+            'is_active' => true,
+        ]);
+
+        $response = $this->withToken($token)->postJson("/api/shops/{$shop->id}/products", [
+            'name' => 'Fresh Product',
+            'description' => 'Just arrived',
+            'price' => 4200,
+            'discount_price' => 3900,
+            'delivery_price' => 100,
+            'stock' => 6,
+            'images' => [
+                'https://example.com/products/fresh-1.jpg',
+                'https://example.com/products/fresh-2.jpg',
+                'https://example.com/products/fresh-3.jpg',
+            ],
+        ]);
+
+        $response->assertCreated();
+        $product = Product::findOrFail($response->json('product.id'));
+        $campaign = ProductCampaign::where('product_id', $product->id)->firstOrFail();
+
+        $this->assertSame($seller->id, $campaign->seller_id);
+        $this->assertStringStartsWith('DLNEW-', $campaign->reference);
+        $this->assertSame('fcm', $campaign->channel);
+        $this->assertSame('queued', $campaign->status);
+        $this->assertSame('0.0000', $campaign->unit_price);
+        $this->assertSame('0.00', $campaign->total_cost);
+        $this->assertSame(3, $campaign->recipient_count);
+        $this->assertNull($campaign->payment_id);
+        $this->assertNotNull($campaign->paid_at);
+        $this->assertStringStartsWith('New product:', $campaign->title);
+        $this->assertStringContainsString('just added Fresh Product', $campaign->message);
+        $this->assertEqualsCanonicalizing(
+            [$seller->id, $buyer->id, $deliverer->id],
+            $campaign->deliveries()->pluck('user_id')->all(),
+        );
+        Queue::assertPushed(
+            DispatchProductCampaign::class,
+            fn (DispatchProductCampaign $job): bool => $job->campaignId === $campaign->id,
+        );
+    }
+
     public function test_admin_can_configure_campaign_prices_and_see_paid_revenue(): void
     {
         $admin = User::factory()->create(['role' => 'admin', 'is_active' => true]);

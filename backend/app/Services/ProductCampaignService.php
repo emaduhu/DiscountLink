@@ -111,6 +111,46 @@ class ProductCampaignService
         });
     }
 
+    public function announceNewProduct(Product $product): ?ProductCampaign
+    {
+        $product->loadMissing('shop');
+        if (! $product->is_active || ! $product->shop?->is_active) {
+            return null;
+        }
+
+        [$title, $message] = $this->newProductMessage($product);
+
+        return DB::transaction(function () use ($product, $title, $message): ?ProductCampaign {
+            $campaign = ProductCampaign::create([
+                'reference' => 'DLNEW-'.now()->format('YmdHis').'-'.Str::upper(Str::random(8)),
+                'seller_id' => $product->seller_id,
+                'product_id' => $product->id,
+                'channel' => self::CHANNEL_FCM,
+                'status' => 'queued',
+                'title' => $title,
+                'message' => $message,
+                'unit_price' => 0,
+                'total_cost' => 0,
+                'paid_at' => now(),
+            ]);
+
+            $recipientCount = $this->snapshotRecipients($campaign);
+            if ($recipientCount === 0) {
+                $campaign->delete();
+
+                return null;
+            }
+
+            $campaign->update([
+                'recipient_count' => $recipientCount,
+            ]);
+
+            DispatchProductCampaign::dispatch($campaign->id)->afterCommit();
+
+            return $campaign->fresh();
+        });
+    }
+
     public function syncPaymentStatus(Payment $payment): void
     {
         if ($payment->type !== 'product_campaign') {
@@ -274,6 +314,18 @@ class ProductCampaignService
         $price = (float) ($product->discount_price ?? $product->price);
         $title = Str::limit("Featured deal: {$productName}", 120, '');
         $message = "Vigour Deals: {$productName} from {$shopName} is TZS ".number_format($price, 2).". Open the app to view product #{$product->id}.";
+
+        return [$title, Str::limit($message, 320, '')];
+    }
+
+    /** @return array{string, string} */
+    private function newProductMessage(Product $product): array
+    {
+        $productName = Str::limit(trim($product->name), 60, '');
+        $shopName = Str::limit(trim((string) $product->shop?->name), 45, '');
+        $price = (float) ($product->discount_price ?? $product->price);
+        $title = Str::limit("New product: {$productName}", 120, '');
+        $message = "Vigour Deals: {$shopName} just added {$productName} for TZS ".number_format($price, 2).". Open the app to view product #{$product->id}.";
 
         return [$title, Str::limit($message, 320, '')];
     }

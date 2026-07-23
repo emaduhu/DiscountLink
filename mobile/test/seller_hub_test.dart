@@ -131,35 +131,36 @@ void main() {
     );
   });
 
-  testWidgets(
-    'narrow Seller Hub keeps create and edit saves below Close time',
-    (tester) async {
-      final client = _SellerHubApiClient();
-      await _pumpSellerHub(tester, client, size: const Size(320, 8000));
+  testWidgets('narrow Seller Hub keeps shop hours parallel above saves', (
+    tester,
+  ) async {
+    final client = _SellerHubApiClient();
+    await _pumpSellerHub(tester, client, size: const Size(320, 8000));
 
-      final opening = find.byKey(const ValueKey('shop-opening-time'));
-      final closing = find.byKey(const ValueKey('shop-closing-time'));
-      final create = find.byKey(const ValueKey('save-shop'));
-      expect(
-        tester.getTopLeft(closing).dy,
-        greaterThan(tester.getBottomLeft(opening).dy),
-      );
-      expect(
-        tester.getTopLeft(create).dy,
-        greaterThan(tester.getBottomLeft(closing).dy),
-      );
+    final opening = find.byKey(const ValueKey('shop-opening-time'));
+    final closing = find.byKey(const ValueKey('shop-closing-time'));
+    final create = find.byKey(const ValueKey('save-shop'));
+    expect(tester.getTopLeft(opening).dy, tester.getTopLeft(closing).dy);
+    expect(
+      tester.getTopLeft(create).dy,
+      greaterThan(tester.getBottomLeft(closing).dy),
+    );
 
-      await tester.tap(find.byKey(const ValueKey('shop-101-edit')));
-      await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('shop-101-edit')));
+    await tester.pump();
 
-      final editClosing = find.byKey(const ValueKey('shop-101-closing-time'));
-      final editSave = find.byKey(const ValueKey('shop-101-save-edit'));
-      expect(
-        tester.getTopLeft(editSave).dy,
-        greaterThan(tester.getBottomLeft(editClosing).dy),
-      );
-    },
-  );
+    final editOpening = find.byKey(const ValueKey('shop-101-opening-time'));
+    final editClosing = find.byKey(const ValueKey('shop-101-closing-time'));
+    final editSave = find.byKey(const ValueKey('shop-101-save-edit'));
+    expect(
+      tester.getTopLeft(editOpening).dy,
+      tester.getTopLeft(editClosing).dy,
+    );
+    expect(
+      tester.getTopLeft(editSave).dy,
+      greaterThan(tester.getBottomLeft(editClosing).dy),
+    );
+  });
 
   testWidgets('shop create locks while its USSD request is in flight', (
     tester,

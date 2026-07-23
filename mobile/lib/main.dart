@@ -4055,36 +4055,26 @@ class _SellerPageState extends State<SellerPage> {
     required String openingLabel,
     required String closingLabel,
   }) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final openingButton = compactScheduleButton(
-          key: openingKey,
-          onPressed: onOpeningPressed,
-          icon: Icons.storefront_outlined,
-          label: openingLabel,
-        );
-        final closingButton = compactScheduleButton(
-          key: closingKey,
-          onPressed: onClosingPressed,
-          icon: Icons.nightlight_outlined,
-          label: closingLabel,
-        );
-
-        if (constraints.maxWidth < 360) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [openingButton, const SizedBox(height: 8), closingButton],
-          );
-        }
-
-        return Row(
-          children: [
-            Expanded(child: openingButton),
-            const SizedBox(width: 10),
-            Expanded(child: closingButton),
-          ],
-        );
-      },
+    return Row(
+      children: [
+        Expanded(
+          child: compactScheduleButton(
+            key: openingKey,
+            onPressed: onOpeningPressed,
+            icon: Icons.storefront_outlined,
+            label: openingLabel,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: compactScheduleButton(
+            key: closingKey,
+            onPressed: onClosingPressed,
+            icon: Icons.nightlight_outlined,
+            label: closingLabel,
+          ),
+        ),
+      ],
     );
   }
 
@@ -8149,6 +8139,9 @@ class _ProductMediaTileState extends State<ProductMediaTile> {
       initializeVideo();
       return;
     }
+    if (!oldWidget.active && widget.active) {
+      unawaited(playVideo());
+    }
     if (oldWidget.active && !widget.active) {
       pauseVideo();
     }
@@ -8166,9 +8159,25 @@ class _ProductMediaTileState extends State<ProductMediaTile> {
       if (!mounted || controller != nextController) return;
       await nextController.setLooping(true);
       if (!mounted || controller != nextController) return;
-      if (!widget.active) await nextController.pause();
+      if (widget.active) {
+        await nextController.play();
+      } else {
+        await nextController.pause();
+      }
       if (mounted && controller == nextController) setState(() {});
     });
+  }
+
+  Future<void> playVideo() async {
+    final player = controller;
+    if (player == null ||
+        !player.value.isInitialized ||
+        player.value.isPlaying ||
+        !widget.active) {
+      return;
+    }
+    await player.play();
+    if (mounted && controller == player) setState(() {});
   }
 
   void pauseVideo() {
@@ -8190,6 +8199,22 @@ class _ProductMediaTileState extends State<ProductMediaTile> {
     controller = null;
     initialization = null;
     if (player != null) unawaited(player.dispose());
+  }
+
+  Future<void> toggleVideo() async {
+    final player = controller;
+    if (player == null || !player.value.isInitialized || !widget.active) {
+      return;
+    }
+    if (player.value.isPlaying) {
+      await player.pause();
+    } else {
+      await player.play();
+    }
+    if (mounted && controller == player && !widget.active) {
+      await player.pause();
+    }
+    if (mounted && controller == player) setState(() {});
   }
 
   @override
@@ -8215,39 +8240,37 @@ class _ProductMediaTileState extends State<ProductMediaTile> {
             !player.value.isInitialized) {
           return const Center(child: CircularProgressIndicator(strokeWidth: 2));
         }
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            Center(
-              child: AspectRatio(
-                aspectRatio: player.value.aspectRatio == 0
-                    ? 1
-                    : player.value.aspectRatio,
-                child: VideoPlayer(player),
-              ),
-            ),
-            Center(
-              child: IconButton.filled(
-                tooltip: player.value.isPlaying ? 'Pause video' : 'Play video',
-                onPressed: widget.active
-                    ? () async {
-                        if (player.value.isPlaying) {
-                          await player.pause();
-                        } else {
-                          await player.play();
-                        }
-                        if (mounted && controller == player && !widget.active) {
-                          await player.pause();
-                        }
-                        if (mounted && controller == player) setState(() {});
-                      }
-                    : null,
-                icon: Icon(
-                  player.value.isPlaying ? Icons.pause : Icons.play_arrow,
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.active ? toggleVideo : null,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Center(
+                child: AspectRatio(
+                  aspectRatio: player.value.aspectRatio == 0
+                      ? 1
+                      : player.value.aspectRatio,
+                  child: VideoPlayer(player),
                 ),
               ),
-            ),
-          ],
+              Center(
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 180),
+                  opacity: player.value.isPlaying ? 0.24 : 1,
+                  child: IconButton.filled(
+                    tooltip: player.value.isPlaying
+                        ? 'Pause video'
+                        : 'Play video',
+                    onPressed: widget.active ? toggleVideo : null,
+                    icon: Icon(
+                      player.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         );
       },
     );

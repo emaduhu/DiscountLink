@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\Shop;
 use App\Services\ClickPesaService;
 use App\Services\OtpProviderService;
+use App\Services\ProductCampaignService;
 use App\Services\ProductMediaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -330,8 +331,12 @@ class ShopController extends Controller
         ]);
     }
 
-    public function product(Request $request, Shop $shop, ProductMediaService $media): JsonResponse
-    {
+    public function product(
+        Request $request,
+        Shop $shop,
+        ProductMediaService $media,
+        ProductCampaignService $campaigns,
+    ): JsonResponse {
         abort_unless($shop->seller_id === $request->user()->id, 403);
         abort_unless($shop->is_active, 422, 'Pay the shop registration fee before adding products.');
         $data = $request->validate([
@@ -373,6 +378,12 @@ class ShopController extends Controller
             $product->delete();
 
             throw $error;
+        }
+
+        try {
+            $campaigns->announceNewProduct($product);
+        } catch (Throwable $error) {
+            report($error);
         }
 
         return response()->json(['product' => $product], 201);
