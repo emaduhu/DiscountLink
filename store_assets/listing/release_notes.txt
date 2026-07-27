@@ -1,4 +1,4 @@
-Version 1.0.25
-- Chat messages now show sent time and outgoing delivery/read status.
-- Chat messages and discount offers can be copied from the bubble.
-- Includes the cleaner product price and ClickPesa resend improvements.
+Version 1.0.26
+- Refreshed the app with cleaner cards, gradients, spacing, and status colors.
+- Improved login, registration, reset password, storefront, chat, profile, and delivery layouts.
+- Search, categories, product cards, empty states, and navigation are easier to scan.

@@ -41,12 +41,24 @@ const googleServerClientId = String.fromEnvironment(
   'GOOGLE_SERVER_CLIENT_ID',
   defaultValue: '',
 );
-const kPrimaryColor = Color(0xffff7643);
+const kPrimaryColor = Color(0xffff6b35);
 const kPrimaryColor2 = Color(0xffffa53e);
-const kPrimaryLightColor = Color(0xffffecdf);
-const kTextColor = Color(0xff757575);
-const kSurfaceColor = Color(0xfff6f7fb);
+const kPrimaryLightColor = Color(0xffffeadf);
+const kInkColor = Color(0xff101828);
+const kTextColor = Color(0xff667085);
+const kMutedTextColor = Color(0xff98a2b3);
+const kSurfaceColor = Color(0xfff8fafc);
+const kPanelBorderColor = Color(0x140f172a);
+const kSuccessColor = Color(0xff12b76a);
+const kWarningColor = Color(0xfff79009);
+const kDangerColor = Color(0xffd92d20);
 const kDefaultPadding = 16.0;
+const kPanelRadius = 24.0;
+const kBrandGradient = LinearGradient(
+  colors: [kPrimaryColor, kPrimaryColor2],
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+);
 final appLanguage = ValueNotifier<AppLanguage>(AppLanguage.en);
 const biometricAuth = BiometricAuthService();
 final appScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -406,55 +418,207 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
         title: kAppName,
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: kPrimaryColor,
-            brightness: Brightness.light,
-          ),
+          colorScheme:
+              ColorScheme.fromSeed(
+                seedColor: kPrimaryColor,
+                brightness: Brightness.light,
+              ).copyWith(
+                primary: kPrimaryColor,
+                secondary: kPrimaryColor2,
+                surface: Colors.white,
+                onSurface: kInkColor,
+              ),
           scaffoldBackgroundColor: kSurfaceColor,
           useMaterial3: true,
+          visualDensity: VisualDensity.adaptivePlatformDensity,
+          textTheme: ThemeData.light().textTheme.apply(
+            bodyColor: kInkColor,
+            displayColor: kInkColor,
+          ),
           appBarTheme: const AppBarTheme(
             elevation: 0,
             centerTitle: true,
             backgroundColor: kSurfaceColor,
-            foregroundColor: Colors.black,
+            surfaceTintColor: Colors.transparent,
+            foregroundColor: kInkColor,
+            titleTextStyle: TextStyle(
+              color: kInkColor,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.2,
+            ),
           ),
           inputDecorationTheme: InputDecorationTheme(
             filled: true,
             fillColor: Colors.white,
+            hintStyle: const TextStyle(color: kMutedTextColor),
+            labelStyle: const TextStyle(
+              color: kTextColor,
+              fontWeight: FontWeight.w600,
+            ),
             contentPadding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 13,
+              horizontal: 16,
+              vertical: 15,
             ),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(18),
               borderSide: BorderSide.none,
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(18),
               borderSide: BorderSide(
-                color: Colors.black.withValues(alpha: 0.06),
+                color: Colors.black.withValues(alpha: 0.07),
               ),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(18),
               borderSide: const BorderSide(color: kPrimaryColor, width: 1.4),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(18),
+              borderSide: BorderSide(
+                color: kDangerColor.withValues(alpha: 0.74),
+              ),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(18),
+              borderSide: const BorderSide(color: kDangerColor, width: 1.4),
             ),
           ),
           filledButtonTheme: FilledButtonThemeData(
             style: FilledButton.styleFrom(
               backgroundColor: kPrimaryColor,
               foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(48),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+              disabledBackgroundColor: kPrimaryColor.withValues(alpha: 0.42),
+              disabledForegroundColor: Colors.white.withValues(alpha: 0.72),
+              minimumSize: const Size.fromHeight(52),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              textStyle: const TextStyle(
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.1,
               ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+            ),
+          ),
+          outlinedButtonTheme: OutlinedButtonThemeData(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: kInkColor,
+              minimumSize: const Size.fromHeight(50),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+              side: BorderSide(color: Colors.black.withValues(alpha: 0.10)),
+              textStyle: const TextStyle(fontWeight: FontWeight.w800),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+            ),
+          ),
+          textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(
+              foregroundColor: kPrimaryColor,
+              textStyle: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+          navigationBarTheme: NavigationBarThemeData(
+            height: 70,
+            backgroundColor: Colors.transparent,
+            indicatorColor: kPrimaryLightColor,
+            labelTextStyle: WidgetStateProperty.resolveWith(
+              (states) => TextStyle(
+                color: states.contains(WidgetState.selected)
+                    ? kPrimaryColor
+                    : kTextColor,
+                fontSize: 12,
+                fontWeight: states.contains(WidgetState.selected)
+                    ? FontWeight.w900
+                    : FontWeight.w700,
+              ),
+            ),
+            iconTheme: WidgetStateProperty.resolveWith(
+              (states) => IconThemeData(
+                color: states.contains(WidgetState.selected)
+                    ? kPrimaryColor
+                    : kTextColor,
+              ),
+            ),
+          ),
+          chipTheme: ChipThemeData(
+            backgroundColor: Colors.white,
+            selectedColor: kPrimaryLightColor,
+            side: BorderSide(color: Colors.black.withValues(alpha: 0.08)),
+            labelStyle: const TextStyle(
+              color: kInkColor,
+              fontWeight: FontWeight.w700,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(999),
             ),
           ),
           cardTheme: const CardThemeData(
             margin: EdgeInsets.zero,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.all(Radius.circular(14)),
+              borderRadius: BorderRadius.all(Radius.circular(20)),
             ),
+          ),
+          bottomSheetTheme: const BottomSheetThemeData(
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+            ),
+          ),
+          dialogTheme: DialogThemeData(
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+            titleTextStyle: const TextStyle(
+              color: kInkColor,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.3,
+            ),
+            contentTextStyle: const TextStyle(
+              color: kTextColor,
+              height: 1.42,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          floatingActionButtonTheme: const FloatingActionButtonThemeData(
+            backgroundColor: kPrimaryColor,
+            foregroundColor: Colors.white,
+            elevation: 0,
+            shape: StadiumBorder(),
+          ),
+          listTileTheme: const ListTileThemeData(
+            iconColor: kPrimaryColor,
+            textColor: kInkColor,
+            contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+          ),
+          progressIndicatorTheme: const ProgressIndicatorThemeData(
+            color: kPrimaryColor,
+            linearTrackColor: kPrimaryLightColor,
+          ),
+          badgeTheme: const BadgeThemeData(
+            backgroundColor: kDangerColor,
+            textColor: Colors.white,
+          ),
+          snackBarTheme: SnackBarThemeData(
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: kInkColor,
+            contentTextStyle: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+          dividerTheme: DividerThemeData(
+            color: Colors.black.withValues(alpha: 0.07),
+            thickness: 1,
           ),
         ),
         home: UpgradeAlert(
@@ -488,38 +652,69 @@ class SplashPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(kDefaultPadding),
-          child: Column(
-            children: [
-              const Spacer(),
-              Image.asset(
-                'assets/images/welcome_image.png',
-                height: 280,
-                fit: BoxFit.contain,
-              ),
-              const SizedBox(height: 28),
-              Text(
-                kAppName,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: Colors.black,
+      body: BrandGradientBackground(
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(kDefaultPadding),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: Column(
+                  children: [
+                    const Spacer(),
+                    const AppLogoBadge(size: 86, radius: 28, padding: 14),
+                    const SizedBox(height: 22),
+                    Image.asset(
+                      'assets/images/welcome_image.png',
+                      height: 235,
+                      fit: BoxFit.contain,
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      kAppName,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineLarge
+                          ?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: kInkColor,
+                            letterSpacing: -0.9,
+                          ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      tx(
+                        'Discount deals, trusted sellers, secure checkout, and tracked delivery in one clean shopping flow.',
+                        'Ofa za punguzo, wauzaji unaowaamini, malipo salama, na ufuatiliaji wa mzigo kwenye mtiririko mmoja.',
+                      ),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: kTextColor,
+                        height: 1.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    FilledButton.icon(
+                      onPressed: onContinue,
+                      icon: const Icon(Icons.arrow_forward_rounded),
+                      label: Text(tx('Continue', 'Endelea')),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      tx(
+                        'Buyer • Seller • Deliverer',
+                        'Mnunuzi • Muuzaji • Msafirishaji',
+                      ),
+                      style: const TextStyle(
+                        color: kMutedTextColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 10),
-              const Text(
-                'Discounted products, verified sellers, tracked delivery, and fast checkout in one shopping flow.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: kTextColor, height: 1.45),
-              ),
-              const Spacer(),
-              FilledButton(
-                onPressed: onContinue,
-                child: Text(tx('Continue', 'Endelea')),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -720,8 +915,8 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final email = TextEditingController(text: 'buyer@discountlink.local');
-  final password = TextEditingController(text: 'password');
+  final email = TextEditingController();
+  final password = TextEditingController();
   String role = 'buyer';
   bool loading = false;
   bool biometricAvailable = false;
@@ -933,207 +1128,202 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final compact = constraints.maxHeight < 720;
-            final minContentHeight = constraints.maxHeight > kDefaultPadding * 2
-                ? constraints.maxHeight - kDefaultPadding * 2
-                : 0.0;
-            final contentWidth = constraints.maxWidth > 32
-                ? constraints.maxWidth - 32
-                : constraints.maxWidth;
+      body: BrandGradientBackground(
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxHeight < 720;
+              final minContentHeight =
+                  constraints.maxHeight > kDefaultPadding * 2
+                  ? constraints.maxHeight - kDefaultPadding * 2
+                  : 0.0;
+              final availableWidth = constraints.maxWidth > 32
+                  ? constraints.maxWidth - 32
+                  : constraints.maxWidth;
+              final contentWidth = availableWidth > 440
+                  ? 440.0
+                  : availableWidth;
 
-            return SingleChildScrollView(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: const EdgeInsets.all(kDefaultPadding),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: minContentHeight),
-                child: Center(
-                  child: SizedBox(
-                    width: contentWidth,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(height: compact ? 4 : 10),
-                        Image.asset(
-                          'assets/images/welcome_image.png',
-                          height: compact ? 112 : 145,
-                          fit: BoxFit.contain,
-                        ),
-                        SizedBox(height: compact ? 10 : 14),
-                        Text(
-                          'Welcome back',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.headlineSmall
-                              ?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: Colors.black,
-                              ),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Sign in with Google, or use email/phone and password.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: kTextColor),
-                        ),
-                        SizedBox(height: compact ? 12 : 16),
-                        SurfacePanel(
-                          padding: EdgeInsets.all(compact ? 10 : 14),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              RoleSelector(
-                                value: role,
-                                onChanged: (value) =>
-                                    setState(() => role = value),
-                              ),
-                              const SizedBox(height: 12),
-                              Field(
-                                controller: email,
-                                label: tx(
-                                  'Email or phone',
-                                  'Barua pepe au simu',
+              return SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.all(kDefaultPadding),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: minContentHeight),
+                  child: Center(
+                    child: SizedBox(
+                      width: contentWidth,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(height: compact ? 4 : 10),
+                          AppLogoBadge(
+                            size: compact ? 62 : 72,
+                            radius: compact ? 21 : 24,
+                            padding: 11,
+                          ),
+                          SizedBox(height: compact ? 10 : 14),
+                          Text(
+                            tx('Welcome back', 'Karibu tena'),
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  color: kInkColor,
+                                  letterSpacing: -0.4,
                                 ),
-                                icon: Icons.alternate_email,
-                                keyboard: TextInputType.text,
-                              ),
-                              Field(
-                                controller: password,
-                                label: tx('Password', 'Nenosiri'),
-                                icon: Icons.lock_outline,
-                                obscure: true,
-                              ),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(
-                                  onPressed: loading
-                                      ? null
-                                      : openForgotPasswordPage,
-                                  child: Text(
-                                    tx(
-                                      'Forgot password?',
-                                      'Umesahau nenosiri?',
-                                    ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            tx(
+                              'Sign in to manage deals, orders, chats, and delivery updates.',
+                              'Ingia kusimamia ofa, oda, ujumbe, na taarifa za usafirishaji.',
+                            ),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: kTextColor,
+                              height: 1.4,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          SizedBox(height: compact ? 12 : 16),
+                          SurfacePanel(
+                            padding: EdgeInsets.all(compact ? 14 : 18),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                RoleSelector(
+                                  value: role,
+                                  onChanged: (value) =>
+                                      setState(() => role = value),
+                                ),
+                                const SizedBox(height: 12),
+                                Field(
+                                  controller: email,
+                                  label: tx(
+                                    'Email or phone',
+                                    'Barua pepe au simu',
                                   ),
+                                  icon: Icons.alternate_email,
+                                  keyboard: TextInputType.text,
                                 ),
-                              ),
-                              FilledButton(
-                                onPressed: loading ? null : passwordLogin,
-                                child: Text(
-                                  loading
-                                      ? tx('Signing in...', 'Inaingia...')
-                                      : tx('Login', 'Ingia'),
+                                Field(
+                                  controller: password,
+                                  label: tx('Password', 'Nenosiri'),
+                                  icon: Icons.lock_outline,
+                                  obscure: true,
                                 ),
-                              ),
-                              if (biometricAvailable && biometricSaved) ...[
-                                const SizedBox(height: 8),
-                                OutlinedButton.icon(
-                                  onPressed: loading ? null : biometricLogin,
-                                  icon: const Icon(Icons.fingerprint),
-                                  label: Text(
-                                    biometricAccountLabel == null ||
-                                            biometricAccountLabel!.isEmpty
-                                        ? tx(
-                                            'Unlock with biometrics',
-                                            'Fungua kwa alama ya kidole/uso',
-                                          )
-                                        : tx(
-                                            'Unlock ${biometricAccountLabel!}',
-                                            'Fungua ${biometricAccountLabel!}',
-                                          ),
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  const Expanded(child: Divider()),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                    ),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton(
+                                    onPressed: loading
+                                        ? null
+                                        : openForgotPasswordPage,
                                     child: Text(
-                                      'or',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(color: kTextColor),
-                                    ),
-                                  ),
-                                  const Expanded(child: Divider()),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              OutlinedButton.icon(
-                                onPressed: loading ? null : googleSignIn,
-                                icon: const Icon(Icons.login),
-                                label: Text(
-                                  tx(
-                                    'Continue with Google',
-                                    'Endelea na Google',
-                                  ),
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(48),
-                                  foregroundColor: Colors.black,
-                                  side: BorderSide(
-                                    color: Colors.black.withValues(alpha: 0.12),
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                              ),
-                              if (!kIsWeb &&
-                                  (defaultTargetPlatform ==
-                                          TargetPlatform.iOS ||
-                                      defaultTargetPlatform ==
-                                          TargetPlatform.macOS)) ...[
-                                const SizedBox(height: 8),
-                                OutlinedButton.icon(
-                                  onPressed: loading ? null : appleSignIn,
-                                  icon: const Icon(Icons.apple),
-                                  label: Text(
-                                    tx(
-                                      'Continue with Apple',
-                                      'Endelea na Apple',
-                                    ),
-                                  ),
-                                  style: OutlinedButton.styleFrom(
-                                    minimumSize: const Size.fromHeight(48),
-                                    foregroundColor: Colors.black,
-                                    side: BorderSide(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.12,
+                                      tx(
+                                        'Forgot password?',
+                                        'Umesahau nenosiri?',
                                       ),
                                     ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                FilledButton(
+                                  onPressed: loading ? null : passwordLogin,
+                                  child: Text(
+                                    loading
+                                        ? tx('Signing in...', 'Inaingia...')
+                                        : tx('Login', 'Ingia'),
+                                  ),
+                                ),
+                                if (biometricAvailable && biometricSaved) ...[
+                                  const SizedBox(height: 8),
+                                  OutlinedButton.icon(
+                                    onPressed: loading ? null : biometricLogin,
+                                    icon: const Icon(Icons.fingerprint),
+                                    label: Text(
+                                      biometricAccountLabel == null ||
+                                              biometricAccountLabel!.isEmpty
+                                          ? tx(
+                                              'Unlock with biometrics',
+                                              'Fungua kwa alama ya kidole/uso',
+                                            )
+                                          : tx(
+                                              'Unlock ${biometricAccountLabel!}',
+                                              'Fungua ${biometricAccountLabel!}',
+                                            ),
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    const Expanded(child: Divider()),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                      ),
+                                      child: Text(
+                                        tx('or', 'au'),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(color: kTextColor),
+                                      ),
+                                    ),
+                                    const Expanded(child: Divider()),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                OutlinedButton.icon(
+                                  onPressed: loading ? null : googleSignIn,
+                                  icon: const Icon(Icons.login),
+                                  label: Text(
+                                    tx(
+                                      'Continue with Google',
+                                      'Endelea na Google',
+                                    ),
+                                  ),
+                                  style: socialButtonStyle(),
+                                ),
+                                if (!kIsWeb &&
+                                    (defaultTargetPlatform ==
+                                            TargetPlatform.iOS ||
+                                        defaultTargetPlatform ==
+                                            TargetPlatform.macOS)) ...[
+                                  const SizedBox(height: 8),
+                                  OutlinedButton.icon(
+                                    onPressed: loading ? null : appleSignIn,
+                                    icon: const Icon(Icons.apple),
+                                    label: Text(
+                                      tx(
+                                        'Continue with Apple',
+                                        'Endelea na Apple',
+                                      ),
+                                    ),
+                                    style: socialButtonStyle(),
+                                  ),
+                                ],
+                                const SizedBox(height: 6),
+                                TextButton(
+                                  onPressed: loading ? null : openRegisterPage,
+                                  child: Text(
+                                    tx(
+                                      'No account? Register',
+                                      'Huna akaunti? Jisajili',
                                     ),
                                   ),
                                 ),
                               ],
-                              const SizedBox(height: 6),
-                              TextButton(
-                                onPressed: loading ? null : openRegisterPage,
-                                child: Text(
-                                  tx(
-                                    'No account? Register',
-                                    'Huna akaunti? Jisajili',
-                                  ),
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
@@ -1211,83 +1401,120 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(tx('Reset password', 'Weka upya nenosiri'))),
-    body: SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.all(kDefaultPadding),
-        children: [
-          SurfacePanel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+    body: BrandGradientBackground(
+      child: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final contentWidth = constraints.maxWidth > 460
+                ? 460.0
+                : constraints.maxWidth;
+            return ListView(
+              padding: const EdgeInsets.all(kDefaultPadding),
               children: [
-                const Icon(
-                  Icons.lock_reset_outlined,
-                  color: kPrimaryColor,
-                  size: 48,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  tx('Forgot password?', 'Umesahau nenosiri?'),
-                  textAlign: TextAlign.center,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Enter your email to receive a reset code, then create a new password.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: kTextColor),
-                ),
-                const SizedBox(height: 18),
-                Field(
-                  controller: email,
-                  label: tx('Email', 'Barua pepe'),
-                  icon: Icons.alternate_email,
-                  keyboard: TextInputType.emailAddress,
-                ),
-                if (codeSent) ...[
-                  Field(
-                    controller: code,
-                    label: tx('Reset code', 'Kodi ya kuweka upya'),
-                    icon: Icons.pin_outlined,
-                    keyboard: TextInputType.number,
+                Center(
+                  child: SizedBox(
+                    width: contentWidth,
+                    child: SurfacePanel(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Center(
+                            child: Container(
+                              width: 58,
+                              height: 58,
+                              decoration: const BoxDecoration(
+                                gradient: kBrandGradient,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.lock_reset_outlined,
+                                color: Colors.white,
+                                size: 30,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            tx('Forgot password?', 'Umesahau nenosiri?'),
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: -0.3,
+                                ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            tx(
+                              'Enter your email to receive a reset code, then create a new password.',
+                              'Weka barua pepe kupokea kodi, kisha tengeneza nenosiri jipya.',
+                            ),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: kTextColor,
+                              height: 1.4,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          Field(
+                            controller: email,
+                            label: tx('Email', 'Barua pepe'),
+                            icon: Icons.alternate_email,
+                            keyboard: TextInputType.emailAddress,
+                          ),
+                          if (codeSent) ...[
+                            Field(
+                              controller: code,
+                              label: tx('Reset code', 'Kodi ya kuweka upya'),
+                              icon: Icons.pin_outlined,
+                              keyboard: TextInputType.number,
+                            ),
+                            Field(
+                              controller: password,
+                              label: tx('New password', 'Nenosiri jipya'),
+                              icon: Icons.lock_outline,
+                              obscure: true,
+                            ),
+                            Field(
+                              controller: passwordConfirmation,
+                              label: tx(
+                                'Confirm password',
+                                'Thibitisha nenosiri',
+                              ),
+                              icon: Icons.lock_outline,
+                              obscure: true,
+                            ),
+                          ],
+                          FilledButton(
+                            onPressed: loading
+                                ? null
+                                : codeSent
+                                ? resetPassword
+                                : requestCode,
+                            child: Text(
+                              loading
+                                  ? tx('Please wait...', 'Tafadhali subiri...')
+                                  : codeSent
+                                  ? tx('Reset password', 'Weka upya nenosiri')
+                                  : tx('Send reset code', 'Tuma kodi'),
+                            ),
+                          ),
+                          if (codeSent)
+                            TextButton(
+                              onPressed: loading ? null : requestCode,
+                              child: Text(tx('Resend code', 'Tuma tena kodi')),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
-                  Field(
-                    controller: password,
-                    label: tx('New password', 'Nenosiri jipya'),
-                    icon: Icons.lock_outline,
-                    obscure: true,
-                  ),
-                  Field(
-                    controller: passwordConfirmation,
-                    label: tx('Confirm password', 'Thibitisha nenosiri'),
-                    icon: Icons.lock_outline,
-                    obscure: true,
-                  ),
-                ],
-                FilledButton(
-                  onPressed: loading
-                      ? null
-                      : codeSent
-                      ? resetPassword
-                      : requestCode,
-                  child: Text(
-                    loading
-                        ? tx('Please wait...', 'Tafadhali subiri...')
-                        : codeSent
-                        ? tx('Reset password', 'Weka upya nenosiri')
-                        : tx('Send reset code', 'Tuma kodi'),
-                  ),
                 ),
-                if (codeSent)
-                  TextButton(
-                    onPressed: loading ? null : requestCode,
-                    child: Text(tx('Resend code', 'Tuma tena kodi')),
-                  ),
               ],
-            ),
-          ),
-        ],
+            );
+          },
+        ),
       ),
     ),
   );
@@ -1307,12 +1534,12 @@ class RegisterPage extends StatefulWidget {
 }
 
 class _RegisterPageState extends State<RegisterPage> {
-  final name = TextEditingController(text: 'Demo Buyer');
-  final phone = TextEditingController(text: '255700000001');
+  final name = TextEditingController();
+  final phone = TextEditingController();
   final nida = TextEditingController();
-  final address = TextEditingController(text: 'Dar es Salaam');
+  final address = TextEditingController();
   final email = TextEditingController();
-  final password = TextEditingController(text: 'password');
+  final password = TextEditingController();
   String role = 'buyer';
   bool termsAccepted = false;
   bool loading = false;
@@ -1465,152 +1692,185 @@ class _RegisterPageState extends State<RegisterPage> {
             defaultTargetPlatform == TargetPlatform.macOS);
     return Scaffold(
       appBar: AppBar(title: Text(tx('Create account', 'Fungua akaunti'))),
-      body: SafeArea(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            const RegisterVisualHeader(),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
-              child: Column(
+      body: BrandGradientBackground(
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final contentWidth = constraints.maxWidth > 520
+                  ? 520.0
+                  : constraints.maxWidth;
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 children: [
-                  SurfacePanel(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          tx(
-                            'Choose your account type',
-                            'Chagua aina ya akaunti',
-                          ),
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 10),
-                        RoleSelector(
-                          value: role,
-                          onChanged: (value) => setState(() => role = value),
-                        ),
-                        const SizedBox(height: 10),
-                        SectionTitle(
-                          title: tx('Fast registration', 'Usajili wa haraka'),
-                        ),
-                        const SizedBox(height: 6),
-                        OutlinedButton.icon(
-                          onPressed: loading ? null : googleRegister,
-                          icon: const Icon(Icons.login),
-                          label: Text(
-                            tx('Register with Google', 'Jisajili na Google'),
-                          ),
-                          style: socialButtonStyle(),
-                        ),
-                        if (showApple) ...[
-                          const SizedBox(height: 8),
-                          OutlinedButton.icon(
-                            onPressed: loading ? null : appleRegister,
-                            icon: const Icon(Icons.apple),
-                            label: Text(
-                              tx('Register with Apple', 'Jisajili na Apple'),
+                  Center(
+                    child: SizedBox(
+                      width: contentWidth,
+                      child: Column(
+                        children: [
+                          const RegisterVisualHeader(),
+                          const SizedBox(height: 12),
+                          SurfacePanel(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  tx(
+                                    'Choose your account type',
+                                    'Chagua aina ya akaunti',
+                                  ),
+                                  style: Theme.of(context).textTheme.titleMedium
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: -0.2,
+                                      ),
+                                ),
+                                const SizedBox(height: 10),
+                                RoleSelector(
+                                  value: role,
+                                  onChanged: (value) =>
+                                      setState(() => role = value),
+                                ),
+                                const SizedBox(height: 12),
+                                SectionTitle(
+                                  title: tx(
+                                    'Fast registration',
+                                    'Usajili wa haraka',
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                OutlinedButton.icon(
+                                  onPressed: loading ? null : googleRegister,
+                                  icon: const Icon(Icons.login),
+                                  label: Text(
+                                    tx(
+                                      'Register with Google',
+                                      'Jisajili na Google',
+                                    ),
+                                  ),
+                                  style: socialButtonStyle(),
+                                ),
+                                if (showApple) ...[
+                                  const SizedBox(height: 8),
+                                  OutlinedButton.icon(
+                                    onPressed: loading ? null : appleRegister,
+                                    icon: const Icon(Icons.apple),
+                                    label: Text(
+                                      tx(
+                                        'Register with Apple',
+                                        'Jisajili na Apple',
+                                      ),
+                                    ),
+                                    style: socialButtonStyle(),
+                                  ),
+                                ],
+                              ],
                             ),
-                            style: socialButtonStyle(),
+                          ),
+                          const SizedBox(height: 12),
+                          SurfacePanel(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                SectionTitle(
+                                  title: tx('Your details', 'Taarifa zako'),
+                                ),
+                                const SizedBox(height: 6),
+                                Field(
+                                  controller: name,
+                                  label: tx('Full name', 'Jina kamili'),
+                                  icon: Icons.person_outline,
+                                ),
+                                Field(
+                                  controller: email,
+                                  label: tx('Email', 'Barua pepe'),
+                                  icon: Icons.alternate_email,
+                                  keyboard: TextInputType.emailAddress,
+                                ),
+                                Field(
+                                  controller: phone,
+                                  label: tx(
+                                    'Phone for OTP and payments',
+                                    'Simu ya OTP na malipo',
+                                  ),
+                                  icon: Icons.phone_outlined,
+                                  keyboard: TextInputType.phone,
+                                ),
+                                Field(
+                                  controller: nida,
+                                  label: tx('NIDA number', 'Namba ya NIDA'),
+                                  icon: Icons.badge_outlined,
+                                  keyboard: TextInputType.number,
+                                ),
+                                Field(
+                                  controller: address,
+                                  label: tx(
+                                    'Default address',
+                                    'Anwani ya msingi',
+                                  ),
+                                  icon: Icons.place_outlined,
+                                ),
+                                Field(
+                                  controller: password,
+                                  label: tx('Password', 'Nenosiri'),
+                                  icon: Icons.lock_outline,
+                                  obscure: true,
+                                ),
+                                CheckboxListTile(
+                                  value: termsAccepted,
+                                  onChanged: loading
+                                      ? null
+                                      : (value) => setState(
+                                          () => termsAccepted = value ?? false,
+                                        ),
+                                  controlAffinity:
+                                      ListTileControlAffinity.leading,
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(
+                                    tx(
+                                      'I accept the Terms and Conditions',
+                                      'Ninakubali Vigezo na Masharti',
+                                    ),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    tx(
+                                      'Required before creating a Discount Link account.',
+                                      'Inahitajika kabla ya kufungua akaunti ya Discount Link.',
+                                    ),
+                                  ),
+                                ),
+                                FilledButton.icon(
+                                  onPressed: loading ? null : register,
+                                  icon: loading
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.person_add_alt_1),
+                                  label: Text(
+                                    loading
+                                        ? tx('Registering...', 'Inasajili...')
+                                        : tx('Register', 'Jisajili'),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  SurfacePanel(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SectionTitle(title: tx('Your details', 'Taarifa zako')),
-                        const SizedBox(height: 6),
-                        Field(
-                          controller: name,
-                          label: tx('Full name', 'Jina kamili'),
-                          icon: Icons.person_outline,
-                        ),
-                        Field(
-                          controller: email,
-                          label: tx('Email', 'Barua pepe'),
-                          icon: Icons.alternate_email,
-                          keyboard: TextInputType.emailAddress,
-                        ),
-                        Field(
-                          controller: phone,
-                          label: tx(
-                            'Phone for OTP and payments',
-                            'Simu ya OTP na malipo',
-                          ),
-                          icon: Icons.phone_outlined,
-                          keyboard: TextInputType.phone,
-                        ),
-                        Field(
-                          controller: nida,
-                          label: tx('NIDA number', 'Namba ya NIDA'),
-                          icon: Icons.badge_outlined,
-                          keyboard: TextInputType.number,
-                        ),
-                        Field(
-                          controller: address,
-                          label: tx('Default address', 'Anwani ya msingi'),
-                          icon: Icons.place_outlined,
-                        ),
-                        Field(
-                          controller: password,
-                          label: tx('Password', 'Nenosiri'),
-                          icon: Icons.lock_outline,
-                          obscure: true,
-                        ),
-                        CheckboxListTile(
-                          value: termsAccepted,
-                          onChanged: loading
-                              ? null
-                              : (value) => setState(
-                                  () => termsAccepted = value ?? false,
-                                ),
-                          controlAffinity: ListTileControlAffinity.leading,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            tx(
-                              'I accept the Terms and Conditions',
-                              'Ninakubali Vigezo na Masharti',
-                            ),
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          subtitle: Text(
-                            tx(
-                              'Required before creating a Discount Link account.',
-                              'Inahitajika kabla ya kufungua akaunti ya Discount Link.',
-                            ),
-                          ),
-                        ),
-                        FilledButton.icon(
-                          onPressed: loading ? null : register,
-                          icon: loading
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.person_add_alt_1),
-                          label: Text(
-                            loading
-                                ? tx('Registering...', 'Inasajili...')
-                                : tx('Register', 'Jisajili'),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ],
-              ),
-            ),
-          ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -1622,69 +1882,79 @@ class RegisterVisualHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 132,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Image.asset('assets/images/deals_banner.png', fit: BoxFit.cover),
-          Container(color: Colors.black.withValues(alpha: 0.42)),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Container(
-                  width: 58,
-                  height: 58,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.18),
-                        blurRadius: 12,
-                        offset: const Offset(0, 5),
-                      ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.all(8),
-                  child: Image.asset('assets/images/app_icon.png'),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        kAppName,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        tx(
-                          'Join buyers, sellers, and deliverers in one discount marketplace.',
-                          'Jiunge na wanunuzi, wauzaji, na wasafirishaji kwenye soko moja la punguzo.',
-                        ),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          height: 1.25,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+    return SurfacePanel(
+      padding: EdgeInsets.zero,
+      gradient: const LinearGradient(
+        colors: [Color(0xfffffbf8), Colors.white],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(kPanelRadius),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Image.asset(
+                'assets/images/deals_banner.png',
+                fit: BoxFit.cover,
+                opacity: const AlwaysStoppedAnimation(0.18),
+              ),
             ),
-          ),
-        ],
+            Positioned(
+              right: -30,
+              top: -36,
+              child: _SoftAccent(
+                size: 150,
+                color: kPrimaryColor,
+                opacity: 0.20,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(18),
+              child: Row(
+                children: [
+                  const AppLogoBadge(
+                    size: 58,
+                    radius: 18,
+                    padding: 8,
+                    shadow: false,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          kAppName,
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(
+                                color: kInkColor,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.4,
+                              ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          tx(
+                            'Join buyers, sellers, and deliverers in one discount marketplace.',
+                            'Jiunge na wanunuzi, wauzaji, na wasafirishaji kwenye soko moja la punguzo.',
+                          ),
+                          style: const TextStyle(
+                            color: kTextColor,
+                            fontSize: 12.5,
+                            height: 1.35,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1827,15 +2097,13 @@ class _HomePageState extends State<HomePage> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              role == 'buyer'
-                  ? kAppName
-                  : '${role[0].toUpperCase()}${role.substring(1)} Hub',
-            ),
+            const AppLogoBadge(size: 34, radius: 11, padding: 5, shadow: false),
+            const SizedBox(width: 10),
+            Text(role == 'buyer' ? kAppName : '${roleTitle(role)} Hub'),
           ],
         ),
       ),
-      body: pages[index],
+      body: BrandGradientBackground(child: pages[index]),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -1848,16 +2116,27 @@ class _HomePageState extends State<HomePage> {
             ),
           ],
         ),
-        child: NavigationBar(
-          selectedIndex: index,
-          backgroundColor: Colors.transparent,
-          indicatorColor: kPrimaryLightColor,
-          destinations: destinations,
-          onDestinationSelected: (v) => setState(() => index = v),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+            child: NavigationBar(
+              selectedIndex: index,
+              backgroundColor: Colors.transparent,
+              indicatorColor: kPrimaryLightColor,
+              destinations: destinations,
+              onDestinationSelected: (v) => setState(() => index = v),
+            ),
+          ),
         ),
       ),
     );
   }
+}
+
+String roleTitle(String role) {
+  if (role.isEmpty) return tx('User', 'Mtumiaji');
+  return '${role[0].toUpperCase()}${role.substring(1)}';
 }
 
 int profileIndexForRole(String role) => switch (role) {
@@ -2050,7 +2329,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 child: Text(tx('Cancel', 'Ghairi')),
               ),
               FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                style: FilledButton.styleFrom(backgroundColor: kDangerColor),
                 onPressed: canDelete
                     ? () {
                         FocusScope.of(context).unfocus();
@@ -2370,21 +2649,21 @@ class _ProfilePageState extends State<ProfilePage> {
                           label: emailVerified
                               ? 'Email verified'
                               : 'Email pending',
-                          color: emailVerified ? Colors.green : kPrimaryColor,
+                          color: emailVerified ? kSuccessColor : kPrimaryColor,
                         ),
                         StatusPill(
                           label: phoneVerified
                               ? 'Phone verified'
                               : 'Phone pending',
-                          color: phoneVerified ? Colors.green : kPrimaryColor,
+                          color: phoneVerified ? kSuccessColor : kPrimaryColor,
                         ),
                         StatusPill(
                           label: widget.user['is_active'] == true
                               ? 'Active'
                               : 'Blocked',
                           color: widget.user['is_active'] == true
-                              ? Colors.green
-                              : Colors.red,
+                              ? kSuccessColor
+                              : kDangerColor,
                         ),
                       ],
                     ),
@@ -2643,7 +2922,7 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               const SizedBox(height: 12),
               FilledButton.icon(
-                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                style: FilledButton.styleFrom(backgroundColor: kDangerColor),
                 onPressed: accountDeleteLoading ? null : deleteAccount,
                 icon: const Icon(Icons.delete_forever_outlined),
                 label: Text(
@@ -2661,9 +2940,9 @@ class _ProfilePageState extends State<ProfilePage> {
           icon: const Icon(Icons.logout),
           label: Text(tx('Sign out', 'Toka')),
           style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.red,
+            foregroundColor: kDangerColor,
             minimumSize: const Size.fromHeight(48),
-            side: BorderSide(color: Colors.red.withValues(alpha: 0.35)),
+            side: BorderSide(color: kDangerColor.withValues(alpha: 0.35)),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(14),
             ),
@@ -3595,6 +3874,7 @@ class _BuyerPageState extends State<BuyerPage> {
           const SizedBox(height: 10),
           CategoryStrip(
             categories: categoryViewsFromNames(shopCategories),
+            selectedTitle: selectedCategory,
             onSelected: (name) {
               selectedCategory = name;
               search.clear();
@@ -4642,7 +4922,7 @@ class _SellerPageState extends State<SellerPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            style: FilledButton.styleFrom(backgroundColor: kDangerColor),
             child: const Text('Delete shop'),
           ),
         ],
@@ -5323,8 +5603,8 @@ class _SellerPageState extends State<SellerPage> {
                           invite['sent_at'] == null ? 'Saved' : 'Sent',
                           style: TextStyle(
                             color: invite['sent_at'] == null
-                                ? Colors.orange.shade800
-                                : Colors.green.shade700,
+                                ? kWarningColor
+                                : kSuccessColor,
                             fontWeight: FontWeight.w700,
                             fontSize: 12,
                           ),
@@ -5533,8 +5813,8 @@ class _SellerPageState extends State<SellerPage> {
                               shopRegistrationStatus(s as Map<String, dynamic>),
                               style: TextStyle(
                                 color: s['is_active'] == true
-                                    ? Colors.green.shade700
-                                    : Colors.orange.shade800,
+                                    ? kSuccessColor
+                                    : kWarningColor,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -5544,8 +5824,8 @@ class _SellerPageState extends State<SellerPage> {
                               '${s['is_open'] == true ? 'Open now' : 'Closed now'} · ${s['opening_time'] ?? '--:--'}–${s['closing_time'] ?? '--:--'}',
                               style: TextStyle(
                                 color: s['is_open'] == true
-                                    ? Colors.green.shade700
-                                    : Colors.red.shade700,
+                                    ? kSuccessColor
+                                    : kDangerColor,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -5569,7 +5849,7 @@ class _SellerPageState extends State<SellerPage> {
                         onPressed: deletingShopId == null && !sellerUssdBusy
                             ? () => deleteShop(s)
                             : null,
-                        color: Colors.red.shade700,
+                        color: kDangerColor,
                         icon: deletingShopId == s['id']
                             ? const SizedBox(
                                 width: 20,
@@ -5775,7 +6055,7 @@ class _SellerPageState extends State<SellerPage> {
                                   IconButton(
                                     tooltip: 'Remove product',
                                     onPressed: () => removeProduct(product),
-                                    color: Colors.red.shade700,
+                                    color: kDangerColor,
                                     icon: const Icon(Icons.delete_outline),
                                   ),
                                 ],
@@ -6393,131 +6673,127 @@ class _DeliveryPageState extends State<DeliveryPage> {
           for (final j in jobs)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        j['order']['reference'],
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      Text(
-                        '${j['order']['delivery_address']}\nTZS ${j['order']['delivery_total']}',
-                      ),
-                      if (j['status'] == 'broadcast')
-                        FilledButton.icon(
-                          onPressed: acceptingJobId == j['id']
-                              ? null
-                              : () => acceptDelivery(j),
-                          icon: acceptingJobId == j['id']
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.check),
-                          label: Text(
-                            acceptingJobId == j['id']
-                                ? 'Accepting...'
-                                : 'Accept delivery',
-                          ),
+              child: SurfacePanel(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      j['order']['reference'],
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    Text(
+                      '${j['order']['delivery_address']}\nTZS ${j['order']['delivery_total']}',
+                    ),
+                    if (j['status'] == 'broadcast')
+                      FilledButton.icon(
+                        onPressed: acceptingJobId == j['id']
+                            ? null
+                            : () => acceptDelivery(j),
+                        icon: acceptingJobId == j['id']
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.check),
+                        label: Text(
+                          acceptingJobId == j['id']
+                              ? 'Accepting...'
+                              : 'Accept delivery',
                         ),
-                      if (j['status'] == 'accepted') ...[
-                        const SizedBox(height: 8),
-                        TrackingMiniMap(
-                          shopLatitude: toDouble(
-                            j['order']?['shop']?['latitude'],
-                          ),
-                          shopLongitude: toDouble(
-                            j['order']?['shop']?['longitude'],
-                          ),
-                          delivererLatitude: toDouble(j['deliverer_latitude']),
-                          delivererLongitude: toDouble(
-                            j['deliverer_longitude'],
-                          ),
+                      ),
+                    if (j['status'] == 'accepted') ...[
+                      const SizedBox(height: 8),
+                      TrackingMiniMap(
+                        shopLatitude: toDouble(
+                          j['order']?['shop']?['latitude'],
                         ),
-                        const SizedBox(height: 8),
-                        if ('${j['order']?['buyer']?['call_phone'] ?? ''}'
-                            .trim()
-                            .isNotEmpty) ...[
-                          Row(
-                            children: [
-                              const Icon(Icons.phone_outlined, size: 18),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  '${j['order']?['buyer']?['call_phone']}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                  ),
+                        shopLongitude: toDouble(
+                          j['order']?['shop']?['longitude'],
+                        ),
+                        delivererLatitude: toDouble(j['deliverer_latitude']),
+                        delivererLongitude: toDouble(j['deliverer_longitude']),
+                      ),
+                      const SizedBox(height: 8),
+                      if ('${j['order']?['buyer']?['call_phone'] ?? ''}'
+                          .trim()
+                          .isNotEmpty) ...[
+                        Row(
+                          children: [
+                            const Icon(Icons.phone_outlined, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '${j['order']?['buyer']?['call_phone']}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
-                              IconButton.filled(
-                                tooltip: 'Call buyer',
-                                onPressed: () async {
-                                  try {
-                                    await callBuyer(
-                                      '${j['order']?['buyer']?['call_phone']}',
-                                    );
-                                  } catch (error) {
-                                    if (!context.mounted) return;
-                                    showError(context, error);
-                                  }
-                                },
-                                icon: const Icon(Icons.call),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                        OutlinedButton.icon(
-                          onPressed: sharingLocation
-                              ? null
-                              : () => shareAcceptedLocation(),
-                          icon: const Icon(Icons.my_location),
-                          label: Text(
-                            sharingLocation
-                                ? 'Sharing location...'
-                                : 'Share current location',
-                          ),
-                        ),
-                        Field(
-                          controller: code,
-                          label: 'Buyer delivery code (4 unique digits)',
-                          icon: Icons.pin,
-                          keyboard: TextInputType.number,
-                          maxLength: 4,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.digitsOnly,
-                            LengthLimitingTextInputFormatter(4),
+                            ),
+                            IconButton.filled(
+                              tooltip: 'Call buyer',
+                              onPressed: () async {
+                                try {
+                                  await callBuyer(
+                                    '${j['order']?['buyer']?['call_phone']}',
+                                  );
+                                } catch (error) {
+                                  if (!context.mounted) return;
+                                  showError(context, error);
+                                }
+                              },
+                              icon: const Icon(Icons.call),
+                            ),
                           ],
                         ),
-                        FilledButton.icon(
-                          onPressed: completingJobId == j['id']
-                              ? null
-                              : () => completeDelivery(j),
-                          icon: completingJobId == j['id']
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.payments),
-                          label: Text(
-                            completingJobId == j['id']
-                                ? 'Completing delivery...'
-                                : 'Confirm code and release payments',
-                          ),
-                        ),
+                        const SizedBox(height: 8),
                       ],
+                      OutlinedButton.icon(
+                        onPressed: sharingLocation
+                            ? null
+                            : () => shareAcceptedLocation(),
+                        icon: const Icon(Icons.my_location),
+                        label: Text(
+                          sharingLocation
+                              ? 'Sharing location...'
+                              : 'Share current location',
+                        ),
+                      ),
+                      Field(
+                        controller: code,
+                        label: 'Buyer delivery code (4 unique digits)',
+                        icon: Icons.pin,
+                        keyboard: TextInputType.number,
+                        maxLength: 4,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(4),
+                        ],
+                      ),
+                      FilledButton.icon(
+                        onPressed: completingJobId == j['id']
+                            ? null
+                            : () => completeDelivery(j),
+                        icon: completingJobId == j['id']
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.payments),
+                        label: Text(
+                          completingJobId == j['id']
+                              ? 'Completing delivery...'
+                              : 'Confirm code and release payments',
+                        ),
+                      ),
                     ],
-                  ),
+                  ],
                 ),
               ),
             ),
@@ -6696,37 +6972,47 @@ class ChatListTile extends StatelessWidget {
         : messages.last as Map<String, dynamic>;
     final unreadCount =
         int.tryParse('${conversation['unread_count'] ?? 0}') ?? 0;
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      leading: CircleAvatar(
-        radius: 25,
-        backgroundColor: kPrimaryLightColor,
-        child: Text(
-          initials(name),
-          style: const TextStyle(
-            color: kPrimaryColor,
-            fontWeight: FontWeight.w800,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: SurfacePanel(
+        padding: EdgeInsets.zero,
+        borderRadius: 20,
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 8,
           ),
+          leading: CircleAvatar(
+            radius: 25,
+            backgroundColor: kPrimaryLightColor,
+            child: Text(
+              initials(name),
+              style: const TextStyle(
+                color: kPrimaryColor,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          title: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+          subtitle: Text(
+            last?['body'] ?? role,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: unreadCount > 0
+              ? Badge(
+                  label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
+                  child: const Icon(Icons.chevron_right),
+                )
+              : const Icon(Icons.chevron_right),
+          onTap: onTap,
         ),
       ),
-      title: Text(
-        name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontWeight: FontWeight.w800),
-      ),
-      subtitle: Text(
-        last?['body'] ?? role,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: unreadCount > 0
-          ? Badge(
-              label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
-              child: const Icon(Icons.chevron_right),
-            )
-          : const Icon(Icons.chevron_right),
-      onTap: onTap,
     );
   }
 }
@@ -7773,27 +8059,152 @@ Map<String, dynamic>? conversationOther(
   return conversation['user_one_id'] == currentUserId ? two : one;
 }
 
-class SurfacePanel extends StatelessWidget {
-  const SurfacePanel({super.key, required this.child, this.padding});
+class BrandGradientBackground extends StatelessWidget {
+  const BrandGradientBackground({super.key, required this.child});
+
   final Widget child;
-  final EdgeInsetsGeometry? padding;
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xfffffbf8), kSurfaceColor, Colors.white],
+          stops: [0, 0.56, 1],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned(
+            top: -118,
+            right: -86,
+            child: _SoftAccent(size: 250, color: kPrimaryColor, opacity: 0.16),
+          ),
+          Positioned(
+            bottom: -140,
+            left: -96,
+            child: _SoftAccent(size: 285, color: kPrimaryColor2, opacity: 0.12),
+          ),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _SoftAccent extends StatelessWidget {
+  const _SoftAccent({
+    required this.size,
+    required this.color,
+    required this.opacity,
+  });
+
+  final double size;
+  final Color color;
+  final double opacity;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [
+            color.withValues(alpha: opacity),
+            color.withValues(alpha: 0),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class AppLogoBadge extends StatelessWidget {
+  const AppLogoBadge({
+    super.key,
+    this.size = 72,
+    this.radius = 24,
+    this.padding = 11,
+    this.shadow = true,
+  });
+
+  final double size;
+  final double radius;
+  final double padding;
+  final bool shadow;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
+        boxShadow: shadow
+            ? [
+                BoxShadow(
+                  color: kPrimaryColor.withValues(alpha: 0.16),
+                  blurRadius: size * 0.34,
+                  offset: Offset(0, size * 0.16),
+                ),
+              ]
+            : null,
+      ),
+      padding: EdgeInsets.all(padding),
+      child: Image.asset('assets/images/app_icon.png'),
+    );
+  }
+}
+
+class SurfacePanel extends StatelessWidget {
+  const SurfacePanel({
+    super.key,
+    required this.child,
+    this.padding,
+    this.margin,
+    this.gradient,
+    this.borderRadius = kPanelRadius,
+    this.borderColor,
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry? padding;
+  final EdgeInsetsGeometry? margin;
+  final Gradient? gradient;
+  final double borderRadius;
+  final Color? borderColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: margin,
+      decoration: BoxDecoration(
+        color: gradient == null ? Colors.white : null,
+        gradient: gradient,
+        borderRadius: BorderRadius.circular(borderRadius),
+        border: Border.all(color: borderColor ?? kPanelBorderColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
+            color: Colors.black.withValues(alpha: 0.055),
+            blurRadius: 28,
+            offset: const Offset(0, 16),
+          ),
+          BoxShadow(
+            color: Colors.white.withValues(alpha: 0.74),
+            blurRadius: 1,
+            offset: const Offset(0, 1),
           ),
         ],
       ),
       child: Padding(
-        padding: padding ?? const EdgeInsets.all(14),
+        padding: padding ?? const EdgeInsets.all(16),
         child: child,
       ),
     );
@@ -7807,35 +8218,157 @@ class RoleSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const roles = [
-      ('buyer', 'Buyer', Icons.shopping_bag_outlined),
-      ('seller', 'Seller', Icons.storefront_outlined),
-      ('deliverer', 'Deliverer', Icons.delivery_dining_outlined),
+    final roles = [
+      ('buyer', tx('Buyer', 'Mnunuzi'), Icons.shopping_bag_outlined),
+      ('seller', tx('Seller', 'Muuzaji'), Icons.storefront_outlined),
+      (
+        'deliverer',
+        tx('Deliverer', 'Msafirishaji'),
+        Icons.delivery_dining_outlined,
+      ),
     ];
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final role in roles)
-          ChoiceChip(
-            selected: value == role.$1,
-            label: Text(role.$2),
-            avatar: Icon(role.$3, size: 18),
-            selectedColor: kPrimaryLightColor,
-            checkmarkColor: kPrimaryColor,
-            onSelected: (_) => onChanged(role.$1),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked = constraints.maxWidth < 340;
+        final tiles = [
+          for (final role in roles)
+            _RoleOptionTile(
+              selected: value == role.$1,
+              label: role.$2,
+              icon: role.$3,
+              onTap: () => onChanged(role.$1),
+              stacked: stacked,
+            ),
+        ];
+
+        if (stacked) {
+          return Column(
+            children: [
+              for (var index = 0; index < tiles.length; index++) ...[
+                tiles[index],
+                if (index != tiles.length - 1) const SizedBox(height: 8),
+              ],
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            for (var index = 0; index < tiles.length; index++) ...[
+              Expanded(child: tiles[index]),
+              if (index != tiles.length - 1) const SizedBox(width: 8),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _RoleOptionTile extends StatelessWidget {
+  const _RoleOptionTile({
+    required this.selected,
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    required this.stacked,
+  });
+
+  final bool selected;
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool stacked;
+
+  @override
+  Widget build(BuildContext context) {
+    final borderRadius = BorderRadius.circular(18);
+    final contentColor = selected ? Colors.white : kInkColor;
+    final iconColor = selected ? Colors.white : kPrimaryColor;
+    final iconBubble = Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: selected
+            ? Colors.white.withValues(alpha: 0.18)
+            : kPrimaryLightColor,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(icon, color: iconColor, size: 19),
+    );
+    final labelText = Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      textAlign: stacked ? TextAlign.start : TextAlign.center,
+      style: TextStyle(
+        color: contentColor,
+        fontWeight: FontWeight.w900,
+        fontSize: 12.5,
+      ),
+    );
+
+    return Material(
+      color: Colors.transparent,
+      child: Ink(
+        decoration: BoxDecoration(
+          color: selected ? null : Colors.white,
+          gradient: selected ? kBrandGradient : null,
+          borderRadius: borderRadius,
+          border: Border.all(
+            color: selected
+                ? Colors.transparent
+                : Colors.black.withValues(alpha: 0.08),
           ),
-      ],
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: kPrimaryColor.withValues(alpha: 0.18),
+                    blurRadius: 18,
+                    offset: const Offset(0, 9),
+                  ),
+                ]
+              : null,
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: borderRadius,
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: stacked ? 14 : 10,
+              vertical: stacked ? 11 : 10,
+            ),
+            child: stacked
+                ? Row(
+                    children: [
+                      iconBubble,
+                      const SizedBox(width: 10),
+                      Expanded(child: labelText),
+                    ],
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      iconBubble,
+                      const SizedBox(height: 8),
+                      labelText,
+                    ],
+                  ),
+          ),
+        ),
+      ),
     );
   }
 }
 
 ButtonStyle socialButtonStyle() => OutlinedButton.styleFrom(
-  minimumSize: const Size.fromHeight(44),
-  visualDensity: VisualDensity.compact,
-  foregroundColor: Colors.black,
-  side: BorderSide(color: Colors.black.withValues(alpha: 0.12)),
-  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+  minimumSize: const Size.fromHeight(52),
+  foregroundColor: kInkColor,
+  backgroundColor: Colors.white,
+  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+  textStyle: const TextStyle(fontWeight: FontWeight.w900),
+  side: BorderSide(color: Colors.black.withValues(alpha: 0.10)),
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
 );
 
 class MarketplaceHeader extends StatelessWidget {
@@ -7855,47 +8388,66 @@ class MarketplaceHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: TextField(
-            controller: search,
-            onSubmitted: (_) => onSearch(),
-            decoration: const InputDecoration(
-              hintText: 'Search products',
-              prefixIcon: Icon(Icons.search),
+    return SurfacePanel(
+      padding: const EdgeInsets.all(8),
+      borderRadius: 26,
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: search,
+              onSubmitted: (_) => onSearch(),
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: tx('Search products', 'Tafuta bidhaa'),
+                prefixIcon: const Icon(Icons.search_rounded),
+                fillColor: kSurfaceColor,
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  borderSide: BorderSide.none,
+                ),
+              ),
             ),
           ),
-        ),
-        const SizedBox(width: 10),
-        IconButton.filled(
-          onPressed: onSearch,
-          style: IconButton.styleFrom(
-            backgroundColor: kPrimaryColor,
-            fixedSize: const Size(52, 52),
-          ),
-          icon: const Icon(Icons.search),
-        ),
-        const SizedBox(width: 10),
-        Badge(
-          label: Text('$cartCount'),
-          isLabelVisible: cartCount > 0 && !cartLoading,
-          child: IconButton(
-            onPressed: onCart,
+          const SizedBox(width: 8),
+          IconButton.filled(
+            tooltip: tx('Search', 'Tafuta'),
+            onPressed: onSearch,
             style: IconButton.styleFrom(
-              backgroundColor: Colors.white,
+              backgroundColor: kPrimaryColor,
               fixedSize: const Size(52, 52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
             ),
-            icon: cartLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.shopping_cart_outlined),
+            icon: const Icon(Icons.search_rounded),
           ),
-        ),
-      ],
+          const SizedBox(width: 8),
+          Badge(
+            label: Text('$cartCount'),
+            isLabelVisible: cartCount > 0 && !cartLoading,
+            child: IconButton(
+              tooltip: tx('Open cart', 'Fungua kikapu'),
+              onPressed: onCart,
+              style: IconButton.styleFrom(
+                backgroundColor: kSurfaceColor,
+                fixedSize: const Size(52, 52),
+                foregroundColor: kInkColor,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+              icon: cartLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.shopping_cart_outlined),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -7905,37 +8457,93 @@ class DealsBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: SizedBox(
-        height: 150,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Image.asset('assets/images/deals_banner.png', fit: BoxFit.cover),
-            Container(color: Colors.black.withValues(alpha: 0.32)),
-            Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    'Flash discounts',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
+    return SurfacePanel(
+      padding: EdgeInsets.zero,
+      borderRadius: 28,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: SizedBox(
+          height: 162,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.asset('assets/images/deals_banner.png', fit: BoxFit.cover),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.black.withValues(alpha: 0.70),
+                      Colors.black.withValues(alpha: 0.38),
+                      kPrimaryColor.withValues(alpha: 0.24),
+                    ],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Buy deals with delivery tracking',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ],
+              Positioned(
+                right: -40,
+                top: -58,
+                child: _SoftAccent(
+                  size: 190,
+                  color: Colors.white,
+                  opacity: 0.20,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.24),
+                        ),
+                      ),
+                      child: Text(
+                        tx('Today on Discount Link', 'Leo Discount Link'),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      tx('Flash discounts', 'Ofa za haraka'),
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.5,
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      tx(
+                        'Buy verified deals with checkout and delivery tracking.',
+                        'Nunua ofa zilizothibitishwa pamoja na malipo na ufuatiliaji.',
+                      ),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -7961,13 +8569,21 @@ class SectionTitle extends StatelessWidget {
           child: Text(
             title,
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: Colors.black,
+              fontWeight: FontWeight.w900,
+              color: kInkColor,
+              letterSpacing: -0.35,
             ),
           ),
         ),
         if (action != null)
-          TextButton(onPressed: onAction, child: Text(action!)),
+          TextButton(
+            onPressed: onAction,
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            ),
+            child: Text(action!),
+          ),
       ],
     );
   }
@@ -7989,7 +8605,7 @@ class PaymentSummaryRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final style = TextStyle(
       fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
-      color: strong ? Colors.black : kTextColor,
+      color: strong ? kInkColor : kTextColor,
     );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
@@ -8028,12 +8644,26 @@ class PaymentInfoBox extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(12),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: active ? kPrimaryColor : kTextColor, size: 20),
-            const SizedBox(width: 8),
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: active
+                    ? kPrimaryColor.withValues(alpha: 0.12)
+                    : Colors.white,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                color: active ? kPrimaryColor : kTextColor,
+                size: 19,
+              ),
+            ),
+            const SizedBox(width: 10),
             Expanded(
               child: Text(
                 text,
@@ -8057,44 +8687,86 @@ class CategoryStrip extends StatelessWidget {
     super.key,
     required this.categories,
     required this.onSelected,
+    this.selectedTitle,
   });
   final List<CategoryView> categories;
   final ValueChanged<String> onSelected;
+  final String? selectedTitle;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 88,
+      height: 100,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: categories.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
         itemBuilder: (context, index) {
           final item = categories[index];
-          return InkWell(
-            onTap: () => onSelected(item.title),
-            borderRadius: BorderRadius.circular(18),
-            child: SizedBox(
-              width: 78,
-              child: Column(
-                children: [
-                  Container(
-                    width: 54,
-                    height: 54,
-                    decoration: const BoxDecoration(
-                      color: kPrimaryLightColor,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(item.icon, color: kPrimaryColor),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12),
+          final selected = item.title == selectedTitle;
+          return Material(
+            color: Colors.transparent,
+            child: Ink(
+              width: 86,
+              decoration: BoxDecoration(
+                color: selected ? null : Colors.white,
+                gradient: selected ? kBrandGradient : null,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(
+                  color: selected
+                      ? Colors.transparent
+                      : Colors.black.withValues(alpha: 0.07),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: selected
+                        ? kPrimaryColor.withValues(alpha: 0.18)
+                        : Colors.black.withValues(alpha: 0.045),
+                    blurRadius: selected ? 20 : 14,
+                    offset: const Offset(0, 8),
                   ),
                 ],
+              ),
+              child: InkWell(
+                onTap: () => onSelected(item.title),
+                borderRadius: BorderRadius.circular(22),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 10,
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? Colors.white.withValues(alpha: 0.20)
+                              : kPrimaryLightColor,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          item.icon,
+                          color: selected ? Colors.white : kPrimaryColor,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(height: 7),
+                      Text(
+                        item.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: selected ? Colors.white : kInkColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           );
@@ -8127,103 +8799,130 @@ class ImageSearchPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selectedImage = image;
-    return SurfacePanel(
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: selectedImage == null
-                ? Container(
-                    width: 82,
-                    height: 82,
-                    color: kPrimaryLightColor,
-                    child: const Icon(
-                      Icons.add_photo_alternate_outlined,
-                      color: kPrimaryColor,
-                      size: 32,
-                    ),
-                  )
-                : Image.file(
-                    File(selectedImage.path),
-                    width: 82,
-                    height: 82,
-                    fit: BoxFit.cover,
-                  ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  searching
-                      ? tx('Matching uploaded image', 'Inalinganisha picha')
-                      : selectedImage == null
-                      ? tx('Upload product photo', 'Pakia picha ya bidhaa')
-                      : active
-                      ? tx('Visual results ready', 'Matokeo ya picha tayari')
-                      : tx('Ready to match image', 'Tayari kulinganisha picha'),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  message ??
-                      tx(
-                        'Choose a clear product photo. Matching compares images, not product names.',
-                        'Chagua picha iliyo wazi. Ulinganishaji hutumia picha, si majina ya bidhaa.',
-                      ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: kTextColor, fontSize: 12),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: searching ? null : onPick,
-                      icon: Icon(
-                        selectedImage == null
-                            ? Icons.upload_file
-                            : Icons.swap_horiz,
-                      ),
-                      label: Text(
-                        selectedImage == null
-                            ? tx('Upload', 'Pakia')
-                            : tx('Replace', 'Badilisha'),
-                      ),
-                    ),
-                    FilledButton.icon(
-                      onPressed: selectedImage == null || searching
-                          ? null
-                          : onSearch,
-                      icon: searching
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.auto_awesome),
-                      label: Text(
-                        searching
-                            ? tx('Matching...', 'Inatafuta...')
-                            : tx('Find matches', 'Tafuta zinazofanana'),
-                      ),
-                    ),
-                    if (selectedImage != null || active)
-                      TextButton(
-                        onPressed: searching ? null : onClear,
-                        child: Text(tx('Clear', 'Futa')),
-                      ),
+    final preview = ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: selectedImage == null
+          ? Container(
+              width: 92,
+              height: 92,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    kPrimaryLightColor,
+                    kPrimaryLightColor.withValues(alpha: 0.44),
                   ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-              ],
+              ),
+              child: const Icon(
+                Icons.add_photo_alternate_outlined,
+                color: kPrimaryColor,
+                size: 34,
+              ),
+            )
+          : Image.file(
+              File(selectedImage.path),
+              width: 92,
+              height: 92,
+              fit: BoxFit.cover,
             ),
+    );
+    final details = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          searching
+              ? tx('Matching uploaded image', 'Inalinganisha picha')
+              : selectedImage == null
+              ? tx('Upload product photo', 'Pakia picha ya bidhaa')
+              : active
+              ? tx('Visual results ready', 'Matokeo ya picha tayari')
+              : tx('Ready to match image', 'Tayari kulinganisha picha'),
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.2,
           ),
-        ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          message ??
+              tx(
+                'Choose a clear product photo. Matching compares images, not product names.',
+                'Chagua picha iliyo wazi. Ulinganishaji hutumia picha, si majina ya bidhaa.',
+              ),
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: kTextColor,
+            fontSize: 12,
+            height: 1.35,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: searching ? null : onPick,
+              icon: Icon(
+                selectedImage == null ? Icons.upload_file : Icons.swap_horiz,
+              ),
+              label: Text(
+                selectedImage == null
+                    ? tx('Upload', 'Pakia')
+                    : tx('Replace', 'Badilisha'),
+              ),
+            ),
+            FilledButton.icon(
+              onPressed: selectedImage == null || searching ? null : onSearch,
+              icon: searching
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.auto_awesome),
+              label: Text(
+                searching
+                    ? tx('Matching...', 'Inatafuta...')
+                    : tx('Find matches', 'Tafuta zinazofanana'),
+              ),
+            ),
+            if (selectedImage != null || active)
+              TextButton(
+                onPressed: searching ? null : onClear,
+                child: Text(tx('Clear', 'Futa')),
+              ),
+          ],
+        ),
+      ],
+    );
+
+    return SurfacePanel(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth < 390) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Align(alignment: Alignment.centerLeft, child: preview),
+                const SizedBox(height: 12),
+                details,
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              preview,
+              const SizedBox(width: 14),
+              Expanded(child: details),
+            ],
+          );
+        },
       ),
     );
   }
@@ -8714,12 +9413,13 @@ class ProductDealCard extends StatelessWidget {
     final matchPercent = productImageMatchPercent(product);
     final videoCount = productVideoCount(product);
     final shopOpen = product['shop']?['is_open'] == true;
+    final radius = BorderRadius.circular(22);
     return Material(
       color: Colors.white,
       elevation: 0,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: radius,
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: radius,
         onTap: () => showModalBottomSheet<void>(
           context: context,
           isScrollControlled: true,
@@ -8737,13 +9437,13 @@ class ProductDealCard extends StatelessWidget {
         child: Container(
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+            borderRadius: radius,
+            border: Border.all(color: kPanelBorderColor),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
+                color: Colors.black.withValues(alpha: 0.055),
+                blurRadius: 24,
+                offset: const Offset(0, 14),
               ),
             ],
           ),
@@ -8755,9 +9455,18 @@ class ProductDealCard extends StatelessWidget {
                 Expanded(
                   flex: 7,
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(18),
                     child: DecoratedBox(
-                      decoration: const BoxDecoration(color: kSurfaceColor),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            kSurfaceColor,
+                            kPrimaryLightColor.withValues(alpha: 0.28),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
@@ -8806,7 +9515,8 @@ class ProductDealCard extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontWeight: FontWeight.w800,
+                    color: kInkColor,
+                    fontWeight: FontWeight.w900,
                     height: 1.16,
                   ),
                 ),
@@ -8816,9 +9526,7 @@ class ProductDealCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: shopOpen
-                        ? Colors.green.shade700
-                        : Colors.red.shade700,
+                    color: shopOpen ? kSuccessColor : kDangerColor,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
@@ -9090,7 +9798,7 @@ class ProductQuickView extends StatelessWidget {
                     return StatusPill(
                       label:
                           '${open ? 'Open now' : 'Closed now'} · ${shop['opening_time'] ?? '--:--'}–${shop['closing_time'] ?? '--:--'}',
-                      color: open ? Colors.green.shade700 : Colors.red.shade700,
+                      color: open ? kSuccessColor : kDangerColor,
                     );
                   },
                 ),
@@ -9156,14 +9864,33 @@ class EmptyState extends StatelessWidget {
     return SurfacePanel(
       child: Column(
         children: [
-          Icon(icon, color: kTextColor, size: 44),
-          const SizedBox(height: 8),
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 4),
+          Container(
+            width: 62,
+            height: 62,
+            decoration: BoxDecoration(
+              color: kPrimaryLightColor,
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: Icon(icon, color: kPrimaryColor, size: 32),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.2,
+            ),
+          ),
+          const SizedBox(height: 6),
           Text(
             subtitle,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: kTextColor),
+            style: const TextStyle(
+              color: kTextColor,
+              height: 1.4,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -9376,19 +10103,26 @@ class ProfileLine extends StatelessWidget {
             backgroundColor: kPrimaryLightColor,
             child: Icon(icon, color: kPrimaryColor),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   title,
-                  style: const TextStyle(color: kTextColor, fontSize: 12),
+                  style: const TextStyle(
+                    color: kTextColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   value,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                    color: kInkColor,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ],
             ),
@@ -9411,6 +10145,7 @@ class StatusPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.16)),
       ),
       child: Text(
         label,
@@ -9760,14 +10495,31 @@ class Field extends StatelessWidget {
   final List<TextInputFormatter>? inputFormatters;
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 10),
+    padding: const EdgeInsets.only(bottom: 12),
     child: TextField(
       controller: controller,
       keyboardType: keyboard,
       obscureText: obscure,
       maxLength: maxLength,
       inputFormatters: inputFormatters,
-      decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
+      cursorColor: kPrimaryColor,
+      style: const TextStyle(fontWeight: FontWeight.w700),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: kPrimaryLightColor.withValues(alpha: 0.72),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: kPrimaryColor, size: 18),
+          ),
+        ),
+        prefixIconConstraints: const BoxConstraints(minWidth: 58),
+      ),
     ),
   );
 }
@@ -9941,10 +10693,10 @@ class TrackingMiniMap extends StatelessWidget {
         decoration: BoxDecoration(
           color: const Color(0xffe8f3f1),
           border: Border.all(color: Theme.of(context).dividerColor),
-          borderRadius: const BorderRadius.all(Radius.circular(8)),
+          borderRadius: const BorderRadius.all(Radius.circular(18)),
         ),
         child: ClipRRect(
-          borderRadius: const BorderRadius.all(Radius.circular(8)),
+          borderRadius: const BorderRadius.all(Radius.circular(18)),
           child: Stack(
             fit: StackFit.expand,
             children: [
