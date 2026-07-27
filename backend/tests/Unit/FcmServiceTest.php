@@ -34,6 +34,9 @@ class FcmServiceTest extends TestCase
         Http::assertSent(fn (Request $request) => $request->url() === 'https://fcm.googleapis.com/fcm/send'
             && $request->hasHeader('Authorization', 'key=existing-server-key')
             && $request['to'] === 'device-token'
+            && $request['priority'] === 'high'
+            && $request['notification']['android_channel_id'] === 'chat_messages'
+            && $request['notification']['sound'] === 'default'
             && $request['data'] === ['type' => 'test']);
     }
 
@@ -77,6 +80,11 @@ class FcmServiceTest extends TestCase
             Http::assertSent(fn (Request $request) => $request->url() === 'https://fcm.googleapis.com/v1/projects/discount-link-532cc/messages:send'
                 && $request->hasHeader('Authorization', 'Bearer firebase-v1-token')
                 && $request['message']['token'] === 'device-token'
+                && $request['message']['android']['priority'] === 'HIGH'
+                && $request['message']['android']['notification']['channel_id'] === 'chat_messages'
+                && $request['message']['android']['notification']['notification_priority'] === 'PRIORITY_HIGH'
+                && $request['message']['android']['notification']['default_vibrate_timings'] === true
+                && $request['message']['apns']['headers']['apns-priority'] === '10'
                 && $request['message']['data'] === ['type' => 'test', 'attempt' => '1']);
         } finally {
             @unlink($absolutePath);

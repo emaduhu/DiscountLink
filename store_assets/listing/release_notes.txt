@@ -1,4 +1,5 @@
 Version 1.0.25
 - Chat messages now show sent time and outgoing delivery/read status.
 - Chat messages and discount offers can be copied from the bubble.
+- Chat notifications now show as top alerts while using the app and as high-priority device notifications outside the app.
 - Includes the cleaner product price and ClickPesa resend improvements.

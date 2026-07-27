@@ -6,7 +6,9 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use App\Services\ApiTokenService;
+use App\Services\FcmService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Mockery;
 use Tests\TestCase;
 
 class ChatPrivacyTest extends TestCase
@@ -77,5 +79,43 @@ class ChatPrivacyTest extends TestCase
                 ->assertOk()
                 ->assertJsonPath('messages.data.0.body', 'Participant-only message');
         }
+    }
+
+    public function test_chat_message_sends_fcm_notification_to_receiver_device(): void
+    {
+        $sender = User::factory()->create(['name' => 'Asha Seller']);
+        $receiver = User::factory()->create([
+            'name' => 'Juma Buyer',
+            'fcm_token' => 'receiver-device-token',
+        ]);
+        $conversation = Conversation::create([
+            'user_one_id' => $sender->id,
+            'user_two_id' => $receiver->id,
+        ]);
+        $token = app(ApiTokenService::class)->issue($sender);
+        $fcm = Mockery::mock(FcmService::class);
+        $this->app->instance(FcmService::class, $fcm);
+
+        $fcm->shouldReceive('sendToUser')
+            ->once()
+            ->withArgs(function (User $user, string $title, string $body, array $data) use ($receiver, $sender, $conversation) {
+                return $user->is($receiver)
+                    && $title === 'New message from Asha Seller'
+                    && $body === 'Hello, is this still available?'
+                    && $data['type'] === 'chat_message'
+                    && $data['route'] === 'chat'
+                    && $data['conversation_id'] === (string) $conversation->id
+                    && $data['unread_count'] === '1'
+                    && $data['sender_id'] === (string) $sender->id
+                    && $data['sender_name'] === 'Asha Seller';
+            })
+            ->andReturn(true);
+
+        $this->withToken($token)
+            ->postJson("/api/conversations/{$conversation->id}/messages", [
+                'body' => 'Hello, is this still available?',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('message.body', 'Hello, is this still available?');
     }
 }

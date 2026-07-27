@@ -77,6 +77,7 @@ class FcmService
         if (! $projectId) {
             throw new RuntimeException('FIREBASE_PROJECT_ID is not configured.');
         }
+        $channelId = $data['android_channel_id'] ?? 'chat_messages';
 
         Http::withToken($this->accessToken())
             ->post("https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send", [
@@ -87,11 +88,17 @@ class FcmService
                     'android' => [
                         'priority' => 'HIGH',
                         'notification' => [
-                            'channel_id' => 'chat_messages',
+                            'channel_id' => $channelId,
+                            'notification_priority' => 'PRIORITY_HIGH',
                             'sound' => 'default',
+                            'default_vibrate_timings' => true,
+                            'visibility' => 'PUBLIC',
                         ],
                     ],
                     'apns' => [
+                        'headers' => [
+                            'apns-priority' => '10',
+                        ],
                         'payload' => [
                             'aps' => ['sound' => 'default'],
                         ],
@@ -105,11 +112,18 @@ class FcmService
 
     private function sendLegacy(string $token, string $title, string $body, array $data): bool
     {
+        $channelId = $data['android_channel_id'] ?? 'chat_messages';
+
         Http::withHeaders(['Authorization' => 'key='.config('services.fcm.server_key')])
             ->post('https://fcm.googleapis.com/fcm/send', [
                 'to' => $token,
                 'priority' => 'high',
-                'notification' => ['title' => $title, 'body' => $body, 'sound' => 'default'],
+                'notification' => [
+                    'title' => $title,
+                    'body' => $body,
+                    'sound' => 'default',
+                    'android_channel_id' => $channelId,
+                ],
                 'data' => $data,
             ])
             ->throw();

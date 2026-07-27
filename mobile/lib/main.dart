@@ -50,6 +50,7 @@ const kDefaultPadding = 16.0;
 final appLanguage = ValueNotifier<AppLanguage>(AppLanguage.en);
 const biometricAuth = BiometricAuthService();
 final appScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+final appNavigatorKey = GlobalKey<NavigatorState>();
 
 enum AppLanguage { en, sw }
 
@@ -287,6 +288,8 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   bool showSplash = true;
   StreamSubscription<String>? fcmTokenSubscription;
   StreamSubscription<RemoteMessage>? foregroundMessageSubscription;
+  OverlayEntry? foregroundNotificationEntry;
+  Timer? foregroundNotificationTimer;
 
   void signedIn(String token, Map<String, dynamic> signedUser) {
     setState(() {
@@ -344,15 +347,132 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
     final title = (message.notification?.title ?? '').trim();
     final body = (message.notification?.body ?? '').trim();
     final fallbackCode = '${message.data['delivery_code'] ?? ''}'.trim();
-    final text = [
-      if (title.isNotEmpty) title,
-      if (body.isNotEmpty)
-        body
-      else if (fallbackCode.isNotEmpty)
-        'Your delivery code is $fallbackCode.',
-    ].join('\n');
-    if (text.isEmpty) return;
+    final fallbackBody = fallbackCode.isNotEmpty
+        ? 'Your delivery code is $fallbackCode.'
+        : '';
+    final effectiveTitle = title.isNotEmpty ? title : kAppName;
+    final effectiveBody = body.isNotEmpty ? body : fallbackBody;
+    if (effectiveTitle.isEmpty && effectiveBody.isEmpty) return;
 
+    showTopNotificationBanner(
+      title: effectiveTitle,
+      body: effectiveBody,
+      isChat: message.data['type'] == 'chat_message',
+    );
+  }
+
+  void showTopNotificationBanner({
+    required String title,
+    required String body,
+    required bool isChat,
+  }) {
+    final overlay = appNavigatorKey.currentState?.overlay;
+    final context = appNavigatorKey.currentContext;
+    if (overlay == null || context == null) {
+      showFallbackNotification(title, body);
+      return;
+    }
+
+    foregroundNotificationTimer?.cancel();
+    foregroundNotificationEntry?.remove();
+    foregroundNotificationEntry = OverlayEntry(
+      builder: (context) {
+        final top = MediaQuery.paddingOf(context).top + 10;
+        return Positioned(
+          top: top,
+          left: 12,
+          right: 12,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: -18, end: 0),
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            builder: (context, offset, child) =>
+                Transform.translate(offset: Offset(0, offset), child: child),
+            child: Material(
+              color: Colors.transparent,
+              child: GestureDetector(
+                onTap: hideForegroundNotificationBanner,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 22,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: kPrimaryLightColor,
+                        child: Icon(
+                          isChat
+                              ? Icons.chat_bubble_outline
+                              : Icons.notifications_active_outlined,
+                          color: kPrimaryColor,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.black,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            if (body.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                body,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: kTextColor,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.25,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    overlay.insert(foregroundNotificationEntry!);
+    foregroundNotificationTimer = Timer(
+      const Duration(seconds: 6),
+      hideForegroundNotificationBanner,
+    );
+  }
+
+  void hideForegroundNotificationBanner() {
+    foregroundNotificationTimer?.cancel();
+    foregroundNotificationTimer = null;
+    foregroundNotificationEntry?.remove();
+    foregroundNotificationEntry = null;
+  }
+
+  void showFallbackNotification(String title, String body) {
+    final text = [title, if (body.isNotEmpty) body].join('\n');
     final messenger = appScaffoldMessengerKey.currentState;
     messenger
       ?..hideCurrentSnackBar()
@@ -392,6 +512,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
 
   @override
   void dispose() {
+    hideForegroundNotificationBanner();
     fcmTokenSubscription?.cancel();
     foregroundMessageSubscription?.cancel();
     super.dispose();
@@ -402,6 +523,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
     return ValueListenableBuilder<AppLanguage>(
       valueListenable: appLanguage,
       builder: (context, _, _) => MaterialApp(
+        navigatorKey: appNavigatorKey,
         scaffoldMessengerKey: appScaffoldMessengerKey,
         title: kAppName,
         debugShowCheckedModeBanner: false,
