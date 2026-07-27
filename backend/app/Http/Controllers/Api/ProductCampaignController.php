@@ -44,6 +44,7 @@ class ProductCampaignController extends Controller
     ): JsonResponse {
         abort_unless($request->user()->role === 'seller', 403, 'Only sellers can create product campaigns.');
 
+        $this->normalizePaymentPhone($request, 'payment_phone');
         $data = $request->validate([
             'product_id' => ['required', 'integer', 'exists:products,id'],
             'channel' => ['required', Rule::in(['sms', 'fcm'])],
@@ -101,11 +102,23 @@ class ProductCampaignController extends Controller
         abort_unless($payment->type === 'product_campaign' && $payment->user_id === $request->user()->id, 403);
         abort_unless($request->user()->role === 'seller', 403, 'Only sellers can pay for product campaigns.');
         abort_if(in_array($payment->status, ['paid', 'success', 'completed'], true), 422, 'This campaign payment is already complete.');
-        abort_unless($payment->phone, 422, 'This campaign payment does not have a phone number.');
 
         $campaign = ProductCampaign::where('payment_id', $payment->id)
             ->where('seller_id', $request->user()->id)
             ->firstOrFail();
+
+        $this->normalizePaymentPhone($request, 'payment_phone');
+        $data = $request->validate([
+            'payment_phone' => ['nullable', 'string', 'regex:/^\d{12}$/'],
+        ], [
+            'payment_phone.regex' => 'Payment phone number must contain exactly 12 digits, for example 255700000001.',
+        ]);
+
+        if (! empty($data['payment_phone'])) {
+            $payment->update(['phone' => $data['payment_phone']]);
+        }
+        abort_unless($payment->phone, 422, 'This campaign payment does not have a phone number.');
+
         $campaign->update(['status' => 'pending_payment']);
 
         try {
@@ -117,7 +130,7 @@ class ProductCampaignController extends Controller
         }
 
         return response()->json([
-            'message' => 'Campaign payment request resent. Delivery starts only after payment confirmation.',
+            'message' => 'Campaign payment request resent to '.$payment->fresh()->phone.'. Delivery starts only after payment confirmation.',
             'campaign' => $campaign->fresh(['product.shop', 'payment']),
             'payment' => $payment->fresh(),
             'ussd_push' => $ussdPush,
@@ -134,6 +147,23 @@ class ProductCampaignController extends Controller
 
         return ValidationException::withMessages([
             'payment' => 'Campaign payment request could not be sent. Check the payment provider configuration and try again.',
+        ]);
+    }
+
+    private function normalizePaymentPhone(Request $request, string $key): void
+    {
+        $phone = $request->input($key);
+        if (! is_string($phone)) {
+            return;
+        }
+
+        $phone = trim($phone);
+        if (str_starts_with($phone, '+')) {
+            $phone = substr($phone, 1);
+        }
+
+        $request->merge([
+            $key => preg_replace('/[\s-]+/', '', $phone) ?? '',
         ]);
     }
 }

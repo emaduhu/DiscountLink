@@ -85,7 +85,8 @@ class ShopLifecycleTest extends TestCase
         $clickPesa = Mockery::mock(ClickPesaService::class);
         $clickPesa->shouldReceive('requestUssdPush')
             ->once()
-            ->with(Mockery::on(fn (Payment $candidate) => $candidate->is($payment)))
+            ->with(Mockery::on(fn (Payment $candidate) => $candidate->is($payment)
+                && $candidate->phone === '255755000004'))
             ->andReturnUsing(function (Payment $candidate): array {
                 $candidate->update([
                     'provider_reference' => 'SHOP-RETRY-REFERENCE',
@@ -97,20 +98,27 @@ class ShopLifecycleTest extends TestCase
         $this->app->instance(ClickPesaService::class, $clickPesa);
 
         $this->withToken($this->apiToken($seller))
-            ->postJson("/api/seller/shop-payments/{$payment->id}/ussd-push")
+            ->postJson("/api/seller/shop-payments/{$payment->id}/ussd-push", [
+                'registration_payment_phone' => ' +255 755-000-004 ',
+            ])
             ->assertOk()
+            ->assertJsonPath('payment.phone', '255755000004')
             ->assertJsonPath('payment.status', 'processing')
             ->assertJsonPath('shop.registration_fee_status', 'processing')
             ->assertJsonPath('shop.is_active', false)
             ->assertJsonPath(
                 'message',
-                'Shop registration payment request sent to 255700000004. Reference: SHOP-RETRY-REFERENCE. Channel: USSD. Check your phone and approve the USSD prompt.',
+                'Shop registration payment request sent to 255755000004. Reference: SHOP-RETRY-REFERENCE. Channel: USSD. Check your phone and approve the USSD prompt.',
             );
 
         $this->assertDatabaseHas('shops', [
             'id' => $shop->id,
             'is_active' => false,
             'registration_fee_status' => 'processing',
+        ]);
+        $this->assertDatabaseHas('payments', [
+            'id' => $payment->id,
+            'phone' => '255755000004',
         ]);
     }
 

@@ -167,7 +167,6 @@ class ShopController extends Controller
             403,
         );
         abort_if($payment->isPaid(), 422, 'This shop registration payment is already complete.');
-        abort_unless($payment->phone, 422, 'This shop registration payment does not have a phone number.');
 
         $shop = $payment->shop;
         abort_unless(
@@ -182,6 +181,22 @@ class ShopController extends Controller
             422,
             'This shop registration fee is already complete.',
         );
+
+        $this->normalizeRegistrationPaymentPhone($request);
+        $this->normalizePaymentPhone($request, 'payment_phone');
+        $data = $request->validate([
+            'registration_payment_phone' => ['nullable', 'string', 'regex:/^\d{12}$/'],
+            'payment_phone' => ['nullable', 'string', 'regex:/^\d{12}$/'],
+        ], [
+            'registration_payment_phone.regex' => 'Payment phone number must contain exactly 12 digits, for example 255700000001.',
+            'payment_phone.regex' => 'Payment phone number must contain exactly 12 digits, for example 255700000001.',
+        ]);
+
+        $correctedPhone = $data['registration_payment_phone'] ?? $data['payment_phone'] ?? null;
+        if ($correctedPhone) {
+            $payment->update(['phone' => $correctedPhone]);
+        }
+        abort_unless($payment->phone, 422, 'This shop registration payment does not have a phone number.');
 
         try {
             $ussdPush = $clickPesa->requestUssdPush($payment);
@@ -343,7 +358,7 @@ class ShopController extends Controller
             'name' => ['required', 'string', 'max:180'],
             'description' => ['nullable', 'string'],
             'price' => ['required', 'numeric', 'min:0'],
-            'discount_price' => ['nullable', 'numeric', 'min:0'],
+            'discount_price' => ['nullable', 'numeric', 'min:0', 'lte:price'],
             'discount_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'delivery_price' => ['required', 'numeric', 'min:0'],
             'images' => ['required_without:product_images', 'prohibits:product_images', 'array', 'size:3'],
@@ -364,8 +379,7 @@ class ShopController extends Controller
         $imageUrls = array_key_exists('images', $data) ? $data['images'] : null;
         $videoFiles = $request->hasFile('product_videos') ? array_values($request->file('product_videos')) : [];
         unset($data['images'], $data['product_images'], $data['product_videos']);
-        $effective = $data['discount_price'] ?? round($data['price'] * (1 - (($data['discount_percent'] ?? 0) / 100)), 2);
-        $data['auto_total'] = $effective + $data['delivery_price'];
+        $data = $this->applyProductPricing($data);
         $product = Product::create($data + [
             'shop_id' => $shop->id,
             'seller_id' => $request->user()->id,
@@ -396,7 +410,7 @@ class ShopController extends Controller
             'name' => ['required', 'string', 'max:180'],
             'description' => ['nullable', 'string'],
             'price' => ['required', 'numeric', 'min:0'],
-            'discount_price' => ['nullable', 'numeric', 'min:0'],
+            'discount_price' => ['nullable', 'numeric', 'min:0', 'lte:price'],
             'discount_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'delivery_price' => ['required', 'numeric', 'min:0'],
             'images' => ['nullable', 'prohibits:product_images', 'array', 'size:3'],
@@ -421,9 +435,8 @@ class ShopController extends Controller
         $videoFiles = $request->boolean('clear_videos')
             ? []
             : ($request->hasFile('product_videos') ? array_values($request->file('product_videos')) : null);
-        $effective = $data['discount_price'] ?? round($data['price'] * (1 - (($data['discount_percent'] ?? 0) / 100)), 2);
-        $data['auto_total'] = $effective + $data['delivery_price'];
         unset($data['images'], $data['product_images'], $data['product_videos'], $data['clear_videos']);
+        $data = $this->applyProductPricing($data);
         $product = $media->synchronize($product, $data, $imageFiles, $imageUrls, $videoFiles);
 
         return response()->json(['product' => $product]);
@@ -475,7 +488,12 @@ class ShopController extends Controller
 
     private function normalizeRegistrationPaymentPhone(Request $request): void
     {
-        $phone = $request->input('registration_payment_phone');
+        $this->normalizePaymentPhone($request, 'registration_payment_phone');
+    }
+
+    private function normalizePaymentPhone(Request $request, string $key): void
+    {
+        $phone = $request->input($key);
         if (! is_string($phone)) {
             return;
         }
@@ -486,8 +504,27 @@ class ShopController extends Controller
         }
 
         $request->merge([
-            'registration_payment_phone' => preg_replace('/[\s-]+/', '', $phone) ?? '',
+            $key => preg_replace('/[\s-]+/', '', $phone) ?? '',
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function applyProductPricing(array $data): array
+    {
+        $price = round((float) $data['price'], 2);
+        $discountPercent = max(0, min(100, (float) ($data['discount_percent'] ?? 0)));
+        $discountPrice = array_key_exists('discount_price', $data) && $data['discount_price'] !== null
+            ? round((float) $data['discount_price'], 2)
+            : round($price * (1 - ($discountPercent / 100)), 2);
+        $effectivePrice = max(0, min($price, $discountPrice));
+
+        $data['discount_price'] = $effectivePrice < $price ? $effectivePrice : null;
+        $data['auto_total'] = round($effectivePrice + (float) $data['delivery_price'], 2);
+
+        return $data;
     }
 
     private function syncRegistrationFeeStatus(Shop $shop, Payment $payment): void

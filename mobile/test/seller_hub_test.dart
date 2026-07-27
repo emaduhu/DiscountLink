@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:discount_link/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker/image_picker.dart';
 
 void main() {
   test('Laravel pagination helpers expose items, totals, and more pages', () {
@@ -201,9 +204,18 @@ void main() {
 
     const retryKey = ValueKey('shop-101-registration-payment-resend');
     await tester.tap(find.byKey(retryKey));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('clickpesa-resend-phone')),
+      '255755000701',
+    );
+    await tester.tap(find.byKey(const ValueKey('clickpesa-resend-confirm')));
     await tester.pump();
 
     expect(client.postPaths, contains('/seller/shop-payments/701/ussd-push'));
+    expect(client.postBodies.last, {
+      'registration_payment_phone': '255755000701',
+    });
     expect(
       tester.widget<OutlinedButton>(find.byKey(retryKey)).onPressed,
       isNull,
@@ -239,12 +251,19 @@ void main() {
 
     const retryKey = ValueKey('campaign-1-payment-resend');
     await tester.tap(find.byKey(retryKey));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('clickpesa-resend-phone')),
+      '255755000801',
+    );
+    await tester.tap(find.byKey(const ValueKey('clickpesa-resend-confirm')));
     await tester.pump();
 
     expect(
       client.postPaths,
       contains('/seller/campaign-payments/801/ussd-push'),
     );
+    expect(client.postBodies.last, {'payment_phone': '255755000801'});
     expect(tester.widget<IconButton>(find.byKey(retryKey)).onPressed, isNull);
     expect(
       find.descendant(
@@ -262,6 +281,57 @@ void main() {
       1,
     );
     request.complete({'message': 'Campaign payment request sent.'});
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('product create locks while media upload is in flight', (
+    tester,
+  ) async {
+    final request = Completer<Map<String, dynamic>>();
+    final client = _SellerHubApiClient(productCreateRequest: request);
+    await _pumpSellerHub(tester, client);
+
+    final state = tester.state(find.byType(SellerPage)) as dynamic;
+    state.productName.text = 'New product';
+    state.description.text = 'New product description';
+    state.price.text = '1000';
+    state.discount.text = '10';
+    state.delivery.text = '100';
+    state.stock.text = '10';
+    state.selectedProductImages = [
+      for (final image in _productImageFiles()) XFile(image.path),
+    ];
+
+    final firstPublish = state.publishProduct() as Future<void>;
+    await tester.pump();
+
+    const publishKey = ValueKey('publish-product');
+    expect(
+      client.multipartPaths.where((path) => path == '/shops/101/products'),
+      hasLength(1),
+    );
+    expect(
+      tester.widget<FilledButton>(find.byKey(publishKey)).onPressed,
+      isNull,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(publishKey),
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+
+    await state.publishProduct();
+    expect(
+      client.multipartPaths.where((path) => path == '/shops/101/products'),
+      hasLength(1),
+    );
+
+    request.complete({
+      'product': {'id': 99},
+    });
+    await firstPublish;
     await tester.pumpAndSettle();
   });
 
@@ -310,6 +380,25 @@ Future<void> _pumpSellerHub(
   await tester.pumpAndSettle();
 }
 
+List<File> _productImageFiles() {
+  final tempDir = Directory.systemTemp.createTempSync(
+    'discountlink-product-images-',
+  );
+  addTearDown(() {
+    if (tempDir.existsSync()) {
+      tempDir.deleteSync(recursive: true);
+    }
+  });
+
+  final pixel = base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+  );
+  return [
+    for (var index = 0; index < 3; index++)
+      File('${tempDir.path}/product-$index.png')..writeAsBytesSync(pixel),
+  ];
+}
+
 class _SellerHubApiClient extends ApiClient {
   _SellerHubApiClient({
     this.pendingShop = false,
@@ -317,6 +406,7 @@ class _SellerHubApiClient extends ApiClient {
     this.shopCreateRequest,
     this.shopRetryRequest,
     this.campaignRetryRequest,
+    this.productCreateRequest,
   }) : super('https://example.test/api');
 
   final bool pendingShop;
@@ -324,9 +414,12 @@ class _SellerHubApiClient extends ApiClient {
   final Completer<Map<String, dynamic>>? shopCreateRequest;
   final Completer<Map<String, dynamic>>? shopRetryRequest;
   final Completer<Map<String, dynamic>>? campaignRetryRequest;
+  final Completer<Map<String, dynamic>>? productCreateRequest;
   final shopPagesRequested = <int>[];
   final campaignPagesRequested = <int>[];
   final postPaths = <String>[];
+  final postBodies = <Map<String, dynamic>>[];
+  final multipartPaths = <String>[];
   final deletePaths = <String>[];
   bool shopDeleted = false;
 
@@ -406,6 +499,7 @@ class _SellerHubApiClient extends ApiClient {
   @override
   Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) {
     postPaths.add(path);
+    postBodies.add(Map<String, dynamic>.from(body));
     if (path == '/shops') {
       return shopCreateRequest?.future ??
           Future.value({'message': 'Shop created.'});
@@ -419,6 +513,23 @@ class _SellerHubApiClient extends ApiClient {
           Future.value({'message': 'Campaign payment request sent.'});
     }
     throw StateError('Unexpected POST $path');
+  }
+
+  @override
+  Future<Map<String, dynamic>> postMultipartMedia(
+    String path, {
+    required Map<String, String> fields,
+    required List<File> images,
+    required List<File> videos,
+  }) {
+    multipartPaths.add(path);
+    if (path == '/shops/101/products') {
+      return productCreateRequest?.future ??
+          Future.value({
+            'product': {'id': 99},
+          });
+    }
+    throw StateError('Unexpected multipart POST $path');
   }
 
   @override

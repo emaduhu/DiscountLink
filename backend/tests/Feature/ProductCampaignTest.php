@@ -6,10 +6,12 @@ use App\Jobs\DispatchProductCampaign;
 use App\Jobs\SendProductCampaignMessage;
 use App\Models\ApiToken;
 use App\Models\AppSetting;
+use App\Models\Payment;
 use App\Models\Product;
 use App\Models\ProductCampaign;
 use App\Models\Shop;
 use App\Models\User;
+use App\Services\ClickPesaService;
 use App\Services\FcmService;
 use App\Services\OtpProviderService;
 use App\Services\ProductCampaignService;
@@ -243,7 +245,7 @@ class ProductCampaignTest extends TestCase
             'name' => 'Fresh Product',
             'description' => 'Just arrived',
             'price' => 4200,
-            'discount_price' => 3900,
+            'discount_percent' => 10,
             'delivery_price' => 100,
             'stock' => 6,
             'images' => [
@@ -257,6 +259,8 @@ class ProductCampaignTest extends TestCase
         $product = Product::findOrFail($response->json('product.id'));
         $campaign = ProductCampaign::where('product_id', $product->id)->firstOrFail();
 
+        $this->assertSame('3780.00', $product->discount_price);
+        $this->assertSame('3880.00', $product->auto_total);
         $this->assertSame($seller->id, $campaign->seller_id);
         $this->assertStringStartsWith('DLNEW-', $campaign->reference);
         $this->assertSame('fcm', $campaign->channel);
@@ -268,6 +272,7 @@ class ProductCampaignTest extends TestCase
         $this->assertNotNull($campaign->paid_at);
         $this->assertStringStartsWith('New product:', $campaign->title);
         $this->assertStringContainsString('just added Fresh Product', $campaign->message);
+        $this->assertStringContainsString('TZS 3,780.00', $campaign->message);
         $this->assertEqualsCanonicalizing(
             [$seller->id, $buyer->id, $deliverer->id],
             $campaign->deliveries()->pluck('user_id')->all(),
@@ -276,6 +281,66 @@ class ProductCampaignTest extends TestCase
             DispatchProductCampaign::class,
             fn (DispatchProductCampaign $job): bool => $job->campaignId === $campaign->id,
         );
+    }
+
+    public function test_campaign_payment_resend_can_use_a_corrected_phone(): void
+    {
+        [$seller, $product, $token] = $this->sellerProductAndToken([
+            'phone' => '255700000031',
+            'phone_verified_at' => now(),
+        ]);
+        $payment = Payment::create([
+            'user_id' => $seller->id,
+            'type' => 'product_campaign',
+            'provider' => 'clickpesa',
+            'status' => 'failed',
+            'amount' => 2500,
+            'phone' => '255700000031',
+        ]);
+        $campaign = ProductCampaign::create([
+            'reference' => 'DLC-RESEND-PHONE',
+            'seller_id' => $seller->id,
+            'product_id' => $product->id,
+            'payment_id' => $payment->id,
+            'channel' => 'sms',
+            'status' => 'payment_failed',
+            'title' => 'Featured deal',
+            'message' => 'Static platform message',
+            'unit_price' => 50,
+            'recipient_count' => 50,
+            'total_cost' => 2500,
+        ]);
+
+        $clickPesa = Mockery::mock(ClickPesaService::class);
+        $clickPesa->shouldReceive('requestUssdPush')
+            ->once()
+            ->with(Mockery::on(fn (Payment $candidate): bool => $candidate->is($payment)
+                && $candidate->phone === '255755000031'))
+            ->andReturnUsing(function (Payment $candidate): array {
+                $candidate->update([
+                    'provider_reference' => 'CAMPAIGN-RETRY-REFERENCE',
+                    'status' => 'processing',
+                ]);
+
+                return ['reference' => 'CAMPAIGN-RETRY-REFERENCE', 'channel' => 'USSD'];
+            });
+        $this->app->instance(ClickPesaService::class, $clickPesa);
+
+        $this->withToken($token)
+            ->postJson("/api/seller/campaign-payments/{$payment->id}/ussd-push", [
+                'payment_phone' => ' +255 755-000-031 ',
+            ])
+            ->assertOk()
+            ->assertJsonPath('payment.phone', '255755000031')
+            ->assertJsonPath('payment.status', 'processing')
+            ->assertJsonPath('campaign.status', 'pending_payment')
+            ->assertJsonPath(
+                'message',
+                'Campaign payment request resent to 255755000031. Delivery starts only after payment confirmation.',
+            );
+
+        $this->assertSame('255755000031', $payment->fresh()->phone);
+        $this->assertSame('pending_payment', $campaign->fresh()->status);
     }
 
     public function test_admin_can_configure_campaign_prices_and_see_paid_revenue(): void

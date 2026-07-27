@@ -100,6 +100,81 @@ class ShopHoursAndCheckoutNotificationsTest extends TestCase
         $this->assertNotNull($order->getRawOriginal('delivery_code_encrypted'));
     }
 
+    public function test_cart_summary_uses_percent_discount_when_discount_price_is_missing(): void
+    {
+        $buyer = User::factory()->create([
+            'role' => 'buyer',
+            'phone' => '255700000011',
+            'phone_verified_at' => now(),
+            'address' => 'Buyer address',
+        ]);
+        $seller = User::factory()->create(['role' => 'seller']);
+        $shop = $this->shop($seller);
+        $product = $this->product($seller, $shop);
+        $product->update([
+            'price' => 1000,
+            'discount_price' => null,
+            'discount_percent' => 25,
+            'delivery_price' => 100,
+            'auto_total' => 1100,
+        ]);
+        Cart::create(['buyer_id' => $buyer->id, 'product_id' => $product->id, 'quantity' => 2]);
+
+        $this->withToken($this->apiToken($buyer))
+            ->getJson('/api/cart')
+            ->assertOk()
+            ->assertJsonPath('summary.subtotal', 1500)
+            ->assertJsonPath('summary.delivery_total', 200)
+            ->assertJsonPath('summary.grand_total', 1700);
+    }
+
+    public function test_buyer_payment_resend_can_use_a_corrected_phone(): void
+    {
+        $buyer = User::factory()->create([
+            'role' => 'buyer',
+            'phone' => '255700000012',
+            'phone_verified_at' => now(),
+            'address' => 'Buyer address',
+        ]);
+        $payment = Payment::create([
+            'user_id' => $buyer->id,
+            'type' => 'collection',
+            'provider' => 'clickpesa',
+            'status' => 'failed',
+            'amount' => 1000,
+            'phone' => '255700000012',
+        ]);
+
+        $clickPesa = Mockery::mock(ClickPesaService::class);
+        $clickPesa->shouldReceive('requestUssdPush')
+            ->once()
+            ->with(Mockery::on(fn (Payment $candidate): bool => $candidate->is($payment)
+                && $candidate->phone === '255755000012'))
+            ->andReturnUsing(function (Payment $candidate): array {
+                $candidate->update([
+                    'provider_reference' => 'BUYER-RETRY-REFERENCE',
+                    'status' => 'processing',
+                ]);
+
+                return ['reference' => 'BUYER-RETRY-REFERENCE', 'channel' => 'USSD'];
+            });
+        $this->app->instance(ClickPesaService::class, $clickPesa);
+
+        $this->withToken($this->apiToken($buyer))
+            ->postJson("/api/payments/{$payment->id}/ussd-push", [
+                'payment_phone' => ' +255 755-000-012 ',
+            ])
+            ->assertOk()
+            ->assertJsonPath('payment.phone', '255755000012')
+            ->assertJsonPath('payment.status', 'processing')
+            ->assertJsonPath(
+                'message',
+                'Payment request sent to 255755000012. Reference: BUYER-RETRY-REFERENCE. Channel: USSD. Check your phone and approve the USSD prompt.',
+            );
+
+        $this->assertSame('255755000012', $payment->fresh()->phone);
+    }
+
     public function test_checkout_is_rejected_while_shop_is_closed(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-21 20:00:00', 'Africa/Dar_es_Salaam'));

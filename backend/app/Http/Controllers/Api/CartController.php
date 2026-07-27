@@ -290,7 +290,6 @@ class CartController extends Controller
         abort_unless($payment->user_id === $request->user()->id, 403);
         abort_unless(in_array($payment->type, ['collection', 'shop_registration_fee'], true), 422, 'This payment cannot receive a phone prompt.');
         abort_if($payment->isPaid(), 422, 'This payment is already complete.');
-        abort_unless($payment->phone, 422, 'This payment does not have a phone number.');
 
         if ($payment->type === 'shop_registration_fee') {
             abort_unless($request->user()->role === 'seller', 403);
@@ -301,6 +300,22 @@ class CartController extends Controller
                 404,
             );
         }
+
+        $this->normalizePaymentPhone($request, 'payment_phone');
+        $this->normalizePaymentPhone($request, 'phone');
+        $data = $request->validate([
+            'payment_phone' => ['nullable', 'string', 'regex:/^\d{12}$/'],
+            'phone' => ['nullable', 'string', 'regex:/^\d{12}$/'],
+        ], [
+            'payment_phone.regex' => 'Payment phone number must contain exactly 12 digits, for example 255700000001.',
+            'phone.regex' => 'Payment phone number must contain exactly 12 digits, for example 255700000001.',
+        ]);
+
+        $correctedPhone = $data['payment_phone'] ?? $data['phone'] ?? null;
+        if ($correctedPhone) {
+            $payment->update(['phone' => $correctedPhone]);
+        }
+        abort_unless($payment->phone, 422, 'This payment does not have a phone number.');
 
         try {
             $ussdPush = $clickPesa->requestUssdPush($payment);
@@ -346,7 +361,39 @@ class CartController extends Controller
             return (float) $item->unit_price_override;
         }
 
-        return (float) ($item->product->discount_price ?? $item->product->price);
+        return $this->productEffectivePrice($item->product);
+    }
+
+    private function productEffectivePrice(Product $product): float
+    {
+        $price = (float) $product->price;
+        if ($product->discount_price !== null) {
+            return (float) $product->discount_price;
+        }
+
+        $discountPercent = max(0, min(100, (float) ($product->discount_percent ?? 0)));
+        if ($discountPercent <= 0) {
+            return $price;
+        }
+
+        return round($price * (1 - ($discountPercent / 100)), 2);
+    }
+
+    private function normalizePaymentPhone(Request $request, string $key): void
+    {
+        $phone = $request->input($key);
+        if (! is_string($phone)) {
+            return;
+        }
+
+        $phone = trim($phone);
+        if (str_starts_with($phone, '+')) {
+            $phone = substr($phone, 1);
+        }
+
+        $request->merge([
+            $key => preg_replace('/[\s-]+/', '', $phone) ?? '',
+        ]);
     }
 
     private function discountLinkIsValid(DiscountLink $discountLink): bool

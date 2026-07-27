@@ -88,6 +88,22 @@ void main() {
     );
   });
 
+  test('product price helpers derive buyer price from percent discounts', () {
+    final product = {
+      'price': '1000.00',
+      'discount_price': null,
+      'discount_percent': '15',
+      'delivery_price': '100.00',
+      'auto_total': '1100.00',
+    };
+
+    expect(productActualPrice(product), 1000);
+    expect(productBuyerPrice(product), 850);
+    expect(productDeliveryPrice(product), 100);
+    expect(productTotalPrice(product), 950);
+    expect(productHasDiscount(product), isTrue);
+  });
+
   testWidgets('product carousel plays visible videos and pauses hidden ones', (
     tester,
   ) async {

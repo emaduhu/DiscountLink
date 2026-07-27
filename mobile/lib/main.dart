@@ -56,8 +56,13 @@ enum AppLanguage { en, sw }
 String tx(String english, String swahili) =>
     appLanguage.value == AppLanguage.sw ? swahili : english;
 
-String normalizePhoneInput(String value) =>
-    value.trim().replaceAll(RegExp(r'[\s-]+'), '');
+String normalizePhoneInput(String value) {
+  final trimmed = value.trim();
+  final withoutCountryPrefix = trimmed.startsWith('+')
+      ? trimmed.substring(1)
+      : trimmed;
+  return withoutCountryPrefix.replaceAll(RegExp(r'[\s-]+'), '');
+}
 
 bool isTwelveDigitPhone(String value) =>
     RegExp(r'^\d{12}$').hasMatch(normalizePhoneInput(value));
@@ -73,6 +78,109 @@ String requireTwelveDigitPhone(String value) {
     );
   }
   return phone;
+}
+
+Future<String?> promptClickPesaPaymentPhone(
+  BuildContext context, {
+  required String title,
+  required String initialPhone,
+  required String message,
+}) async {
+  return showDialog<String>(
+    context: context,
+    builder: (_) => _ClickPesaPaymentPhoneDialog(
+      title: title,
+      initialPhone: initialPhone,
+      message: message,
+    ),
+  );
+}
+
+class _ClickPesaPaymentPhoneDialog extends StatefulWidget {
+  const _ClickPesaPaymentPhoneDialog({
+    required this.title,
+    required this.initialPhone,
+    required this.message,
+  });
+
+  final String title;
+  final String initialPhone;
+  final String message;
+
+  @override
+  State<_ClickPesaPaymentPhoneDialog> createState() =>
+      _ClickPesaPaymentPhoneDialogState();
+}
+
+class _ClickPesaPaymentPhoneDialogState
+    extends State<_ClickPesaPaymentPhoneDialog> {
+  late final TextEditingController controller;
+  String? errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = TextEditingController(text: widget.initialPhone);
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  void submit() {
+    try {
+      Navigator.pop(context, requireTwelveDigitPhone(controller.text));
+    } catch (error) {
+      setState(() {
+        errorText = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(widget.message),
+            const SizedBox(height: 12),
+            TextField(
+              key: const ValueKey('clickpesa-resend-phone'),
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.phone,
+              onSubmitted: (_) => submit(),
+              decoration: InputDecoration(
+                labelText: tx(
+                  'ClickPesa payment phone',
+                  'Simu ya malipo ya ClickPesa',
+                ),
+                hintText: '255700000001',
+                errorText: errorText,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(tx('Cancel', 'Ghairi')),
+        ),
+        FilledButton(
+          key: const ValueKey('clickpesa-resend-confirm'),
+          onPressed: submit,
+          child: Text(tx('Send request', 'Tuma ombi')),
+        ),
+      ],
+    );
+  }
 }
 
 List<dynamic> responseItems(dynamic value) {
@@ -2805,16 +2913,14 @@ class _CartPageState extends State<CartPage> {
   double cartUnitPrice(Map<String, dynamic> item) {
     final override = num.tryParse('${item['unit_price_override'] ?? ''}');
     if (override != null) return override.toDouble();
-    final product = item['product'] as Map;
-    final discount = num.tryParse('${product['discount_price'] ?? ''}');
-    final price = num.tryParse('${product['price'] ?? 0}') ?? 0;
+    final product = (item['product'] as Map).cast<String, dynamic>();
 
-    return (discount ?? price).toDouble();
+    return productBuyerPrice(product);
   }
 
   double cartDeliveryPrice(Map<String, dynamic> item) {
-    final product = item['product'] as Map;
-    return (num.tryParse('${product['delivery_price'] ?? 0}') ?? 0).toDouble();
+    final product = (item['product'] as Map).cast<String, dynamic>();
+    return productDeliveryPrice(product);
   }
 
   double cartSubtotal() => cart.fold<double>(0, (total, item) {
@@ -2970,15 +3076,28 @@ class _CartPageState extends State<CartPage> {
     if (checkingOut || resendingPaymentPrompt) return;
     final paymentId = lastCheckoutPayment?['id'];
     if (paymentId == null) return;
+    final paymentPhone = await promptClickPesaPaymentPhone(
+      context,
+      title: tx('Resend payment request', 'Tuma tena ombi la malipo'),
+      initialPhone: '${lastCheckoutPayment?['phone'] ?? checkoutPhone.text}',
+      message: tx(
+        'Enter the phone that should receive the ClickPesa USSD prompt. Change it if the first phone was wrong or has no money.',
+        'Weka simu itakayopokea ombi la USSD la ClickPesa. Badilisha kama namba ya kwanza ilikuwa si sahihi au haina pesa.',
+      ),
+    );
+    if (paymentPhone == null || !mounted) return;
+    checkoutPhone.text = paymentPhone;
     setState(() {
       resendingPaymentPrompt = true;
       checkoutPaymentStatus = tx(
-        'Sending the ClickPesa prompt again...',
-        'Inatuma tena ombi la ClickPesa...',
+        'Sending the ClickPesa prompt to $paymentPhone...',
+        'Inatuma ombi la ClickPesa kwenda $paymentPhone...',
       );
     });
     try {
-      final r = await widget.client.post('/payments/$paymentId/ussd-push', {});
+      final r = await widget.client.post('/payments/$paymentId/ussd-push', {
+        'payment_phone': paymentPhone,
+      });
       if (!mounted) return;
       final payment =
           (r['payment'] as Map?)?.cast<String, dynamic>() ??
@@ -3507,10 +3626,8 @@ class _BuyerPageState extends State<BuyerPage> {
   Future<void> shareProductDownload(Map<String, dynamic> product) async {
     final productName = '${product['name'] ?? 'this product'}'.trim();
     final shopName = '${product['shop']?['name'] ?? ''}'.trim();
-    final total = num.tryParse('${product['auto_total'] ?? product['price']}');
-    final priceLine = total == null
-        ? ''
-        : '\n${tx('Price', 'Bei')}: TZS ${money.format(total)}';
+    final total = productTotalPrice(product);
+    final priceLine = '\n${tx('Price', 'Bei')}: TZS ${money.format(total)}';
     final shopLine = shopName.isEmpty
         ? ''
         : '\n${tx('Shop', 'Duka')}: $shopName';
@@ -3872,6 +3989,7 @@ class _SellerPageState extends State<SellerPage> {
   bool loadingCampaigns = true;
   bool creatingCampaign = false;
   bool creatingShop = false;
+  bool publishingProduct = false;
   int? resendingCampaignPaymentId;
   int? resendingShopPaymentId;
   int? deletingShopId;
@@ -4320,15 +4438,23 @@ class _SellerPageState extends State<SellerPage> {
 
   Future<void> resendCampaignPayment(Map<String, dynamic> campaign) async {
     if (sellerUssdBusy) return;
-    final paymentId = int.tryParse(
-      '${(campaign['payment'] as Map?)?['id'] ?? ''}',
-    );
+    final payment = (campaign['payment'] as Map?)?.cast<String, dynamic>();
+    final paymentId = int.tryParse('${payment?['id'] ?? ''}');
     if (paymentId == null) return;
+    final paymentPhone = await promptClickPesaPaymentPhone(
+      context,
+      title: 'Resend campaign payment',
+      initialPhone: '${payment?['phone'] ?? campaignPhone.text}',
+      message:
+          'Enter the phone that should receive the ClickPesa USSD prompt. Change it if the first phone was wrong or has no money.',
+    );
+    if (paymentPhone == null || !mounted) return;
+    campaignPhone.text = paymentPhone;
     setState(() => resendingCampaignPaymentId = paymentId);
     try {
       final response = await widget.client.post(
         '/seller/campaign-payments/$paymentId/ussd-push',
-        {},
+        {'payment_phone': paymentPhone},
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -4370,6 +4496,44 @@ class _SellerPageState extends State<SellerPage> {
 
   List<String> productImagePaths() {
     return selectedProductImages.map((image) => image.path).toList();
+  }
+
+  Future<void> publishProduct() async {
+    if (publishingProduct) return;
+    final targetShopId = selectedShopId;
+    final targetShop = selectedShop();
+    if (targetShopId == null || targetShop?['is_active'] != true) return;
+
+    setState(() => publishingProduct = true);
+    try {
+      final images = productImagePaths();
+      if (images.length != 3) {
+        throw Exception('Choose exactly 3 product images from phone.');
+      }
+      await widget.client.postMultipartMedia(
+        '/shops/$targetShopId/products',
+        fields: {
+          'name': productName.text,
+          'description': description.text,
+          'price': price.text,
+          'discount_percent': discount.text,
+          'delivery_price': delivery.text,
+          'stock': stock.text,
+        },
+        images: selectedProductImages.map((image) => File(image.path)).toList(),
+        videos: selectedProductVideos.map((video) => File(video.path)).toList(),
+      );
+      setState(() {
+        selectedProductImages = [];
+        selectedProductVideos = [];
+        productPageByShop[targetShopId] = 1;
+      });
+      await load();
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => publishingProduct = false);
+    }
   }
 
   Map<String, dynamic>? selectedShop() {
@@ -4425,11 +4589,23 @@ class _SellerPageState extends State<SellerPage> {
     if (sellerUssdBusy) return;
     final paymentId = shopRegistrationPaymentId(shop);
     if (paymentId == null) return;
+    final payment =
+        (shop['registration_fee_payment'] ?? shop['registrationFeePayment'])
+            as Map?;
+    final paymentPhone = await promptClickPesaPaymentPhone(
+      context,
+      title: 'Resend registration payment',
+      initialPhone: '${payment?['phone'] ?? shopRegistrationPhone.text}',
+      message:
+          'Enter the phone that should receive the ClickPesa USSD prompt. Change it if the first phone was wrong or has no money.',
+    );
+    if (paymentPhone == null || !mounted) return;
+    shopRegistrationPhone.text = paymentPhone;
     setState(() => resendingShopPaymentId = paymentId);
     try {
       final response = await widget.client.post(
         '/seller/shop-payments/$paymentId/ussd-push',
-        {},
+        {'registration_payment_phone': paymentPhone},
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -5264,46 +5440,25 @@ class _SellerPageState extends State<SellerPage> {
                 const SizedBox(height: 8),
               ],
               FilledButton.icon(
-                onPressed: selectedShopId == null || !selectedShopCanPublish
+                key: const ValueKey('publish-product'),
+                onPressed:
+                    selectedShopId == null ||
+                        !selectedShopCanPublish ||
+                        publishingProduct
                     ? null
-                    : () async {
-                        try {
-                          final targetShopId = selectedShopId!;
-                          final images = productImagePaths();
-                          if (images.length != 3) {
-                            throw Exception(
-                              'Choose exactly 3 product images from phone.',
-                            );
-                          }
-                          await widget.client.postMultipartMedia(
-                            '/shops/$targetShopId/products',
-                            fields: {
-                              'name': productName.text,
-                              'description': description.text,
-                              'price': price.text,
-                              'discount_percent': discount.text,
-                              'delivery_price': delivery.text,
-                              'stock': stock.text,
-                            },
-                            images: selectedProductImages
-                                .map((image) => File(image.path))
-                                .toList(),
-                            videos: selectedProductVideos
-                                .map((video) => File(video.path))
-                                .toList(),
-                          );
-                          setState(() {
-                            selectedProductImages = [];
-                            selectedProductVideos = [];
-                            productPageByShop[targetShopId] = 1;
-                          });
-                          await load();
-                        } catch (error) {
-                          if (context.mounted) showError(context, error);
-                        }
-                      },
-                icon: const Icon(Icons.add_box_outlined),
-                label: const Text('Publish product'),
+                    : publishProduct,
+                icon: publishingProduct
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.add_box_outlined),
+                label: Text(
+                  publishingProduct
+                      ? 'Publishing product...'
+                      : 'Publish product',
+                ),
               ),
             ],
           ),
@@ -8012,6 +8167,46 @@ int productRatingCount(Map<String, dynamic> product) {
   return int.tryParse('$value') ?? 0;
 }
 
+double productActualPrice(Map<String, dynamic> product) {
+  return (num.tryParse('${product['price'] ?? 0}') ?? 0).toDouble();
+}
+
+double productDiscountPercent(Map<String, dynamic> product) {
+  final value = (num.tryParse('${product['discount_percent'] ?? 0}') ?? 0)
+      .toDouble();
+  return value.clamp(0, 100).toDouble();
+}
+
+double? productDiscountPrice(Map<String, dynamic> product) {
+  final explicit = num.tryParse('${product['discount_price'] ?? ''}');
+  if (explicit != null) return explicit.toDouble();
+
+  final actual = productActualPrice(product);
+  final percent = productDiscountPercent(product);
+  if (actual <= 0 || percent <= 0) return null;
+
+  return ((actual * (1 - (percent / 100))) * 100).roundToDouble() / 100;
+}
+
+double productBuyerPrice(Map<String, dynamic> product) {
+  final actual = productActualPrice(product);
+  final discounted = productDiscountPrice(product);
+  if (discounted == null || discounted >= actual) return actual;
+  return discounted;
+}
+
+double productDeliveryPrice(Map<String, dynamic> product) {
+  return (num.tryParse('${product['delivery_price'] ?? 0}') ?? 0).toDouble();
+}
+
+double productTotalPrice(Map<String, dynamic> product) {
+  return productBuyerPrice(product) + productDeliveryPrice(product);
+}
+
+bool productHasDiscount(Map<String, dynamic> product) {
+  return productBuyerPrice(product) < productActualPrice(product);
+}
+
 int? productImageMatchPercent(Map<String, dynamic> product) {
   final value = product['image_match_percent'];
   if (value == null) return null;
@@ -8400,10 +8595,10 @@ class ProductDealCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final original = num.tryParse('${product['price']}') ?? 0;
-    final discounted = num.tryParse('${product['discount_price'] ?? ''}');
-    final itemPrice = discounted ?? original;
-    final discount = num.tryParse('${product['discount_percent']}') ?? 0;
+    final actual = productActualPrice(product);
+    final itemPrice = productBuyerPrice(product);
+    final discount = productDiscountPercent(product);
+    final hasDiscount = productHasDiscount(product);
     final matchPercent = productImageMatchPercent(product);
     final videoCount = productVideoCount(product);
     final shopOpen = product['shop']?['is_open'] == true;
@@ -8469,11 +8664,13 @@ class ProductDealCard extends StatelessWidget {
                                 color: Colors.black87,
                               ),
                             ),
-                          if (discount > 0)
+                          if (hasDiscount)
                             Align(
                               alignment: Alignment.topRight,
                               child: _ProductBadge(
-                                label: '${discount.toStringAsFixed(0)}% off',
+                                label: discount > 0
+                                    ? '${discount.toStringAsFixed(0)}% off'
+                                    : 'Deal',
                                 color: kPrimaryColor,
                               ),
                             ),
@@ -8521,7 +8718,9 @@ class ProductDealCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        'TZS ${money.format(itemPrice)}',
+                        hasDiscount
+                            ? 'After discount: TZS ${money.format(itemPrice)}'
+                            : 'Price: TZS ${money.format(itemPrice)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -8539,9 +8738,9 @@ class ProductDealCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                if (original > itemPrice)
+                if (hasDiscount)
                   Text(
-                    'TZS ${money.format(original)}',
+                    'Actual: TZS ${money.format(actual)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -8620,6 +8819,92 @@ class _ProductIconAction extends StatelessWidget {
   }
 }
 
+class ProductPriceBreakdown extends StatelessWidget {
+  const ProductPriceBreakdown({
+    super.key,
+    required this.product,
+    required this.money,
+  });
+
+  final Map<String, dynamic> product;
+  final NumberFormat money;
+
+  @override
+  Widget build(BuildContext context) {
+    final actual = productActualPrice(product);
+    final buyerPrice = productBuyerPrice(product);
+    final delivery = productDeliveryPrice(product);
+    final total = productTotalPrice(product);
+    final hasDiscount = productHasDiscount(product);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: kPrimaryLightColor.withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kPrimaryColor.withValues(alpha: 0.14)),
+      ),
+      child: Column(
+        children: [
+          _ProductPriceRow(
+            label: 'Actual price',
+            value: 'TZS ${money.format(actual)}',
+            struck: hasDiscount,
+          ),
+          if (hasDiscount)
+            _ProductPriceRow(
+              label: 'After discount',
+              value: 'TZS ${money.format(buyerPrice)}',
+              highlighted: true,
+            ),
+          _ProductPriceRow(
+            label: 'Delivery',
+            value: 'TZS ${money.format(delivery)}',
+          ),
+          const Divider(height: 16),
+          _ProductPriceRow(
+            label: 'Total',
+            value: 'TZS ${money.format(total)}',
+            highlighted: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProductPriceRow extends StatelessWidget {
+  const _ProductPriceRow({
+    required this.label,
+    required this.value,
+    this.highlighted = false,
+    this.struck = false,
+  });
+
+  final String label;
+  final String value;
+  final bool highlighted;
+  final bool struck;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = TextStyle(
+      color: highlighted ? kPrimaryColor : kTextColor,
+      fontWeight: highlighted ? FontWeight.w900 : FontWeight.w700,
+      decoration: struck ? TextDecoration.lineThrough : null,
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: style)),
+          Text(value, style: style),
+        ],
+      ),
+    );
+  }
+}
+
 class ProductQuickView extends StatelessWidget {
   const ProductQuickView({
     super.key,
@@ -8641,7 +8926,6 @@ class ProductQuickView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final total = num.tryParse('${product['auto_total']}') ?? 0;
     final maxHeight = MediaQuery.sizeOf(context).height * 0.86;
     final media = productMediaSources(product, fallback: imageAsset);
     final matchPercent = productImageMatchPercent(product);
@@ -8695,14 +8979,7 @@ class ProductQuickView extends StatelessWidget {
               const SizedBox(height: 8),
               RatingPicker(onRate: onRate),
               const SizedBox(height: 12),
-              Text(
-                'TZS ${money.format(total)} total',
-                style: const TextStyle(
-                  color: kPrimaryColor,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18,
-                ),
-              ),
+              ProductPriceBreakdown(product: product, money: money),
               const SizedBox(height: 16),
               FilledButton.icon(
                 onPressed: () async {

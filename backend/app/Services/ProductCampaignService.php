@@ -311,7 +311,7 @@ class ProductCampaignService
     {
         $productName = Str::limit(trim($product->name), 60, '');
         $shopName = Str::limit(trim((string) $product->shop?->name), 45, '');
-        $price = (float) ($product->discount_price ?? $product->price);
+        $price = $this->productEffectivePrice($product);
         $title = Str::limit("Featured deal: {$productName}", 120, '');
         $message = "Vigour Deals: {$productName} from {$shopName} is TZS ".number_format($price, 2).". Open the app to view product #{$product->id}.";
 
@@ -323,11 +323,26 @@ class ProductCampaignService
     {
         $productName = Str::limit(trim($product->name), 60, '');
         $shopName = Str::limit(trim((string) $product->shop?->name), 45, '');
-        $price = (float) ($product->discount_price ?? $product->price);
+        $price = $this->productEffectivePrice($product);
         $title = Str::limit("New product: {$productName}", 120, '');
         $message = "Vigour Deals: {$shopName} just added {$productName} for TZS ".number_format($price, 2).". Open the app to view product #{$product->id}.";
 
         return [$title, Str::limit($message, 320, '')];
+    }
+
+    private function productEffectivePrice(Product $product): float
+    {
+        $price = (float) $product->price;
+        if ($product->discount_price !== null) {
+            return (float) $product->discount_price;
+        }
+
+        $discountPercent = max(0, min(100, (float) ($product->discount_percent ?? 0)));
+        if ($discountPercent <= 0) {
+            return $price;
+        }
+
+        return round($price * (1 - ($discountPercent / 100)), 2);
     }
 
     private function assertChannel(string $channel): void

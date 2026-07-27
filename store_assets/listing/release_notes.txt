@@ -1,8 +1,7 @@
 Version 1.0.21
-- Product videos now open and play reliably with HTTPS media links.
-- FCM broadcasts now reuse existing production credentials with fallback.
-- New products can notify active users through FCM campaigns.
-- ClickPesa prompts now show progress and prevent duplicate USSD requests.
-- Sellers can resend shop registration prompts and safely remove shops.
-- Admins can restore removed shops while keeping payment history.
-- Improved shop form spacing.
+- Product saves now show progress and prevent duplicate submissions.
+- New products notify active devices through FCM.
+- Buyers see actual and after-discount product prices.
+- ClickPesa resends now let users correct the payment phone.
+- FCM uses existing production credentials with fallback.
+- Product videos play reliably with HTTPS media links.
