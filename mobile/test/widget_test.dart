@@ -104,6 +104,24 @@ void main() {
     expect(productHasDiscount(product), isTrue);
   });
 
+  test('chat helpers format message time and outgoing delivery status', () {
+    appLanguage.value = AppLanguage.en;
+    final unreadOutgoing = {
+      'created_at': '2026-07-27T08:09:00',
+      'read_at': null,
+    };
+    final readOutgoing = {
+      'created_at': '2026-07-27T08:09:00',
+      'read_at': '2026-07-27T08:10:00',
+    };
+
+    expect(chatMessageTime(unreadOutgoing['created_at']), '08:09');
+    expect(chatMessageTime(null), '');
+    expect(chatDeliveryStatus(unreadOutgoing, true), 'Delivered');
+    expect(chatDeliveryStatus(readOutgoing, true), 'Read');
+    expect(chatDeliveryStatus(unreadOutgoing, false), '');
+  });
+
   testWidgets('product carousel plays visible videos and pauses hidden ones', (
     tester,
   ) async {

@@ -5611,20 +5611,14 @@ class _SellerPageState extends State<SellerPage> {
                             busyLabel: 'Sending registration payment...',
                           );
                         }
-                        return SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton.icon(
-                            key: ValueKey(
-                              'shop-${s['id']}-registration-payment-resend',
-                            ),
-                            onPressed: sellerUssdBusy
-                                ? null
-                                : () => showShopRegistrationResendPrompt(s),
-                            icon: const Icon(Icons.refresh_outlined),
-                            label: const Text(
-                              'Change phone and resend registration payment',
-                            ),
+                        return ClickPesaResendPromptButton(
+                          key: ValueKey(
+                            'shop-${s['id']}-registration-payment-resend',
                           ),
+                          label: 'Change phone and resend registration payment',
+                          onPressed: sellerUssdBusy
+                              ? null
+                              : () => showShopRegistrationResendPrompt(s),
                         );
                       },
                     ),
@@ -7620,69 +7614,129 @@ class ChatBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final body = '${message['body'] ?? ''}';
     final token = discountOfferToken(body);
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: InkWell(
-        onTap: token == null ? null : () => onOfferTap(token),
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.sizeOf(context).width * 0.78,
-          ),
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-          decoration: BoxDecoration(
-            color: mine ? const Color(0xffdcf8c6) : Colors.white,
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(16),
-              topRight: const Radius.circular(16),
-              bottomLeft: Radius.circular(mine ? 16 : 4),
-              bottomRight: Radius.circular(mine ? 4 : 16),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: token == null
-              ? Text(body)
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    final time = chatMessageTime(message['created_at']);
+    final status = chatDeliveryStatus(message, mine);
+    final metadata = [
+      if (time.isNotEmpty) time,
+      if (status.isNotEmpty) status,
+    ].join(' · ');
+    final metadataColor = mine
+        ? const Color(0xff5f7f4a)
+        : kTextColor.withValues(alpha: 0.88);
+    final content = token == null
+        ? Text(body)
+        : InkWell(
+            onTap: () => onOfferTap(token),
+            borderRadius: BorderRadius.circular(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.local_offer_outlined,
-                          size: 18,
-                          color: kPrimaryColor,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          tx('Discount offer', 'Ofa ya punguzo'),
-                          style: const TextStyle(
-                            color: kPrimaryColor,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ],
+                    const Icon(
+                      Icons.local_offer_outlined,
+                      size: 18,
+                      color: kPrimaryColor,
                     ),
-                    const SizedBox(height: 6),
-                    Text(body.split('\n').first),
-                    const SizedBox(height: 6),
+                    const SizedBox(width: 6),
                     Text(
-                      tx('Tap to open in app', 'Bonyeza kufungua kwenye app'),
+                      tx('Discount offer', 'Ofa ya punguzo'),
                       style: const TextStyle(
-                        color: kTextColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
+                        color: kPrimaryColor,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
                   ],
                 ),
+                const SizedBox(height: 6),
+                Text(body.split('\n').first),
+                const SizedBox(height: 6),
+                Text(
+                  tx('Tap to open in app', 'Bonyeza kufungua kwenye app'),
+                  style: const TextStyle(
+                    color: kTextColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          );
+    return Align(
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * 0.78,
+        ),
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.fromLTRB(12, 9, 8, 6),
+        decoration: BoxDecoration(
+          color: mine ? const Color(0xffdcf8c6) : Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(mine ? 16 : 4),
+            bottomRight: Radius.circular(mine ? 4 : 16),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            content,
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (metadata.isNotEmpty)
+                    Text(
+                      metadata,
+                      style: TextStyle(
+                        color: metadataColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  if (metadata.isNotEmpty) const SizedBox(width: 6),
+                  Tooltip(
+                    message: tx('Copy message', 'Nakili ujumbe'),
+                    child: InkResponse(
+                      onTap: () async {
+                        await Clipboard.setData(ClipboardData(text: body));
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              tx('Message copied.', 'Ujumbe umenakiliwa.'),
+                            ),
+                          ),
+                        );
+                      },
+                      radius: 18,
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(
+                          Icons.copy_rounded,
+                          size: 15,
+                          color: metadataColor,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -7692,6 +7746,22 @@ class ChatBubble extends StatelessWidget {
 String? discountOfferToken(String body) {
   final match = RegExp(r'discountlink://offer/([A-Za-z0-9]+)').firstMatch(body);
   return match?.group(1);
+}
+
+String chatMessageTime(dynamic value) {
+  final raw = '${value ?? ''}'.trim();
+  if (raw.isEmpty) return '';
+  final parsed = DateTime.tryParse(raw);
+  if (parsed == null) return raw;
+  return DateFormat('HH:mm').format(parsed.toLocal());
+}
+
+String chatDeliveryStatus(Map<String, dynamic> message, bool mine) {
+  if (!mine) return '';
+  final readAt = '${message['read_at'] ?? ''}'.trim();
+  return readAt.isEmpty
+      ? tx('Delivered', 'Imefikishwa')
+      : tx('Read', 'Imesomwa');
 }
 
 Map<String, dynamic>? conversationOther(
@@ -8760,9 +8830,7 @@ class ProductDealCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        hasDiscount
-                            ? 'After discount: TZS ${money.format(itemPrice)}'
-                            : 'Price: TZS ${money.format(itemPrice)}',
+                        'TZS ${money.format(itemPrice)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -8782,7 +8850,7 @@ class ProductDealCard extends StatelessWidget {
                 ),
                 if (hasDiscount)
                   Text(
-                    'Actual: TZS ${money.format(actual)}',
+                    'TZS ${money.format(actual)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -8888,17 +8956,38 @@ class ProductPriceBreakdown extends StatelessWidget {
       ),
       child: Column(
         children: [
-          _ProductPriceRow(
-            label: 'Actual price',
-            value: 'TZS ${money.format(actual)}',
-            struck: hasDiscount,
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'TZS ${money.format(buyerPrice)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: kPrimaryColor,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              if (hasDiscount) ...[
+                const SizedBox(width: 10),
+                Text(
+                  'TZS ${money.format(actual)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: kTextColor,
+                    decoration: TextDecoration.lineThrough,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ],
           ),
+          const SizedBox(height: 6),
           if (hasDiscount)
-            _ProductPriceRow(
-              label: 'After discount',
-              value: 'TZS ${money.format(buyerPrice)}',
-              highlighted: true,
-            ),
+            Divider(height: 12, color: kPrimaryColor.withValues(alpha: 0.12)),
           _ProductPriceRow(
             label: 'Delivery',
             value: 'TZS ${money.format(delivery)}',
@@ -8920,20 +9009,17 @@ class _ProductPriceRow extends StatelessWidget {
     required this.label,
     required this.value,
     this.highlighted = false,
-    this.struck = false,
   });
 
   final String label;
   final String value;
   final bool highlighted;
-  final bool struck;
 
   @override
   Widget build(BuildContext context) {
     final style = TextStyle(
       color: highlighted ? kPrimaryColor : kTextColor,
       fontWeight: highlighted ? FontWeight.w900 : FontWeight.w700,
-      decoration: struck ? TextDecoration.lineThrough : null,
     );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -9418,22 +9504,27 @@ class ClickPesaResendPromptCard extends StatelessWidget {
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [kPrimaryLightColor.withValues(alpha: 0.78), Colors.white],
+        gradient: const LinearGradient(
+          colors: [Color(0xfffffbf8), Colors.white, Color(0xfffff2ea)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: kPrimaryColor.withValues(alpha: 0.18)),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: kPrimaryColor.withValues(alpha: 0.13)),
         boxShadow: [
           BoxShadow(
-            color: kPrimaryColor.withValues(alpha: 0.08),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
+            color: kPrimaryColor.withValues(alpha: 0.10),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -9444,7 +9535,11 @@ class ClickPesaResendPromptCard extends StatelessWidget {
                 width: 38,
                 height: 38,
                 decoration: const BoxDecoration(
-                  color: kPrimaryColor,
+                  gradient: LinearGradient(
+                    colors: [kPrimaryColor, kPrimaryColor2],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -9490,6 +9585,8 @@ class ClickPesaResendPromptCard extends StatelessWidget {
               if (!busy) onSend();
             },
             decoration: InputDecoration(
+              filled: true,
+              fillColor: Colors.white,
               labelText: tx(
                 'ClickPesa payment phone',
                 'Simu ya malipo ya ClickPesa',
@@ -9506,6 +9603,15 @@ class ClickPesaResendPromptCard extends StatelessWidget {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: busy ? null : onCancel,
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      side: BorderSide(
+                        color: Colors.black.withValues(alpha: 0.10),
+                      ),
+                    ),
                     child: Text(tx('Cancel', 'Ghairi')),
                   ),
                 ),
@@ -9516,6 +9622,12 @@ class ClickPesaResendPromptCard extends StatelessWidget {
                 child: FilledButton.icon(
                   key: sendButtonKey,
                   onPressed: busy ? null : onSend,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
                   icon: busy
                       ? const SizedBox(
                           width: 18,
@@ -9539,6 +9651,90 @@ class ClickPesaResendPromptCard extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class ClickPesaResendPromptButton extends StatelessWidget {
+  const ClickPesaResendPromptButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    return Opacity(
+      opacity: enabled ? 1 : 0.58,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xfffffbf8), Color(0xffffecdf)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: kPrimaryColor.withValues(alpha: 0.16)),
+            boxShadow: [
+              BoxShadow(
+                color: kPrimaryColor.withValues(alpha: 0.08),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(18),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [kPrimaryColor, kPrimaryColor2],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.refresh_outlined,
+                      color: Colors.white,
+                      size: 19,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.black87,
+                        fontWeight: FontWeight.w900,
+                        height: 1.2,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right,
+                    color: enabled ? kPrimaryColor : kTextColor,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

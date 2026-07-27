@@ -1,7 +1,4 @@
-Version 1.0.21
-- Product saves now show progress and prevent duplicate submissions.
-- New products notify active devices through FCM.
-- Buyers see actual and after-discount product prices.
-- ClickPesa resends use inline phone correction cards.
-- FCM uses existing production credentials with fallback.
-- Product videos play reliably with HTTPS media links.
+Version 1.0.25
+- Chat messages now show sent time and outgoing delivery/read status.
+- Chat messages and discount offers can be copied from the bubble.
+- Includes the cleaner product price and ClickPesa resend improvements.
