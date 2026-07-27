@@ -1,8 +1,8 @@
 Version 1.0.21
-- Product media links are normalized to HTTPS so videos do not fail on Android cleartext restrictions.
-- Product videos now start playing when their product media page is opened.
-- New products now trigger a free platform FCM campaign to active app users with device tokens.
-- ClickPesa actions now show progress and prevent duplicate USSD requests while waiting.
-- Improved shop form spacing prevents time controls and save actions from overlapping.
-- Sellers can resend shop registration payment prompts and safely remove shops.
-- Admins can view and restore removed shops while preserving their payment history.
+- Product videos now open and play reliably with HTTPS media links.
+- FCM broadcasts now reuse existing production credentials with fallback.
+- New products can notify active users through FCM campaigns.
+- ClickPesa prompts now show progress and prevent duplicate USSD requests.
+- Sellers can resend shop registration prompts and safely remove shops.
+- Admins can restore removed shops while keeping payment history.
+- Improved shop form spacing.

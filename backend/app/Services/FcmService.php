@@ -17,16 +17,17 @@ class FcmService
         }
 
         $data = $this->stringifyData($data);
+        $attempts = [];
 
-        try {
-            if (config('services.firebase.credentials')) {
-                return $this->sendV1($user->fcm_token, $title, $body, $data);
-            }
+        if (filled(config('services.firebase.credentials'))) {
+            $attempts['firebase_v1'] = fn () => $this->sendV1($user->fcm_token, $title, $body, $data);
+        }
 
-            if (config('services.fcm.server_key')) {
-                return $this->sendLegacy($user->fcm_token, $title, $body, $data);
-            }
+        if (filled(config('services.fcm.server_key'))) {
+            $attempts['legacy_server_key'] = fn () => $this->sendLegacy($user->fcm_token, $title, $body, $data);
+        }
 
+        if ($attempts === []) {
             $sensitive = ($data['type'] ?? null) === 'delivery_code';
             $loggedData = $data;
             unset($loggedData['delivery_code']);
@@ -38,15 +39,36 @@ class FcmService
             ]);
 
             return false;
-        } catch (\Throwable $error) {
+        }
+
+        $lastTransport = null;
+        $lastError = null;
+        foreach ($attempts as $transport => $send) {
+            try {
+                return $send();
+            } catch (\Throwable $error) {
+                $lastTransport = $transport;
+                $lastError = $error;
+                Log::warning('FCM notification transport failed.', [
+                    'transport' => $transport,
+                    'user_id' => $user->id,
+                    'title' => $title,
+                    'error' => $error->getMessage(),
+                    'will_retry' => count($attempts) > 1 && $transport !== array_key_last($attempts),
+                ]);
+            }
+        }
+
+        if ($lastError) {
             Log::warning('FCM notification failed.', [
                 'user_id' => $user->id,
                 'title' => $title,
-                'error' => $error->getMessage(),
+                'transport' => $lastTransport,
+                'error' => $lastError->getMessage(),
             ]);
-
-            return false;
         }
+
+        return false;
     }
 
     private function sendV1(string $token, string $title, string $body, array $data): bool
@@ -135,17 +157,46 @@ class FcmService
      */
     private function firebaseCredentials(): array
     {
-        $path = config('services.firebase.credentials');
-        if (! $path || ! is_readable($path)) {
+        $source = trim((string) config('services.firebase.credentials'));
+        if ($source === '') {
+            throw new RuntimeException('Firebase service account credentials are not configured.');
+        }
+
+        if ($path = $this->firebaseCredentialsPath($source)) {
+            $contents = (string) file_get_contents($path);
+        } elseif (str_starts_with($source, 'base64:')) {
+            $contents = (string) base64_decode(substr($source, 7), true);
+        } elseif (str_starts_with($source, '{')) {
+            $contents = $source;
+        } else {
             throw new RuntimeException('Firebase service account file is not readable.');
         }
 
-        $credentials = json_decode((string) file_get_contents($path), true);
+        $credentials = json_decode($contents, true);
         if (! is_array($credentials)) {
             throw new RuntimeException('Firebase service account file is invalid JSON.');
         }
 
         return $credentials;
+    }
+
+    private function firebaseCredentialsPath(string $source): ?string
+    {
+        $candidates = str_starts_with($source, '/')
+            ? [$source]
+            : [
+                base_path($source),
+                storage_path($source),
+                storage_path('app/'.$source),
+            ];
+
+        foreach ($candidates as $path) {
+            if (is_readable($path)) {
+                return $path;
+            }
+        }
+
+        return null;
     }
 
     /**
