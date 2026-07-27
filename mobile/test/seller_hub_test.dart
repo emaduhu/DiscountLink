@@ -217,18 +217,25 @@ void main() {
       'registration_payment_phone': '255755000701',
     });
     expect(
-      tester.widget<OutlinedButton>(find.byKey(retryKey)).onPressed,
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('clickpesa-resend-confirm')),
+          )
+          .onPressed,
       isNull,
     );
     expect(
       find.descendant(
-        of: find.byKey(retryKey),
+        of: find.byKey(const ValueKey('clickpesa-resend-confirm')),
         matching: find.byType(CircularProgressIndicator),
       ),
       findsOneWidget,
     );
 
-    await tester.tap(find.byKey(retryKey), warnIfMissed: false);
+    await tester.tap(
+      find.byKey(const ValueKey('clickpesa-resend-confirm')),
+      warnIfMissed: false,
+    );
     expect(
       client.postPaths
           .where((path) => path == '/seller/shop-payments/701/ussd-push')

@@ -80,109 +80,6 @@ String requireTwelveDigitPhone(String value) {
   return phone;
 }
 
-Future<String?> promptClickPesaPaymentPhone(
-  BuildContext context, {
-  required String title,
-  required String initialPhone,
-  required String message,
-}) async {
-  return showDialog<String>(
-    context: context,
-    builder: (_) => _ClickPesaPaymentPhoneDialog(
-      title: title,
-      initialPhone: initialPhone,
-      message: message,
-    ),
-  );
-}
-
-class _ClickPesaPaymentPhoneDialog extends StatefulWidget {
-  const _ClickPesaPaymentPhoneDialog({
-    required this.title,
-    required this.initialPhone,
-    required this.message,
-  });
-
-  final String title;
-  final String initialPhone;
-  final String message;
-
-  @override
-  State<_ClickPesaPaymentPhoneDialog> createState() =>
-      _ClickPesaPaymentPhoneDialogState();
-}
-
-class _ClickPesaPaymentPhoneDialogState
-    extends State<_ClickPesaPaymentPhoneDialog> {
-  late final TextEditingController controller;
-  String? errorText;
-
-  @override
-  void initState() {
-    super.initState();
-    controller = TextEditingController(text: widget.initialPhone);
-  }
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
-
-  void submit() {
-    try {
-      Navigator.pop(context, requireTwelveDigitPhone(controller.text));
-    } catch (error) {
-      setState(() {
-        errorText = error.toString().replaceFirst('Exception: ', '');
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(widget.message),
-            const SizedBox(height: 12),
-            TextField(
-              key: const ValueKey('clickpesa-resend-phone'),
-              controller: controller,
-              autofocus: true,
-              keyboardType: TextInputType.phone,
-              onSubmitted: (_) => submit(),
-              decoration: InputDecoration(
-                labelText: tx(
-                  'ClickPesa payment phone',
-                  'Simu ya malipo ya ClickPesa',
-                ),
-                hintText: '255700000001',
-                errorText: errorText,
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(tx('Cancel', 'Ghairi')),
-        ),
-        FilledButton(
-          key: const ValueKey('clickpesa-resend-confirm'),
-          onPressed: submit,
-          child: Text(tx('Send request', 'Tuma ombi')),
-        ),
-      ],
-    );
-  }
-}
-
 List<dynamic> responseItems(dynamic value) {
   if (value is List) return value;
   if (value is Map && value['data'] is List) return value['data'] as List;
@@ -2870,6 +2767,7 @@ class _CartPageState extends State<CartPage> {
   final city = TextEditingController(text: 'Dar es Salaam');
   final landmark = TextEditingController();
   final checkoutPhone = TextEditingController();
+  final resendPaymentPhone = TextEditingController();
   final money = NumberFormat('#,##0.00');
   List cart = [];
   Map<String, dynamic> serviceFee = {
@@ -2881,7 +2779,9 @@ class _CartPageState extends State<CartPage> {
   bool loading = true;
   bool checkingOut = false;
   bool resendingPaymentPrompt = false;
+  bool showingResendPaymentPrompt = false;
   String? checkoutPaymentStatus;
+  String? resendPaymentPhoneError;
   Map<String, dynamic>? lastCheckoutPayment;
   Map<String, dynamic>? lastCheckoutPush;
   Map<String, dynamic>? lastCheckoutOrder;
@@ -2901,6 +2801,7 @@ class _CartPageState extends State<CartPage> {
     city.dispose();
     landmark.dispose();
     checkoutPhone.dispose();
+    resendPaymentPhone.dispose();
     super.dispose();
   }
 
@@ -3012,6 +2913,7 @@ class _CartPageState extends State<CartPage> {
         lastCheckoutPush = push;
         lastCheckoutOrder = (r['order'] as Map?)?.cast<String, dynamic>();
         lastDeliveryCode = '${r['delivery_code'] ?? r['delivery_code_demo']}';
+        resendPaymentPhone.text = '${payment?['phone'] ?? paymentPhone}';
       });
       final deliveryNotifications =
           (r['delivery_code_notifications'] as Map?)?.cast<String, dynamic>() ??
@@ -3068,27 +2970,47 @@ class _CartPageState extends State<CartPage> {
       }
     }
     if (resendAfterCheckout && mounted) {
-      await resendPaymentPrompt();
+      showResendPaymentPrompt();
     }
+  }
+
+  void showResendPaymentPrompt() {
+    final phone = '${lastCheckoutPayment?['phone'] ?? checkoutPhone.text}';
+    setState(() {
+      resendPaymentPhone.text = phone;
+      resendPaymentPhoneError = null;
+      showingResendPaymentPrompt = true;
+    });
+  }
+
+  void hideResendPaymentPrompt() {
+    if (resendingPaymentPrompt) return;
+    setState(() {
+      showingResendPaymentPrompt = false;
+      resendPaymentPhoneError = null;
+    });
   }
 
   Future<void> resendPaymentPrompt() async {
     if (checkingOut || resendingPaymentPrompt) return;
     final paymentId = lastCheckoutPayment?['id'];
     if (paymentId == null) return;
-    final paymentPhone = await promptClickPesaPaymentPhone(
-      context,
-      title: tx('Resend payment request', 'Tuma tena ombi la malipo'),
-      initialPhone: '${lastCheckoutPayment?['phone'] ?? checkoutPhone.text}',
-      message: tx(
-        'Enter the phone that should receive the ClickPesa USSD prompt. Change it if the first phone was wrong or has no money.',
-        'Weka simu itakayopokea ombi la USSD la ClickPesa. Badilisha kama namba ya kwanza ilikuwa si sahihi au haina pesa.',
-      ),
-    );
-    if (paymentPhone == null || !mounted) return;
+    late final String paymentPhone;
+    try {
+      paymentPhone = requireTwelveDigitPhone(resendPaymentPhone.text);
+    } catch (error) {
+      setState(() {
+        resendPaymentPhoneError = error.toString().replaceFirst(
+          'Exception: ',
+          '',
+        );
+      });
+      return;
+    }
     checkoutPhone.text = paymentPhone;
     setState(() {
       resendingPaymentPrompt = true;
+      resendPaymentPhoneError = null;
       checkoutPaymentStatus = tx(
         'Sending the ClickPesa prompt to $paymentPhone...',
         'Inatuma ombi la ClickPesa kwenda $paymentPhone...',
@@ -3110,16 +3032,11 @@ class _CartPageState extends State<CartPage> {
         lastCheckoutPayment = payment;
         lastCheckoutPush = push;
         checkoutPaymentStatus = message;
+        showingResendPaymentPrompt = false;
       });
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
-      await showPaymentRequestSentDialog(
-        payment: payment,
-        push: push,
-        fallbackPhone: '${payment?['phone'] ?? checkoutPhone.text}',
-        message: message,
-      );
     } on TimeoutException {
       if (mounted) {
         await showPaymentError(
@@ -3157,33 +3074,6 @@ class _CartPageState extends State<CartPage> {
       '${tx('Reference', 'Kumbukumbu')}: $reference',
       if (channel.isNotEmpty) '${tx('Channel', 'Mtandao')}: $channel',
     ].join('\n');
-  }
-
-  Future<void> showPaymentRequestSentDialog({
-    required Map<String, dynamic>? payment,
-    required Map<String, dynamic>? push,
-    required String fallbackPhone,
-    required String message,
-  }) async {
-    await showDialog<void>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(tx('Payment request sent', 'Ombi la malipo limetumwa')),
-        content: SingleChildScrollView(
-          child: Text(
-            '$message\n\n'
-            '${paymentRequestDetails(payment: payment, push: push, fallbackPhone: fallbackPhone)}\n\n'
-            '${tx('Approve the USSD prompt on the payment phone. If no prompt appears, wait a moment and use Resend Payment request.', 'Kubali ombi la USSD kwenye simu ya malipo. Kama ombi halionekani, subiri kidogo kisha tumia Tuma tena ombi la malipo.')}',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(tx('OK', 'Sawa')),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> showPaymentError(BuildContext context, Object error) async {
@@ -3320,37 +3210,45 @@ class _CartPageState extends State<CartPage> {
                   ],
                   if (lastCheckoutPayment?['id'] != null) ...[
                     const SizedBox(height: 10),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: checkingOut || resendingPaymentPrompt
-                            ? null
-                            : resendPaymentPrompt,
-                        icon: resendingPaymentPrompt
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.refresh_outlined),
-                        label: Text(
-                          resendingPaymentPrompt
-                              ? tx(
-                                  'Sending payment request...',
-                                  'Inatuma ombi la malipo...',
-                                )
-                              : tx(
-                                  'Resend Payment request',
-                                  'Tuma tena ombi la malipo',
-                                ),
-                          textAlign: TextAlign.center,
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
+                    if (showingResendPaymentPrompt)
+                      ClickPesaResendPromptCard(
+                        title: tx(
+                          'Resend ClickPesa prompt',
+                          'Tuma tena ombi la ClickPesa',
+                        ),
+                        subtitle: tx(
+                          'Use a different phone if the first one was wrong or has no money.',
+                          'Tumia simu nyingine kama ya kwanza ilikuwa si sahihi au haina pesa.',
+                        ),
+                        controller: resendPaymentPhone,
+                        errorText: resendPaymentPhoneError,
+                        busy: resendingPaymentPrompt,
+                        onCancel: hideResendPaymentPrompt,
+                        onSend: resendPaymentPrompt,
+                        busyLabel: tx(
+                          'Sending payment request...',
+                          'Inatuma ombi la malipo...',
+                        ),
+                      )
+                    else
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: checkingOut || resendingPaymentPrompt
+                              ? null
+                              : showResendPaymentPrompt,
+                          icon: const Icon(Icons.refresh_outlined),
+                          label: Text(
+                            tx(
+                              'Change phone and resend ClickPesa prompt',
+                              'Badili simu na tuma tena ombi la ClickPesa',
+                            ),
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
                         ),
                       ),
-                    ),
                     if (lastCheckoutOrder != null || lastDeliveryCode != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
@@ -3957,6 +3855,8 @@ class _SellerPageState extends State<SellerPage> {
   final delivererPhone = TextEditingController();
   final campaignPhone = TextEditingController();
   final money = NumberFormat('#,##0.00');
+  final campaignResendPhones = <int, TextEditingController>{};
+  final shopResendPhones = <int, TextEditingController>{};
   final selectedCategories = <String>{'Electronics'};
   List<String> shopCategories = defaultShopCategories;
   final picker = ImagePicker();
@@ -3992,7 +3892,11 @@ class _SellerPageState extends State<SellerPage> {
   bool publishingProduct = false;
   int? resendingCampaignPaymentId;
   int? resendingShopPaymentId;
+  int? editingCampaignPaymentId;
+  int? editingShopPaymentId;
   int? deletingShopId;
+  String? campaignResendPhoneError;
+  String? shopResendPhoneError;
   int shopPage = 1;
   int? shopTotal;
   bool shopHasMore = false;
@@ -4436,19 +4340,73 @@ class _SellerPageState extends State<SellerPage> {
     }
   }
 
+  TextEditingController campaignResendPhoneController(
+    int paymentId,
+    String initialPhone,
+  ) {
+    return campaignResendPhones.putIfAbsent(
+      paymentId,
+      () => TextEditingController(text: initialPhone),
+    );
+  }
+
+  TextEditingController shopResendPhoneController(
+    int paymentId,
+    String initialPhone,
+  ) {
+    return shopResendPhones.putIfAbsent(
+      paymentId,
+      () => TextEditingController(text: initialPhone),
+    );
+  }
+
+  void showCampaignResendPrompt(Map<String, dynamic> campaign) {
+    if (sellerUssdBusy) return;
+    final payment = (campaign['payment'] as Map?)?.cast<String, dynamic>();
+    final paymentId = int.tryParse('${payment?['id'] ?? ''}');
+    if (paymentId == null) return;
+    final controller = campaignResendPhoneController(
+      paymentId,
+      '${payment?['phone'] ?? campaignPhone.text}',
+    );
+    controller.text = '${payment?['phone'] ?? campaignPhone.text}';
+    setState(() {
+      editingCampaignPaymentId = paymentId;
+      editingShopPaymentId = null;
+      campaignResendPhoneError = null;
+      shopResendPhoneError = null;
+    });
+  }
+
+  void hideCampaignResendPrompt() {
+    if (resendingCampaignPaymentId != null) return;
+    setState(() {
+      editingCampaignPaymentId = null;
+      campaignResendPhoneError = null;
+    });
+  }
+
   Future<void> resendCampaignPayment(Map<String, dynamic> campaign) async {
     if (sellerUssdBusy) return;
     final payment = (campaign['payment'] as Map?)?.cast<String, dynamic>();
     final paymentId = int.tryParse('${payment?['id'] ?? ''}');
     if (paymentId == null) return;
-    final paymentPhone = await promptClickPesaPaymentPhone(
-      context,
-      title: 'Resend campaign payment',
-      initialPhone: '${payment?['phone'] ?? campaignPhone.text}',
-      message:
-          'Enter the phone that should receive the ClickPesa USSD prompt. Change it if the first phone was wrong or has no money.',
+    final controller = campaignResendPhoneController(
+      paymentId,
+      '${payment?['phone'] ?? campaignPhone.text}',
     );
-    if (paymentPhone == null || !mounted) return;
+    late final String paymentPhone;
+    try {
+      paymentPhone = requireTwelveDigitPhone(controller.text);
+    } catch (error) {
+      setState(() {
+        campaignResendPhoneError = error.toString().replaceFirst(
+          'Exception: ',
+          '',
+        );
+      });
+      return;
+    }
     campaignPhone.text = paymentPhone;
     setState(() => resendingCampaignPaymentId = paymentId);
     try {
@@ -4457,6 +4415,10 @@ class _SellerPageState extends State<SellerPage> {
         {'payment_phone': paymentPhone},
       );
       if (!mounted) return;
+      setState(() {
+        editingCampaignPaymentId = null;
+        campaignResendPhoneError = null;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${response['message'] ?? 'Payment request sent.'}'),
@@ -4585,6 +4547,34 @@ class _SellerPageState extends State<SellerPage> {
     }.contains('${shop['registration_fee_status'] ?? ''}');
   }
 
+  void showShopRegistrationResendPrompt(Map<String, dynamic> shop) {
+    if (sellerUssdBusy) return;
+    final paymentId = shopRegistrationPaymentId(shop);
+    if (paymentId == null) return;
+    final payment =
+        (shop['registration_fee_payment'] ?? shop['registrationFeePayment'])
+            as Map?;
+    final controller = shopResendPhoneController(
+      paymentId,
+      '${payment?['phone'] ?? shopRegistrationPhone.text}',
+    );
+    controller.text = '${payment?['phone'] ?? shopRegistrationPhone.text}';
+    setState(() {
+      editingCampaignPaymentId = null;
+      editingShopPaymentId = paymentId;
+      campaignResendPhoneError = null;
+      shopResendPhoneError = null;
+    });
+  }
+
+  void hideShopRegistrationResendPrompt() {
+    if (resendingShopPaymentId != null) return;
+    setState(() {
+      editingShopPaymentId = null;
+      shopResendPhoneError = null;
+    });
+  }
+
   Future<void> resendShopRegistrationPayment(Map<String, dynamic> shop) async {
     if (sellerUssdBusy) return;
     final paymentId = shopRegistrationPaymentId(shop);
@@ -4592,14 +4582,19 @@ class _SellerPageState extends State<SellerPage> {
     final payment =
         (shop['registration_fee_payment'] ?? shop['registrationFeePayment'])
             as Map?;
-    final paymentPhone = await promptClickPesaPaymentPhone(
-      context,
-      title: 'Resend registration payment',
-      initialPhone: '${payment?['phone'] ?? shopRegistrationPhone.text}',
-      message:
-          'Enter the phone that should receive the ClickPesa USSD prompt. Change it if the first phone was wrong or has no money.',
+    final controller = shopResendPhoneController(
+      paymentId,
+      '${payment?['phone'] ?? shopRegistrationPhone.text}',
     );
-    if (paymentPhone == null || !mounted) return;
+    late final String paymentPhone;
+    try {
+      paymentPhone = requireTwelveDigitPhone(controller.text);
+    } catch (error) {
+      setState(() {
+        shopResendPhoneError = error.toString().replaceFirst('Exception: ', '');
+      });
+      return;
+    }
     shopRegistrationPhone.text = paymentPhone;
     setState(() => resendingShopPaymentId = paymentId);
     try {
@@ -4608,6 +4603,10 @@ class _SellerPageState extends State<SellerPage> {
         {'registration_payment_phone': paymentPhone},
       );
       if (!mounted) return;
+      setState(() {
+        editingShopPaymentId = null;
+        shopResendPhoneError = null;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -4924,6 +4923,12 @@ class _SellerPageState extends State<SellerPage> {
     delivererName.dispose();
     delivererPhone.dispose();
     campaignPhone.dispose();
+    for (final controller in campaignResendPhones.values) {
+      controller.dispose();
+    }
+    for (final controller in shopResendPhones.values) {
+      controller.dispose();
+    }
     shopDraft?.dispose();
     productDraft?.dispose();
     super.dispose();
@@ -5155,47 +5160,73 @@ class _SellerPageState extends State<SellerPage> {
                       final isResending =
                           paymentId != null &&
                           resendingCampaignPaymentId == paymentId;
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: CircleAvatar(
-                          backgroundColor: kPrimaryLightColor,
-                          child: Icon(
-                            campaign['channel'] == 'sms'
-                                ? Icons.sms_outlined
-                                : Icons.notifications_outlined,
-                            color: kPrimaryColor,
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: CircleAvatar(
+                              backgroundColor: kPrimaryLightColor,
+                              child: Icon(
+                                campaign['channel'] == 'sms'
+                                    ? Icons.sms_outlined
+                                    : Icons.notifications_outlined,
+                                color: kPrimaryColor,
+                              ),
+                            ),
+                            title: Text(
+                              '${campaign['product']?['name'] ?? 'Product campaign'}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              '${campaign['sent_count'] ?? 0}/${campaign['recipient_count'] ?? 0} sent · $status · TZS ${money.format(num.tryParse('${campaign['total_cost'] ?? 0}') ?? 0)}',
+                            ),
+                            trailing: pendingPayment && paymentId != null
+                                ? IconButton(
+                                    key: ValueKey(
+                                      'campaign-${campaign['id']}-payment-resend',
+                                    ),
+                                    tooltip: isResending
+                                        ? 'Sending payment request'
+                                        : 'Change phone and resend',
+                                    onPressed: sellerUssdBusy
+                                        ? null
+                                        : () => showCampaignResendPrompt(
+                                            campaign,
+                                          ),
+                                    icon: isResending
+                                        ? const SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Icon(Icons.refresh_outlined),
+                                  )
+                                : null,
                           ),
-                        ),
-                        title: Text(
-                          '${campaign['product']?['name'] ?? 'Product campaign'}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          '${campaign['sent_count'] ?? 0}/${campaign['recipient_count'] ?? 0} sent · $status · TZS ${money.format(num.tryParse('${campaign['total_cost'] ?? 0}') ?? 0)}',
-                        ),
-                        trailing: pendingPayment && paymentId != null
-                            ? IconButton(
-                                key: ValueKey(
-                                  'campaign-${campaign['id']}-payment-resend',
-                                ),
-                                tooltip: isResending
-                                    ? 'Sending payment request'
-                                    : 'Resend payment request',
-                                onPressed: sellerUssdBusy
-                                    ? null
-                                    : () => resendCampaignPayment(campaign),
-                                icon: isResending
-                                    ? const SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Icon(Icons.refresh_outlined),
-                              )
-                            : null,
+                          if (pendingPayment &&
+                              paymentId != null &&
+                              editingCampaignPaymentId == paymentId) ...[
+                            const SizedBox(height: 4),
+                            ClickPesaResendPromptCard(
+                              title: 'Resend campaign payment',
+                              subtitle:
+                                  'Confirm or change the ClickPesa phone before sending the campaign payment prompt.',
+                              controller: campaignResendPhoneController(
+                                paymentId,
+                                '${(campaign['payment'] as Map?)?['phone'] ?? campaignPhone.text}',
+                              ),
+                              errorText: campaignResendPhoneError,
+                              busy: isResending,
+                              onCancel: hideCampaignResendPrompt,
+                              onSend: () => resendCampaignPayment(campaign),
+                              busyLabel: 'Sending campaign payment...',
+                            ),
+                          ],
+                        ],
                       );
                     },
                   ),
@@ -5559,6 +5590,27 @@ class _SellerPageState extends State<SellerPage> {
                         final isResending =
                             paymentId != null &&
                             resendingShopPaymentId == paymentId;
+                        if (paymentId != null &&
+                            editingShopPaymentId == paymentId) {
+                          final payment =
+                              (s['registration_fee_payment'] ??
+                                      s['registrationFeePayment'])
+                                  as Map?;
+                          return ClickPesaResendPromptCard(
+                            title: 'Resend registration payment',
+                            subtitle:
+                                'Confirm or change the ClickPesa phone before sending the registration payment prompt.',
+                            controller: shopResendPhoneController(
+                              paymentId,
+                              '${payment?['phone'] ?? shopRegistrationPhone.text}',
+                            ),
+                            errorText: shopResendPhoneError,
+                            busy: isResending,
+                            onCancel: hideShopRegistrationResendPrompt,
+                            onSend: () => resendShopRegistrationPayment(s),
+                            busyLabel: 'Sending registration payment...',
+                          );
+                        }
                         return SizedBox(
                           width: double.infinity,
                           child: OutlinedButton.icon(
@@ -5567,20 +5619,10 @@ class _SellerPageState extends State<SellerPage> {
                             ),
                             onPressed: sellerUssdBusy
                                 ? null
-                                : () => resendShopRegistrationPayment(s),
-                            icon: isResending
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.refresh_outlined),
-                            label: Text(
-                              isResending
-                                  ? 'Sending registration payment...'
-                                  : 'Resend registration payment',
+                                : () => showShopRegistrationResendPrompt(s),
+                            icon: const Icon(Icons.refresh_outlined),
+                            label: const Text(
+                              'Change phone and resend registration payment',
                             ),
                           ),
                         );
@@ -9335,6 +9377,166 @@ class LanguageSwitch extends StatelessWidget {
             onSelectionChanged: (selection) {
               appLanguage.value = selection.first;
             },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ClickPesaResendPromptCard extends StatelessWidget {
+  const ClickPesaResendPromptCard({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.controller,
+    required this.onSend,
+    required this.busy,
+    this.errorText,
+    this.onCancel,
+    this.sendLabel,
+    this.busyLabel,
+    this.phoneFieldKey = const ValueKey('clickpesa-resend-phone'),
+    this.sendButtonKey = const ValueKey('clickpesa-resend-confirm'),
+  });
+
+  final String title;
+  final String subtitle;
+  final TextEditingController controller;
+  final VoidCallback onSend;
+  final bool busy;
+  final String? errorText;
+  final VoidCallback? onCancel;
+  final String? sendLabel;
+  final String? busyLabel;
+  final Key phoneFieldKey;
+  final Key sendButtonKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [kPrimaryLightColor.withValues(alpha: 0.78), Colors.white],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: kPrimaryColor.withValues(alpha: 0.18)),
+        boxShadow: [
+          BoxShadow(
+            color: kPrimaryColor.withValues(alpha: 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: const BoxDecoration(
+                  color: kPrimaryColor,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.phone_iphone_outlined,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: kTextColor,
+                        fontSize: 12,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: phoneFieldKey,
+            controller: controller,
+            enabled: !busy,
+            keyboardType: TextInputType.phone,
+            textInputAction: TextInputAction.send,
+            onSubmitted: (_) {
+              if (!busy) onSend();
+            },
+            decoration: InputDecoration(
+              labelText: tx(
+                'ClickPesa payment phone',
+                'Simu ya malipo ya ClickPesa',
+              ),
+              hintText: '255700000001',
+              prefixIcon: const Icon(Icons.payments_outlined),
+              errorText: errorText,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              if (onCancel != null) ...[
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: busy ? null : onCancel,
+                    child: Text(tx('Cancel', 'Ghairi')),
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ],
+              Expanded(
+                flex: 2,
+                child: FilledButton.icon(
+                  key: sendButtonKey,
+                  onPressed: busy ? null : onSend,
+                  icon: busy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send_to_mobile_outlined),
+                  label: Text(
+                    busy
+                        ? (busyLabel ??
+                              tx('Sending request...', 'Inatuma ombi...'))
+                        : (sendLabel ??
+                              tx(
+                                'Send ClickPesa prompt',
+                                'Tuma ombi la ClickPesa',
+                              )),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
