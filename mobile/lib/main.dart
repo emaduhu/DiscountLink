@@ -288,8 +288,10 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   bool showSplash = true;
   StreamSubscription<String>? fcmTokenSubscription;
   StreamSubscription<RemoteMessage>? foregroundMessageSubscription;
+  StreamSubscription<RemoteMessage>? notificationOpenedSubscription;
   OverlayEntry? foregroundNotificationEntry;
   Timer? foregroundNotificationTimer;
+  bool checkedInitialNotification = false;
 
   void signedIn(String token, Map<String, dynamic> signedUser) {
     setState(() {
@@ -316,6 +318,16 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
       foregroundMessageSubscription ??= FirebaseMessaging.onMessage.listen(
         showForegroundNotification,
       );
+      notificationOpenedSubscription ??= FirebaseMessaging.onMessageOpenedApp
+          .listen((message) => unawaited(openNotificationMessage(message)));
+      if (!checkedInitialNotification) {
+        checkedInitialNotification = true;
+        final initialMessage = await FirebaseMessaging.instance
+            .getInitialMessage();
+        if (initialMessage != null) {
+          unawaited(openNotificationMessage(initialMessage));
+        }
+      }
       final token = await FirebaseMessaging.instance.getToken();
       if (token != null) {
         await client.post('/me/fcm-token', {'fcm_token': token});
@@ -353,11 +365,16 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
     final effectiveTitle = title.isNotEmpty ? title : kAppName;
     final effectiveBody = body.isNotEmpty ? body : fallbackBody;
     if (effectiveTitle.isEmpty && effectiveBody.isEmpty) return;
+    final isChat = message.data['type'] == 'chat_message';
+    final unreadCount =
+        int.tryParse('${message.data['unread_count'] ?? 0}') ?? 0;
 
     showTopNotificationBanner(
       title: effectiveTitle,
       body: effectiveBody,
-      isChat: message.data['type'] == 'chat_message',
+      isChat: isChat,
+      unreadCount: isChat ? unreadCount : 0,
+      onTap: isChat ? () => unawaited(openNotificationMessage(message)) : null,
     );
   }
 
@@ -365,6 +382,8 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
     required String title,
     required String body,
     required bool isChat,
+    int unreadCount = 0,
+    VoidCallback? onTap,
   }) {
     final overlay = appNavigatorKey.currentState?.overlay;
     final context = appNavigatorKey.currentContext;
@@ -391,7 +410,11 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
             child: Material(
               color: Colors.transparent,
               child: GestureDetector(
-                onTap: hideForegroundNotificationBanner,
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  hideForegroundNotificationBanner();
+                  onTap?.call();
+                },
                 child: Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -422,14 +445,50 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.black,
-                                fontWeight: FontWeight.w900,
-                              ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.black,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ),
+                                if (unreadCount > 1) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: kPrimaryLightColor,
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      unreadCount > 99 ? '99+' : '$unreadCount',
+                                      style: const TextStyle(
+                                        color: kPrimaryColor,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'now',
+                                  style: TextStyle(
+                                    color: kTextColor,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
                             ),
                             if (body.isNotEmpty) ...[
                               const SizedBox(height: 2),
@@ -462,6 +521,52 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
       const Duration(seconds: 6),
       hideForegroundNotificationBanner,
     );
+  }
+
+  Future<void> openNotificationMessage(RemoteMessage message) async {
+    final data = message.data;
+    final route = '${data['route'] ?? ''}'.trim();
+    final type = '${data['type'] ?? ''}'.trim();
+    if (route == 'chat' || type == 'chat_message') {
+      await openChatFromNotification('${data['conversation_id'] ?? ''}');
+    }
+  }
+
+  Future<void> openChatFromNotification(String conversationId) async {
+    final id = conversationId.trim();
+    final signedUser = user;
+    final navigator = appNavigatorKey.currentState;
+    if (id.isEmpty ||
+        client.token == null ||
+        signedUser == null ||
+        navigator == null) {
+      return;
+    }
+
+    try {
+      final response = await client.get('/conversations/$id/messages', {
+        'page': '1',
+        'per_page': '50',
+      });
+      final loadedConversation = response['conversation'];
+      if (loadedConversation is! Map) {
+        return;
+      }
+      await navigator.push<void>(
+        MaterialPageRoute(
+          builder: (_) => ChatConversationPage(
+            client: client,
+            user: signedUser,
+            conversation: Map<String, dynamic>.from(loadedConversation),
+          ),
+        ),
+      );
+    } catch (error) {
+      showFallbackNotification(
+        tx('Could not open chat', 'Imeshindikana kufungua soga'),
+        error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
   }
 
   void hideForegroundNotificationBanner() {
@@ -515,6 +620,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
     hideForegroundNotificationBanner();
     fcmTokenSubscription?.cancel();
     foregroundMessageSubscription?.cancel();
+    notificationOpenedSubscription?.cancel();
     super.dispose();
   }
 
