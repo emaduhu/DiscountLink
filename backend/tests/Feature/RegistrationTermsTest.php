@@ -71,4 +71,38 @@ class RegistrationTermsTest extends TestCase
 
         $this->assertNotNull($user->fresh()->terms_accepted_at);
     }
+
+    public function test_new_social_user_is_told_to_complete_registration_details(): void
+    {
+        $this->postJson('/api/auth/google', [
+            'google_id_token' => 'dev-google-token:NewSocial@example.com',
+            'role' => 'buyer',
+        ])
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'social_registration_required')
+            ->assertJsonPath('message', 'Complete registration with your name, phone, NIDA number, and address before using social sign-in.');
+    }
+
+    public function test_new_social_user_can_complete_registration_with_same_social_token(): void
+    {
+        Mail::fake();
+
+        $this->postJson('/api/auth/google', [
+            'google_id_token' => 'dev-google-token:NewSocial@example.com',
+            'role' => 'buyer',
+            'full_name' => 'New Social',
+            'phone' => '255700111333',
+            'nida_number' => '19900101123456789001',
+            'address' => 'Dar es Salaam',
+            'terms_accepted' => true,
+        ])
+            ->assertOk()
+            ->assertJsonPath('user.email', 'newsocial@example.com')
+            ->assertJsonPath('user.name', 'New Social');
+
+        $this->assertDatabaseHas('users', [
+            'email' => 'newsocial@example.com',
+            'phone' => '255700111333',
+        ]);
+    }
 }

@@ -86,6 +86,13 @@ class AuthController extends Controller
 
     public function login(Request $request, ApiTokenService $tokens, FcmTokenService $fcmTokens): JsonResponse
     {
+        $rawIdentifier = (string) $request->input('identifier', '');
+        $request->merge([
+            'identifier' => str_contains($rawIdentifier, '@')
+                ? $this->normalizeEmail($rawIdentifier)
+                : $this->normalizePhone($rawIdentifier),
+        ]);
+
         $data = $request->validate([
             'identifier' => ['required', 'string', 'max:190'],
             'password' => ['required', 'string'],
@@ -93,9 +100,9 @@ class AuthController extends Controller
         ]);
 
         $identifier = $data['identifier'];
-        $user = User::where('email', $identifier)
-            ->orWhere('phone', $identifier)
-            ->first();
+        $user = str_contains($identifier, '@')
+            ? $this->findUserByEmail($identifier)
+            : User::where('phone', $identifier)->first();
 
         abort_if(! $user || ! $user->password || ! Hash::check($data['password'], $user->password), 422, 'Invalid login credentials.');
         abort_unless($user->is_active, 403, 'Your account is blocked.');
@@ -222,16 +229,17 @@ class AuthController extends Controller
             ! empty($data['google_access_token']) => $google->verifyAccessToken($data['google_access_token']),
             default => $google->verify($data['google_id_token']),
         };
-        $email = $profile['email'] ?? null;
+        $email = isset($profile['email']) ? $this->normalizeEmail((string) $profile['email']) : null;
         abort_unless($email, 422, 'The selected account must expose an email address.');
 
-        $user = User::where('email', $email)->first();
+        $user = $this->findUserByEmail($email);
         $isNewUser = ! $user;
-        abort_if(
-            ! $user && (empty($data['full_name']) || empty($data['phone']) || empty($data['nida_number']) || empty($data['address'])),
-            422,
-            'Complete registration with your name, phone, NIDA number, and address before using social sign-in.'
-        );
+        if (! $user && (empty($data['full_name']) || empty($data['phone']) || empty($data['nida_number']) || empty($data['address']))) {
+            return response()->json([
+                'code' => 'social_registration_required',
+                'message' => 'Complete registration with your name, phone, NIDA number, and address before using social sign-in.',
+            ], 422);
+        }
         abort_if(
             ! $user && empty($data['terms_accepted']),
             422,
@@ -278,7 +286,12 @@ class AuthController extends Controller
             $attributes['address'] = $data['address'];
         }
 
-        $user = User::updateOrCreate(['email' => $email], $attributes);
+        if ($user) {
+            $user->update($attributes);
+            $user = $user->fresh();
+        } else {
+            $user = User::create(['email' => $email] + $attributes);
+        }
         if (! empty($data['fcm_token'])) {
             $fcmTokens->claim($user, $data['fcm_token']);
         }

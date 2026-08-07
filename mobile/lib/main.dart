@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -18,6 +19,7 @@ import 'package:video_player/video_player.dart';
 import 'package:intl/intl.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:upgrader/upgrader.dart';
 
@@ -63,6 +65,13 @@ String normalizePhoneInput(String value) {
       ? trimmed.substring(1)
       : trimmed;
   return withoutCountryPrefix.replaceAll(RegExp(r'[\s-]+'), '');
+}
+
+String normalizeLoginIdentifier(String value) {
+  final trimmed = value.trim();
+  return trimmed.contains('@')
+      ? trimmed.toLowerCase()
+      : normalizePhoneInput(trimmed);
 }
 
 bool isTwelveDigitPhone(String value) =>
@@ -322,6 +331,7 @@ Future<Map<String, dynamic>> googleBackendAuthPayload() async {
     return {
       'google_access_token': authorization.accessToken,
       '_display_name': googleUser.displayName,
+      '_email': googleUser.email,
       '_phone': null,
     };
   } on GoogleSignInException catch (error) {
@@ -329,23 +339,88 @@ Future<Map<String, dynamic>> googleBackendAuthPayload() async {
   }
 }
 
-Future<UserCredential> signInWithAppleFirebase() async {
+class AppleSignInResult {
+  const AppleSignInResult({
+    required this.credential,
+    this.email,
+    this.displayName,
+  });
+
+  final UserCredential credential;
+  final String? email;
+  final String? displayName;
+}
+
+Future<AppleSignInResult> signInWithAppleFirebase() async {
   await ensureFirebaseInitialized(feature: 'Apple sign-in');
-  final appleProvider = AppleAuthProvider()
-    ..addScope('email')
-    ..addScope('name');
 
   try {
-    return await FirebaseAuth.instance
-        .signInWithProvider(appleProvider)
+    final available = await SignInWithApple.isAvailable();
+    if (!available) {
+      throw Exception(
+        'Apple sign-in is not available on this device. Use an iPhone or iPad signed in to iCloud.',
+      );
+    }
+
+    final rawNonce = generateNonce();
+    final hashedNonce = sha256.convert(utf8.encode(rawNonce)).toString();
+    final appleCredential = await SignInWithApple.getAppleIDCredential(
+      scopes: const [
+        AppleIDAuthorizationScopes.email,
+        AppleIDAuthorizationScopes.fullName,
+      ],
+      nonce: hashedNonce,
+    ).timeout(const Duration(minutes: 2));
+
+    final identityToken = appleCredential.identityToken;
+    if (identityToken == null || identityToken.isEmpty) {
+      throw Exception(
+        'Apple sign-in did not return an identity token. Try again and make sure Apple sign-in is enabled for this app identifier.',
+      );
+    }
+
+    final oauthCredential = AppleAuthProvider.credentialWithIDToken(
+      identityToken,
+      rawNonce,
+      AppleFullPersonName(
+        givenName: appleCredential.givenName,
+        familyName: appleCredential.familyName,
+      ),
+    );
+    final firebaseCredential = await FirebaseAuth.instance
+        .signInWithCredential(oauthCredential)
         .timeout(const Duration(minutes: 2));
+
+    return AppleSignInResult(
+      credential: firebaseCredential,
+      email: appleCredential.email ?? firebaseCredential.user?.email,
+      displayName:
+          appleCredentialDisplayName(appleCredential) ??
+          firebaseCredential.user?.displayName,
+    );
   } on TimeoutException {
     throw Exception(
       'Apple sign-in did not finish. Close the Apple sign-in sheet and try again. If you are using the simulator, test on a physical iPhone signed in to iCloud.',
     );
+  } on SignInWithAppleAuthorizationException catch (error) {
+    throw Exception(nativeAppleSignInErrorMessage(error));
+  } on SignInWithAppleNotSupportedException catch (error) {
+    throw Exception(error.message);
+  } on SignInWithAppleException catch (error) {
+    throw Exception('Apple sign-in failed: $error');
   } on FirebaseAuthException catch (error) {
     throw Exception(appleSignInErrorMessage(error));
   }
+}
+
+String? appleCredentialDisplayName(AuthorizationCredentialAppleID credential) {
+  final parts = [credential.givenName, credential.familyName]
+      .whereType<String>()
+      .map((part) => part.trim())
+      .where((part) => part.isNotEmpty)
+      .toList();
+  if (parts.isEmpty) return null;
+  return parts.join(' ');
 }
 
 String googleSignInErrorMessage(GoogleSignInException error) {
@@ -357,6 +432,23 @@ String googleSignInErrorMessage(GoogleSignInException error) {
     return 'Google sign-in is not configured correctly in Firebase. Enable Google sign-in, add the Android SHA keys, and download the updated google-services.json.';
   }
   return error.description ?? 'Google sign-in failed. Please try again.';
+}
+
+String nativeAppleSignInErrorMessage(
+  SignInWithAppleAuthorizationException error,
+) {
+  if (error.code == AuthorizationErrorCode.canceled) {
+    return 'Apple sign-in was cancelled.';
+  }
+  if (error.code == AuthorizationErrorCode.notHandled) {
+    return 'Apple sign-in was not handled. Check that Sign in with Apple is enabled for the iOS app identifier.';
+  }
+  if (error.code == AuthorizationErrorCode.invalidResponse) {
+    return 'Apple sign-in returned an invalid response. Try again, and if it persists remove this app from your Apple ID Sign in with Apple settings before retrying.';
+  }
+  return error.message.isNotEmpty
+      ? error.message
+      : 'Apple sign-in failed. Please try again.';
 }
 
 String appleSignInErrorMessage(FirebaseAuthException error) {
@@ -996,16 +1088,27 @@ class ApiClient {
 
     final data = decodeResponse(response);
     if (response.statusCode >= 400) {
+      final code = data['code']?.toString();
       final errors = data['errors'];
       if (errors is Map && errors.isNotEmpty) {
         final first = errors.values.first;
         if (first is List && first.isNotEmpty) {
-          throw Exception(first.first.toString());
+          throw ApiException(
+            first.first.toString(),
+            statusCode: response.statusCode,
+            code: code,
+          );
         }
-        throw Exception(first.toString());
+        throw ApiException(
+          first.toString(),
+          statusCode: response.statusCode,
+          code: code,
+        );
       }
-      throw Exception(
-        data['message'] ?? 'Request failed (${response.statusCode})',
+      throw ApiException(
+        '${data['message'] ?? 'Request failed (${response.statusCode})'}',
+        statusCode: response.statusCode,
+        code: code,
       );
     }
     return data;
@@ -1037,6 +1140,17 @@ class ApiClient {
   };
 }
 
+class ApiException implements Exception {
+  const ApiException(this.message, {required this.statusCode, this.code});
+
+  final String message;
+  final int statusCode;
+  final String? code;
+
+  @override
+  String toString() => message;
+}
+
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key, required this.client, required this.onSignedIn});
   final ApiClient client;
@@ -1046,6 +1160,7 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  static const _socialRegistrationRequiredCode = 'social_registration_required';
   static const _socialTermsSignInMessage =
       'accept the Terms and Conditions before signing in';
   static const _socialTermsCreateMessage =
@@ -1122,7 +1237,11 @@ class _LoginPageState extends State<LoginPage> {
       return await widget.client.post('/auth/google', payload);
     } catch (error) {
       final message = error.toString();
-      if (message.contains(_socialRegistrationRequiredMessage)) {
+      final registrationRequired =
+          error is ApiException &&
+          error.code == _socialRegistrationRequiredCode;
+      if (registrationRequired ||
+          message.contains(_socialRegistrationRequiredMessage)) {
         await openRegisterPage(
           pendingSocialProviderName: providerName,
           pendingSocialPayload: payload,
@@ -1184,8 +1303,8 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> appleSignIn() async {
     setState(() => loading = true);
     try {
-      final credential = await signInWithAppleFirebase();
-      final firebaseUser = credential.user;
+      final appleAuth = await signInWithAppleFirebase();
+      final firebaseUser = appleAuth.credential.user;
       final token = await firebaseUser?.getIdToken();
       if (token == null) {
         throw Exception('Firebase did not return an ID token.');
@@ -1193,8 +1312,10 @@ class _LoginPageState extends State<LoginPage> {
       final socialPhone = normalizePhoneInput(firebaseUser?.phoneNumber ?? '');
       final response = await postSocialLogin({
         'firebase_id_token': token,
+        '_email': appleAuth.email ?? firebaseUser?.email,
         'role': role,
-        'full_name': firebaseUser?.displayName ?? 'Apple user',
+        'full_name':
+            appleAuth.displayName ?? firebaseUser?.displayName ?? 'Apple user',
         'phone': socialPhone.isEmpty
             ? ''
             : requireTwelveDigitPhone(socialPhone),
@@ -1248,7 +1369,7 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => loading = true);
     try {
       final response = await widget.client.post('/auth/login', {
-        'identifier': email.text.trim(),
+        'identifier': normalizeLoginIdentifier(email.text),
         'password': password.text,
         'fcm_token': await fcmToken(),
       });
@@ -1672,6 +1793,34 @@ class _RegisterPageState extends State<RegisterPage> {
   bool termsAccepted = false;
   bool loading = false;
 
+  @override
+  void initState() {
+    super.initState();
+    applyPendingSocialPayload();
+  }
+
+  void applyPendingSocialPayload() {
+    final pendingPayload = widget.pendingSocialPayload;
+    if (pendingPayload == null) return;
+
+    final pendingRole = '${pendingPayload['role'] ?? ''}'.trim();
+    if (pendingRole == 'buyer' ||
+        pendingRole == 'seller' ||
+        pendingRole == 'deliverer') {
+      role = pendingRole;
+    }
+
+    final socialName = '${pendingPayload['full_name'] ?? ''}'.trim();
+    if (socialName.isNotEmpty && !socialName.endsWith(' user')) {
+      name.text = socialName;
+    }
+
+    final socialPhone = normalizePhoneInput('${pendingPayload['phone'] ?? ''}');
+    if (socialPhone.isNotEmpty) {
+      phone.text = socialPhone;
+    }
+  }
+
   Future<String?> fcmToken() async {
     return firebaseMessagingToken();
   }
@@ -1805,15 +1954,16 @@ class _RegisterPageState extends State<RegisterPage> {
   Future<void> appleRegister() async {
     setState(() => loading = true);
     try {
-      final credential = await signInWithAppleFirebase();
-      final firebaseUser = credential.user;
+      final appleAuth = await signInWithAppleFirebase();
+      final firebaseUser = appleAuth.credential.user;
       final token = await firebaseUser?.getIdToken();
       if (token == null) {
         throw Exception('Firebase did not return an ID token.');
       }
       final response = await socialRegister(
         credentials: {'firebase_id_token': token},
-        fallbackName: firebaseUser?.displayName ?? 'Apple user',
+        fallbackName:
+            appleAuth.displayName ?? firebaseUser?.displayName ?? 'Apple user',
       );
       completeSignIn(response);
     } catch (error) {
@@ -1837,9 +1987,11 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   Widget build(BuildContext context) {
     final pendingSocialProviderName = widget.pendingSocialProviderName;
+    final pendingSocialPayload = widget.pendingSocialPayload;
     final hasPendingSocialLogin =
-        widget.pendingSocialPayload != null &&
-        pendingSocialProviderName != null;
+        pendingSocialPayload != null && pendingSocialProviderName != null;
+    final pendingSocialEmail = '${pendingSocialPayload?['_email'] ?? ''}'
+        .trim();
     final showApple =
         !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.iOS ||
@@ -1881,28 +2033,16 @@ class _RegisterPageState extends State<RegisterPage> {
                         if (hasPendingSocialLogin) ...[
                           Text(
                             tx(
-                              'Complete your details to finish $pendingSocialProviderName registration.',
-                              'Kamilisha taarifa zako ili kumaliza usajili wa $pendingSocialProviderName.',
+                              pendingSocialEmail.isEmpty
+                                  ? 'No account exists for this $pendingSocialProviderName login. Complete your details below and we will create the account with the same login.'
+                                  : 'No account exists for $pendingSocialEmail. Complete your details below and we will create the account with your $pendingSocialProviderName login.',
+                              pendingSocialEmail.isEmpty
+                                  ? 'Hakuna akaunti kwa uingiaji huu wa $pendingSocialProviderName. Kamilisha taarifa zako hapa chini na tutafungua akaunti kwa uingiaji huo huo.'
+                                  : 'Hakuna akaunti ya $pendingSocialEmail. Kamilisha taarifa zako hapa chini na tutafungua akaunti kwa uingiaji wako wa $pendingSocialProviderName.',
                             ),
                             style: Theme.of(
                               context,
                             ).textTheme.bodySmall?.copyWith(color: kTextColor),
-                          ),
-                          const SizedBox(height: 8),
-                          OutlinedButton.icon(
-                            onPressed: loading ? null : pendingSocialRegister,
-                            icon: Icon(
-                              pendingSocialProviderName == 'Apple'
-                                  ? Icons.apple
-                                  : Icons.login,
-                            ),
-                            label: Text(
-                              tx(
-                                'Complete $pendingSocialProviderName registration',
-                                'Kamilisha usajili wa $pendingSocialProviderName',
-                              ),
-                            ),
-                            style: socialButtonStyle(),
                           ),
                         ] else ...[
                           OutlinedButton.icon(
@@ -1941,12 +2081,13 @@ class _RegisterPageState extends State<RegisterPage> {
                           label: tx('Full name', 'Jina kamili'),
                           icon: Icons.person_outline,
                         ),
-                        Field(
-                          controller: email,
-                          label: tx('Email', 'Barua pepe'),
-                          icon: Icons.alternate_email,
-                          keyboard: TextInputType.emailAddress,
-                        ),
+                        if (!hasPendingSocialLogin)
+                          Field(
+                            controller: email,
+                            label: tx('Email', 'Barua pepe'),
+                            icon: Icons.alternate_email,
+                            keyboard: TextInputType.emailAddress,
+                          ),
                         Field(
                           controller: phone,
                           label: tx(
@@ -1967,12 +2108,13 @@ class _RegisterPageState extends State<RegisterPage> {
                           label: tx('Default address', 'Anwani ya msingi'),
                           icon: Icons.place_outlined,
                         ),
-                        Field(
-                          controller: password,
-                          label: tx('Password', 'Nenosiri'),
-                          icon: Icons.lock_outline,
-                          obscure: true,
-                        ),
+                        if (!hasPendingSocialLogin)
+                          Field(
+                            controller: password,
+                            label: tx('Password', 'Nenosiri'),
+                            icon: Icons.lock_outline,
+                            obscure: true,
+                          ),
                         CheckboxListTile(
                           value: termsAccepted,
                           onChanged: loading
@@ -1997,7 +2139,11 @@ class _RegisterPageState extends State<RegisterPage> {
                           ),
                         ),
                         FilledButton.icon(
-                          onPressed: loading ? null : register,
+                          onPressed: loading
+                              ? null
+                              : hasPendingSocialLogin
+                              ? pendingSocialRegister
+                              : register,
                           icon: loading
                               ? const SizedBox(
                                   width: 18,
@@ -2010,6 +2156,11 @@ class _RegisterPageState extends State<RegisterPage> {
                           label: Text(
                             loading
                                 ? tx('Registering...', 'Inasajili...')
+                                : hasPendingSocialLogin
+                                ? tx(
+                                    'Complete $pendingSocialProviderName registration',
+                                    'Kamilisha usajili wa $pendingSocialProviderName',
+                                  )
                                 : tx('Register', 'Jisajili'),
                           ),
                         ),
