@@ -183,14 +183,82 @@ Future<void> main() async {
 
 Future<void> initializeFirebase() async {
   try {
+    await ensureFirebaseInitialized();
+  } catch (_) {}
+}
+
+Future<void> ensureFirebaseInitialized({String feature = 'Firebase'}) async {
+  if (Firebase.apps.isNotEmpty) return;
+
+  Object? primaryError;
+  try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-  } catch (_) {
-    try {
-      await Firebase.initializeApp();
-    } catch (_) {}
+    return;
+  } catch (error) {
+    primaryError = error;
   }
+
+  if (Firebase.apps.isNotEmpty) return;
+
+  try {
+    await Firebase.initializeApp();
+  } catch (fallbackError) {
+    if (Firebase.apps.isNotEmpty) return;
+    throw Exception(
+      firebaseConfigurationMessage(
+        feature: feature,
+        primaryError: primaryError,
+        fallbackError: fallbackError,
+      ),
+    );
+  }
+}
+
+String firebaseConfigurationMessage({
+  required String feature,
+  required Object? primaryError,
+  required Object fallbackError,
+}) {
+  final platform = kIsWeb ? 'web' : defaultTargetPlatform.name;
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.macOS)) {
+    final plistPath = defaultTargetPlatform == TargetPlatform.iOS
+        ? 'ios/Runner/GoogleService-Info.plist'
+        : 'macos/Runner/GoogleService-Info.plist';
+    return '$feature requires Firebase to be configured for $platform. Add the $platform app in Firebase, place GoogleService-Info.plist at $plistPath, then run FlutterFire configure so lib/firebase_options.dart includes $platform.';
+  }
+
+  return '$feature requires Firebase, but Firebase could not be initialized: ${primaryError ?? fallbackError}';
+}
+
+bool get usesApplePushToken =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.macOS);
+
+Future<String?> firebaseMessagingToken() async {
+  try {
+    await ensureFirebaseInitialized(feature: 'push notifications');
+    if (usesApplePushToken) {
+      final apnsToken = await waitForApnsToken();
+      if (apnsToken == null) return null;
+    }
+    return await FirebaseMessaging.instance.getToken();
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<String?> waitForApnsToken() async {
+  for (var attempt = 0; attempt < 10; attempt += 1) {
+    final token = await FirebaseMessaging.instance.getAPNSToken();
+    if (token != null && token.isNotEmpty) return token;
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+  }
+  return null;
 }
 
 Future<UserCredential> signInWithGoogleFirebase() async {
@@ -262,6 +330,7 @@ Future<Map<String, dynamic>> googleBackendAuthPayload() async {
 }
 
 Future<UserCredential> signInWithAppleFirebase() async {
+  await ensureFirebaseInitialized(feature: 'Apple sign-in');
   return FirebaseAuth.instance.signInWithProvider(AppleAuthProvider());
 }
 
@@ -328,7 +397,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
           unawaited(openNotificationMessage(initialMessage));
         }
       }
-      final token = await FirebaseMessaging.instance.getToken();
+      final token = await firebaseMessagingToken();
       if (token != null) {
         await client.post('/me/fcm-token', {'fcm_token': token});
       }
@@ -948,6 +1017,13 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  static const _socialTermsSignInMessage =
+      'accept the Terms and Conditions before signing in';
+  static const _socialTermsCreateMessage =
+      'accept the Terms and Conditions before creating an account';
+  static const _socialRegistrationRequiredMessage =
+      'Complete registration with your name, phone, NIDA number, and address before using social sign-in';
+
   final email = TextEditingController(text: 'buyer@discountlink.local');
   final password = TextEditingController(text: 'password');
   String role = 'buyer';
@@ -975,11 +1051,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<String?> fcmToken() async {
-    try {
-      return FirebaseMessaging.instance.getToken();
-    } catch (_) {
-      return null;
-    }
+    return firebaseMessagingToken();
   }
 
   Future<void> googleSignIn() async {
@@ -1000,22 +1072,8 @@ class _LoginPageState extends State<LoginPage> {
         'address': '',
         'fcm_token': await fcmToken(),
       };
-      Map<String, dynamic> response;
-      try {
-        response = await widget.client.post('/auth/google', payload);
-      } catch (error) {
-        if (!error.toString().contains(
-          'accept the Terms and Conditions before signing in',
-        )) {
-          rethrow;
-        }
-        final accepted = await showGoogleTermsDialog();
-        if (!accepted) return;
-        response = await widget.client.post('/auth/google', {
-          ...payload,
-          'terms_accepted': true,
-        });
-      }
+      final response = await postSocialLogin(payload, providerName: 'Google');
+      if (response == null) return;
       widget.onSignedIn(
         response['token'] as String,
         response['user'] as Map<String, dynamic>,
@@ -1027,7 +1085,35 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  Future<bool> showGoogleTermsDialog() async {
+  Future<Map<String, dynamic>?> postSocialLogin(
+    Map<String, dynamic> payload, {
+    required String providerName,
+  }) async {
+    try {
+      return await widget.client.post('/auth/google', payload);
+    } catch (error) {
+      final message = error.toString();
+      if (message.contains(_socialRegistrationRequiredMessage)) {
+        await openRegisterPage(
+          pendingSocialProviderName: providerName,
+          pendingSocialPayload: payload,
+        );
+        return null;
+      }
+      if (!message.contains(_socialTermsSignInMessage) &&
+          !message.contains(_socialTermsCreateMessage)) {
+        rethrow;
+      }
+      final accepted = await showSocialTermsDialog();
+      if (!accepted) return null;
+      return widget.client.post('/auth/google', {
+        ...payload,
+        'terms_accepted': true,
+      });
+    }
+  }
+
+  Future<bool> showSocialTermsDialog() async {
     var accepted = false;
     return await showDialog<bool>(
           context: context,
@@ -1076,7 +1162,7 @@ class _LoginPageState extends State<LoginPage> {
         throw Exception('Firebase did not return an ID token.');
       }
       final socialPhone = normalizePhoneInput(firebaseUser?.phoneNumber ?? '');
-      final response = await widget.client.post('/auth/google', {
+      final response = await postSocialLogin({
         'firebase_id_token': token,
         'role': role,
         'full_name': firebaseUser?.displayName ?? 'Apple user',
@@ -1085,7 +1171,8 @@ class _LoginPageState extends State<LoginPage> {
             : requireTwelveDigitPhone(socialPhone),
         'address': '',
         'fcm_token': await fcmToken(),
-      });
+      }, providerName: 'Apple');
+      if (response == null) return;
       widget.onSignedIn(
         response['token'] as String,
         response['user'] as Map<String, dynamic>,
@@ -1097,11 +1184,18 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  Future<void> openRegisterPage() async {
+  Future<void> openRegisterPage({
+    String? pendingSocialProviderName,
+    Map<String, dynamic>? pendingSocialPayload,
+  }) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) =>
-            RegisterPage(client: widget.client, onSignedIn: widget.onSignedIn),
+        builder: (_) => RegisterPage(
+          client: widget.client,
+          onSignedIn: widget.onSignedIn,
+          pendingSocialProviderName: pendingSocialProviderName,
+          pendingSocialPayload: pendingSocialPayload,
+        ),
       ),
     );
   }
@@ -1526,9 +1620,13 @@ class RegisterPage extends StatefulWidget {
     super.key,
     required this.client,
     required this.onSignedIn,
+    this.pendingSocialProviderName,
+    this.pendingSocialPayload,
   });
   final ApiClient client;
   final void Function(String token, Map<String, dynamic> user) onSignedIn;
+  final String? pendingSocialProviderName;
+  final Map<String, dynamic>? pendingSocialPayload;
 
   @override
   State<RegisterPage> createState() => _RegisterPageState();
@@ -1546,11 +1644,7 @@ class _RegisterPageState extends State<RegisterPage> {
   bool loading = false;
 
   Future<String?> fcmToken() async {
-    try {
-      return FirebaseMessaging.instance.getToken();
-    } catch (_) {
-      return null;
-    }
+    return firebaseMessagingToken();
   }
 
   void completeSignIn(Map<String, dynamic> response) {
@@ -1617,24 +1711,60 @@ class _RegisterPageState extends State<RegisterPage> {
   Future<void> googleRegister() async {
     setState(() => loading = true);
     try {
-      requireRegistrationDetails(includeEmailPassword: false);
-      final normalizedPhone = requireTwelveDigitPhone(phone.text);
       final auth = await googleBackendAuthPayload();
-      final response = await widget.client.post('/auth/google', {
-        if (auth['firebase_id_token'] != null)
-          'firebase_id_token': auth['firebase_id_token'],
-        if (auth['google_access_token'] != null)
-          'google_access_token': auth['google_access_token'],
-        'role': role,
-        'full_name': name.text.trim().isEmpty
-            ? (auth['_display_name'] ?? 'Google user')
-            : name.text.trim(),
-        'phone': normalizedPhone,
-        'nida_number': nida.text.trim(),
-        'address': address.text.trim(),
-        'fcm_token': await fcmToken(),
-        'terms_accepted': true,
-      });
+      final response = await socialRegister(
+        credentials: {
+          if (auth['firebase_id_token'] != null)
+            'firebase_id_token': auth['firebase_id_token'],
+          if (auth['google_access_token'] != null)
+            'google_access_token': auth['google_access_token'],
+        },
+        fallbackName: auth['_display_name'] ?? 'Google user',
+      );
+      completeSignIn(response);
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<Map<String, dynamic>> socialRegister({
+    required Map<String, dynamic> credentials,
+    required String fallbackName,
+  }) async {
+    requireRegistrationDetails(includeEmailPassword: false);
+    final normalizedPhone = requireTwelveDigitPhone(phone.text);
+    return widget.client.post('/auth/google', {
+      ...credentials,
+      'role': role,
+      'full_name': name.text.trim().isEmpty ? fallbackName : name.text.trim(),
+      'phone': normalizedPhone,
+      'nida_number': nida.text.trim(),
+      'address': address.text.trim(),
+      'fcm_token': await fcmToken(),
+      'terms_accepted': true,
+    });
+  }
+
+  Future<void> pendingSocialRegister() async {
+    final pendingPayload = widget.pendingSocialPayload;
+    final providerName = widget.pendingSocialProviderName;
+    if (pendingPayload == null || providerName == null) return;
+
+    setState(() => loading = true);
+    try {
+      final response = await socialRegister(
+        credentials: {
+          if (pendingPayload['firebase_id_token'] != null)
+            'firebase_id_token': pendingPayload['firebase_id_token'],
+          if (pendingPayload['google_access_token'] != null)
+            'google_access_token': pendingPayload['google_access_token'],
+          if (pendingPayload['google_id_token'] != null)
+            'google_id_token': pendingPayload['google_id_token'],
+        },
+        fallbackName: '$providerName user',
+      );
       completeSignIn(response);
     } catch (error) {
       if (mounted) showError(context, error);
@@ -1646,26 +1776,16 @@ class _RegisterPageState extends State<RegisterPage> {
   Future<void> appleRegister() async {
     setState(() => loading = true);
     try {
-      requireRegistrationDetails(includeEmailPassword: false);
-      final normalizedPhone = requireTwelveDigitPhone(phone.text);
       final credential = await signInWithAppleFirebase();
       final firebaseUser = credential.user;
       final token = await firebaseUser?.getIdToken();
       if (token == null) {
         throw Exception('Firebase did not return an ID token.');
       }
-      final response = await widget.client.post('/auth/google', {
-        'firebase_id_token': token,
-        'role': role,
-        'full_name': name.text.trim().isEmpty
-            ? (firebaseUser?.displayName ?? 'Apple user')
-            : name.text.trim(),
-        'phone': normalizedPhone,
-        'nida_number': nida.text.trim(),
-        'address': address.text.trim(),
-        'fcm_token': await fcmToken(),
-        'terms_accepted': true,
-      });
+      final response = await socialRegister(
+        credentials: {'firebase_id_token': token},
+        fallbackName: firebaseUser?.displayName ?? 'Apple user',
+      );
       completeSignIn(response);
     } catch (error) {
       if (mounted) showError(context, error);
@@ -1687,6 +1807,10 @@ class _RegisterPageState extends State<RegisterPage> {
 
   @override
   Widget build(BuildContext context) {
+    final pendingSocialProviderName = widget.pendingSocialProviderName;
+    final hasPendingSocialLogin =
+        widget.pendingSocialPayload != null &&
+        pendingSocialProviderName != null;
     final showApple =
         !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.iOS ||
@@ -1725,24 +1849,52 @@ class _RegisterPageState extends State<RegisterPage> {
                           title: tx('Fast registration', 'Usajili wa haraka'),
                         ),
                         const SizedBox(height: 6),
-                        OutlinedButton.icon(
-                          onPressed: loading ? null : googleRegister,
-                          icon: const Icon(Icons.login),
-                          label: Text(
-                            tx('Register with Google', 'Jisajili na Google'),
+                        if (hasPendingSocialLogin) ...[
+                          Text(
+                            tx(
+                              'Complete your details to finish $pendingSocialProviderName registration.',
+                              'Kamilisha taarifa zako ili kumaliza usajili wa $pendingSocialProviderName.',
+                            ),
+                            style: Theme.of(
+                              context,
+                            ).textTheme.bodySmall?.copyWith(color: kTextColor),
                           ),
-                          style: socialButtonStyle(),
-                        ),
-                        if (showApple) ...[
                           const SizedBox(height: 8),
                           OutlinedButton.icon(
-                            onPressed: loading ? null : appleRegister,
-                            icon: const Icon(Icons.apple),
+                            onPressed: loading ? null : pendingSocialRegister,
+                            icon: Icon(
+                              pendingSocialProviderName == 'Apple'
+                                  ? Icons.apple
+                                  : Icons.login,
+                            ),
                             label: Text(
-                              tx('Register with Apple', 'Jisajili na Apple'),
+                              tx(
+                                'Complete $pendingSocialProviderName registration',
+                                'Kamilisha usajili wa $pendingSocialProviderName',
+                              ),
                             ),
                             style: socialButtonStyle(),
                           ),
+                        ] else ...[
+                          OutlinedButton.icon(
+                            onPressed: loading ? null : googleRegister,
+                            icon: const Icon(Icons.login),
+                            label: Text(
+                              tx('Register with Google', 'Jisajili na Google'),
+                            ),
+                            style: socialButtonStyle(),
+                          ),
+                          if (showApple) ...[
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              onPressed: loading ? null : appleRegister,
+                              icon: const Icon(Icons.apple),
+                              label: Text(
+                                tx('Register with Apple', 'Jisajili na Apple'),
+                              ),
+                              style: socialButtonStyle(),
+                            ),
+                          ],
                         ],
                       ],
                     ),
