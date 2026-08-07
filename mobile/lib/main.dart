@@ -331,7 +331,21 @@ Future<Map<String, dynamic>> googleBackendAuthPayload() async {
 
 Future<UserCredential> signInWithAppleFirebase() async {
   await ensureFirebaseInitialized(feature: 'Apple sign-in');
-  return FirebaseAuth.instance.signInWithProvider(AppleAuthProvider());
+  final appleProvider = AppleAuthProvider()
+    ..addScope('email')
+    ..addScope('name');
+
+  try {
+    return await FirebaseAuth.instance
+        .signInWithProvider(appleProvider)
+        .timeout(const Duration(minutes: 2));
+  } on TimeoutException {
+    throw Exception(
+      'Apple sign-in did not finish. Close the Apple sign-in sheet and try again. If you are using the simulator, test on a physical iPhone signed in to iCloud.',
+    );
+  } on FirebaseAuthException catch (error) {
+    throw Exception(appleSignInErrorMessage(error));
+  }
 }
 
 String googleSignInErrorMessage(GoogleSignInException error) {
@@ -343,6 +357,21 @@ String googleSignInErrorMessage(GoogleSignInException error) {
     return 'Google sign-in is not configured correctly in Firebase. Enable Google sign-in, add the Android SHA keys, and download the updated google-services.json.';
   }
   return error.description ?? 'Google sign-in failed. Please try again.';
+}
+
+String appleSignInErrorMessage(FirebaseAuthException error) {
+  if (error.code == 'web-context-cancelled' ||
+      error.code == 'user-cancelled' ||
+      error.code == 'canceled') {
+    return 'Apple sign-in was cancelled.';
+  }
+  if (error.code == 'operation-not-allowed') {
+    return 'Apple sign-in is not enabled in Firebase Authentication.';
+  }
+  if (error.code == 'invalid-credential') {
+    return 'Apple sign-in returned an invalid credential. Try again and make sure you share your email address.';
+  }
+  return error.message ?? 'Apple sign-in failed. Please try again.';
 }
 
 class DiscountLinkApp extends StatefulWidget {
