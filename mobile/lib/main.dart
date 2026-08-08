@@ -53,6 +53,7 @@ final appLanguage = ValueNotifier<AppLanguage>(AppLanguage.en);
 const biometricAuth = BiometricAuthService();
 const notificationPreferences = NotificationPreferenceService();
 const notificationInbox = NotificationInboxService();
+final networkActivity = NetworkActivityController();
 final appScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 final appNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -307,6 +308,33 @@ class NotificationInboxService {
       key: _itemsKey,
       value: jsonEncode(items.map((item) => item.toJson()).toList()),
     );
+  }
+}
+
+class NetworkActivityController {
+  final activeRequests = ValueNotifier<int>(0);
+
+  void begin() {
+    activeRequests.value += 1;
+  }
+
+  void end() {
+    if (activeRequests.value == 0) return;
+    activeRequests.value -= 1;
+  }
+
+  Future<void> waitForVisible() async {
+    await WidgetsBinding.instance.endOfFrame;
+  }
+
+  Future<T> run<T>(Future<T> Function() action) async {
+    begin();
+    try {
+      await waitForVisible();
+      return await action();
+    } finally {
+      end();
+    }
   }
 }
 
@@ -801,7 +829,9 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
       }
       final token = await firebaseMessagingToken();
       if (token != null) {
-        await client.post('/me/fcm-token', {'fcm_token': token});
+        await client.post('/me/fcm-token', {
+          'fcm_token': token,
+        }, showBlockingLoader: false);
       }
       fcmTokenSubscription ??= FirebaseMessaging.instance.onTokenRefresh.listen(
         (token) async {
@@ -809,7 +839,9 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
             return;
           }
           try {
-            await client.post('/me/fcm-token', {'fcm_token': token});
+            await client.post('/me/fcm-token', {
+              'fcm_token': token,
+            }, showBlockingLoader: false);
           } catch (_) {}
         },
       );
@@ -843,7 +875,9 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
     } catch (_) {}
     try {
       if (client.token != null) {
-        await client.post('/me/fcm-token', {'fcm_token': null});
+        await client.post('/me/fcm-token', {
+          'fcm_token': null,
+        }, showBlockingLoader: false);
       }
     } catch (_) {}
     try {
@@ -1154,17 +1188,20 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   }
 
   Future<void> signedOut() async {
-    await unregisterDeviceNotifications(persistPreference: false);
-    try {
-      await GoogleSignIn.instance.signOut();
-    } catch (_) {}
-    try {
-      await FirebaseAuth.instance.signOut();
-    } catch (_) {}
-    setState(() {
-      client.token = null;
-      user = null;
-      showSplash = false;
+    await networkActivity.run(() async {
+      await unregisterDeviceNotifications(persistPreference: false);
+      try {
+        await GoogleSignIn.instance.signOut();
+      } catch (_) {}
+      try {
+        await FirebaseAuth.instance.signOut();
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        client.token = null;
+        user = null;
+        showSplash = false;
+      });
     });
   }
 
@@ -1186,6 +1223,9 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
         scaffoldMessengerKey: appScaffoldMessengerKey,
         title: kAppName,
         debugShowCheckedModeBanner: false,
+        builder: (context, child) => GlobalNetworkLoadingOverlay(
+          child: child ?? const SizedBox.shrink(),
+        ),
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
             seedColor: kPrimaryColor,
@@ -1321,21 +1361,39 @@ class ApiClient {
 
   Future<Map<String, dynamic>> post(
     String path,
-    Map<String, dynamic> body,
-  ) async {
-    return _send('POST', path, body: body);
+    Map<String, dynamic> body, {
+    bool showBlockingLoader = true,
+  }) async {
+    return _send(
+      'POST',
+      path,
+      body: body,
+      showBlockingLoader: showBlockingLoader,
+    );
   }
 
   Future<Map<String, dynamic>> put(
     String path,
-    Map<String, dynamic> body,
-  ) async {
-    return _send('PUT', path, body: body);
+    Map<String, dynamic> body, {
+    bool showBlockingLoader = true,
+  }) async {
+    return _send(
+      'PUT',
+      path,
+      body: body,
+      showBlockingLoader: showBlockingLoader,
+    );
   }
 
-  Future<Map<String, dynamic>> delete(String path) async {
+  Future<Map<String, dynamic>> delete(
+    String path, {
+    bool showBlockingLoader = true,
+  }) async {
     final uri = Uri.parse('$baseUrl$path');
-    return _request(() => http.delete(uri, headers: _headers()));
+    return _request(
+      () => http.delete(uri, headers: _headers()),
+      showBlockingLoader: showBlockingLoader,
+    );
   }
 
   Future<Map<String, dynamic>> postMultipart(
@@ -1343,20 +1401,25 @@ class ApiClient {
     required Map<String, String> fields,
     File? file,
     String fileField = 'image',
+    bool showBlockingLoader = true,
   }) async {
     final uri = Uri.parse('$baseUrl$path');
-    return _request(() async {
-      final request = http.MultipartRequest('POST', uri);
-      request.headers.addAll(_headers(includeContentType: false));
-      request.fields.addAll(fields);
-      if (file != null) {
-        request.files.add(
-          await http.MultipartFile.fromPath(fileField, file.path),
-        );
-      }
-      final streamed = await request.send();
-      return http.Response.fromStream(streamed);
-    }, timeout: const Duration(minutes: 3));
+    return _request(
+      () async {
+        final request = http.MultipartRequest('POST', uri);
+        request.headers.addAll(_headers(includeContentType: false));
+        request.fields.addAll(fields);
+        if (file != null) {
+          request.files.add(
+            await http.MultipartFile.fromPath(fileField, file.path),
+          );
+        }
+        final streamed = await request.send();
+        return http.Response.fromStream(streamed);
+      },
+      timeout: const Duration(minutes: 3),
+      showBlockingLoader: showBlockingLoader,
+    );
   }
 
   Future<Map<String, dynamic>> postMultipartFiles(
@@ -1364,6 +1427,7 @@ class ApiClient {
     required Map<String, String> fields,
     required List<File> files,
     String fileField = 'product_images[]',
+    bool showBlockingLoader = true,
   }) async {
     final uri = Uri.parse('$baseUrl$path');
     return _request(() async {
@@ -1377,7 +1441,7 @@ class ApiClient {
       }
       final streamed = await request.send();
       return http.Response.fromStream(streamed);
-    });
+    }, showBlockingLoader: showBlockingLoader);
   }
 
   Future<Map<String, dynamic>> postMultipartMedia(
@@ -1385,25 +1449,30 @@ class ApiClient {
     required Map<String, String> fields,
     required List<File> images,
     required List<File> videos,
+    bool showBlockingLoader = true,
   }) async {
     final uri = Uri.parse('$baseUrl$path');
-    return _request(() async {
-      final request = http.MultipartRequest('POST', uri);
-      request.headers.addAll(_headers(includeContentType: false));
-      request.fields.addAll(fields);
-      for (final image in images) {
-        request.files.add(
-          await http.MultipartFile.fromPath('product_images[]', image.path),
-        );
-      }
-      for (final video in videos) {
-        request.files.add(
-          await http.MultipartFile.fromPath('product_videos[]', video.path),
-        );
-      }
-      final streamed = await request.send();
-      return http.Response.fromStream(streamed);
-    }, timeout: const Duration(minutes: 3));
+    return _request(
+      () async {
+        final request = http.MultipartRequest('POST', uri);
+        request.headers.addAll(_headers(includeContentType: false));
+        request.fields.addAll(fields);
+        for (final image in images) {
+          request.files.add(
+            await http.MultipartFile.fromPath('product_images[]', image.path),
+          );
+        }
+        for (final video in videos) {
+          request.files.add(
+            await http.MultipartFile.fromPath('product_videos[]', video.path),
+          );
+        }
+        final streamed = await request.send();
+        return http.Response.fromStream(streamed);
+      },
+      timeout: const Duration(minutes: 3),
+      showBlockingLoader: showBlockingLoader,
+    );
   }
 
   Future<Map<String, dynamic>> get(
@@ -1411,13 +1480,17 @@ class ApiClient {
     Map<String, String>? query,
   ]) async {
     final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
-    return _request(() => http.get(uri, headers: _headers()));
+    return _request(
+      () => http.get(uri, headers: _headers()),
+      showBlockingLoader: false,
+    );
   }
 
   Future<Map<String, dynamic>> _send(
     String method,
     String path, {
     Map<String, dynamic>? body,
+    bool showBlockingLoader = true,
   }) async {
     final uri = Uri.parse('$baseUrl$path');
     return _request(() {
@@ -1427,60 +1500,71 @@ class ApiClient {
         return http.put(uri, headers: headers, body: encoded);
       }
       return http.post(uri, headers: headers, body: encoded);
-    });
+    }, showBlockingLoader: showBlockingLoader);
   }
 
   Future<Map<String, dynamic>> _request(
     Future<http.Response> Function() call, {
     Duration timeout = const Duration(seconds: 30),
+    bool showBlockingLoader = true,
   }) async {
-    late final http.Response response;
-    try {
-      response = await call().timeout(timeout);
-    } on SocketException {
-      throw Exception(
-        'We could not reach DiscountLink. Check your internet connection and try again.',
-      );
-    } on IOException {
-      throw Exception(
-        'We could not reach DiscountLink. Check your internet connection and try again.',
-      );
-    } on TimeoutException {
-      throw Exception(
-        'DiscountLink is taking too long to respond. Please try again in a moment.',
-      );
-    } on http.ClientException {
-      throw Exception(
-        'We could not connect to DiscountLink right now. Please try again shortly.',
-      );
+    if (showBlockingLoader) {
+      networkActivity.begin();
+      await networkActivity.waitForVisible();
     }
+    try {
+      late final http.Response response;
+      try {
+        response = await call().timeout(timeout);
+      } on SocketException {
+        throw Exception(
+          'We could not reach DiscountLink. Check your internet connection and try again.',
+        );
+      } on IOException {
+        throw Exception(
+          'We could not reach DiscountLink. Check your internet connection and try again.',
+        );
+      } on TimeoutException {
+        throw Exception(
+          'DiscountLink is taking too long to respond. Please try again in a moment.',
+        );
+      } on http.ClientException {
+        throw Exception(
+          'We could not connect to DiscountLink right now. Please try again shortly.',
+        );
+      }
 
-    final data = decodeResponse(response);
-    if (response.statusCode >= 400) {
-      final code = data['code']?.toString();
-      final errors = data['errors'];
-      if (errors is Map && errors.isNotEmpty) {
-        final first = errors.values.first;
-        if (first is List && first.isNotEmpty) {
+      final data = decodeResponse(response);
+      if (response.statusCode >= 400) {
+        final code = data['code']?.toString();
+        final errors = data['errors'];
+        if (errors is Map && errors.isNotEmpty) {
+          final first = errors.values.first;
+          if (first is List && first.isNotEmpty) {
+            throw ApiException(
+              first.first.toString(),
+              statusCode: response.statusCode,
+              code: code,
+            );
+          }
           throw ApiException(
-            first.first.toString(),
+            first.toString(),
             statusCode: response.statusCode,
             code: code,
           );
         }
         throw ApiException(
-          first.toString(),
+          '${data['message'] ?? 'Request failed (${response.statusCode})'}',
           statusCode: response.statusCode,
           code: code,
         );
       }
-      throw ApiException(
-        '${data['message'] ?? 'Request failed (${response.statusCode})'}',
-        statusCode: response.statusCode,
-        code: code,
-      );
+      return data;
+    } finally {
+      if (showBlockingLoader) {
+        networkActivity.end();
+      }
     }
-    return data;
   }
 
   Map<String, dynamic> decodeResponse(http.Response response) {
@@ -3395,8 +3479,8 @@ class _ProfilePageState extends State<ProfilePage> {
               children: [
                 Text(
                   tx(
-                    'Your account will be deactivated and you will be signed out. You will need support to restore access.',
-                    'Akaunti yako itazimwa na utatolewa. Utahitaji msaada kurejesha ufikiaji.',
+                    'Your account will be deleted and you will be signed out. You will need support to restore access.',
+                    'Akaunti yako itafutwa na utatolewa. Utahitaji msaada kurejesha ufikiaji.',
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -4121,8 +4205,8 @@ class _ProfilePageState extends State<ProfilePage> {
               const SizedBox(height: 8),
               Text(
                 tx(
-                  'Deactivate this account and remove this device session.',
-                  'Zima akaunti hii na ondoa kipindi cha kifaa hiki.',
+                  'Delete this account and remove this device session.',
+                  'Futa akaunti hii na ondoa kipindi cha kifaa hiki.',
                 ),
                 style: const TextStyle(color: kTextColor),
               ),
@@ -7800,7 +7884,7 @@ class _DeliveryPageState extends State<DeliveryPage> {
         await widget.client.post('/deliveries/${job['id']}/location', {
           'latitude': position.latitude,
           'longitude': position.longitude,
-        });
+        }, showBlockingLoader: false);
       }
       await load(silent: true);
       if (!silent && mounted) {
@@ -10664,6 +10748,165 @@ class ListLoadingIndicator extends StatelessWidget {
     padding: EdgeInsets.symmetric(vertical: 28),
     child: Center(child: CircularProgressIndicator()),
   );
+}
+
+class GlobalNetworkLoadingOverlay extends StatelessWidget {
+  const GlobalNetworkLoadingOverlay({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: networkActivity.activeRequests,
+      builder: (context, activeRequests, _) {
+        final isLoading = activeRequests > 0;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            child,
+            if (isLoading)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  absorbing: true,
+                  child: Semantics(
+                    label: tx('Processing request', 'Inashughulikia ombi'),
+                    liveRegion: true,
+                    child: ClipRect(
+                      child: BackdropFilter(
+                        filter: ui.ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+                        child: ColoredBox(
+                          color: Colors.black.withValues(alpha: 0.20),
+                          child: Center(
+                            child: TweenAnimationBuilder<double>(
+                              tween: Tween(begin: 0.94, end: 1),
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOutBack,
+                              builder: (context, scale, content) =>
+                                  Transform.scale(scale: scale, child: content),
+                              child: Material(
+                                color: Colors.transparent,
+                                child: Container(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 260,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 22,
+                                    vertical: 20,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.98),
+                                    borderRadius: BorderRadius.circular(24),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.18,
+                                        ),
+                                        blurRadius: 28,
+                                        offset: const Offset(0, 14),
+                                      ),
+                                      BoxShadow(
+                                        color: kPrimaryColor.withValues(
+                                          alpha: 0.12,
+                                        ),
+                                        blurRadius: 18,
+                                        offset: const Offset(0, 6),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 68,
+                                        height: 68,
+                                        padding: const EdgeInsets.all(7),
+                                        decoration: const BoxDecoration(
+                                          color: kPrimaryLightColor,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Stack(
+                                          alignment: Alignment.center,
+                                          children: [
+                                            const SizedBox(
+                                              width: 54,
+                                              height: 54,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 4,
+                                                strokeCap: StrokeCap.round,
+                                                valueColor:
+                                                    AlwaysStoppedAnimation<
+                                                      Color
+                                                    >(kPrimaryColor),
+                                              ),
+                                            ),
+                                            Container(
+                                              width: 34,
+                                              height: 34,
+                                              decoration: const BoxDecoration(
+                                                gradient: LinearGradient(
+                                                  colors: [
+                                                    kPrimaryColor,
+                                                    kPrimaryColor2,
+                                                  ],
+                                                  begin: Alignment.topLeft,
+                                                  end: Alignment.bottomRight,
+                                                ),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Icon(
+                                                Icons.bolt_rounded,
+                                                color: Colors.white,
+                                                size: 20,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 14),
+                                      Text(
+                                        tx(
+                                          'Please wait...',
+                                          'Tafadhali subiri...',
+                                        ),
+                                        textAlign: TextAlign.center,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w900,
+                                              color: Colors.black,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 5),
+                                      Text(
+                                        tx(
+                                          'Processing your request',
+                                          'Inashughulikia ombi lako',
+                                        ),
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          color: kTextColor,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
 }
 
 class RatingSummary extends StatelessWidget {
