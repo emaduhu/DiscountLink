@@ -51,6 +51,8 @@ const kSurfaceColor = Color(0xfff6f7fb);
 const kDefaultPadding = 16.0;
 final appLanguage = ValueNotifier<AppLanguage>(AppLanguage.en);
 const biometricAuth = BiometricAuthService();
+const notificationPreferences = NotificationPreferenceService();
+const notificationInbox = NotificationInboxService();
 final appScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 final appNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -184,6 +186,165 @@ class BiometricAuthService {
   }
 }
 
+class NotificationPreferenceService {
+  const NotificationPreferenceService();
+
+  static const _storage = FlutterSecureStorage();
+  static const _enabledKey = 'discountlink.notifications.enabled';
+
+  Future<bool> isEnabled() async {
+    final value = await _storage.read(key: _enabledKey);
+    return value != 'false';
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    await _storage.write(key: _enabledKey, value: enabled ? 'true' : 'false');
+  }
+}
+
+class StoredNotification {
+  const StoredNotification({
+    required this.id,
+    required this.title,
+    required this.body,
+    required this.receivedAt,
+    required this.data,
+  });
+
+  final String id;
+  final String title;
+  final String body;
+  final DateTime receivedAt;
+  final Map<String, String> data;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'body': body,
+    'received_at': receivedAt.toIso8601String(),
+    'data': data,
+  };
+
+  factory StoredNotification.fromJson(Map<String, dynamic> json) {
+    final rawData = json['data'];
+    final parsedData = rawData is Map
+        ? rawData.map((key, value) => MapEntry('$key', '$value'))
+        : <String, String>{};
+    return StoredNotification(
+      id: '${json['id'] ?? ''}',
+      title: '${json['title'] ?? kAppName}'.trim(),
+      body: '${json['body'] ?? ''}'.trim(),
+      receivedAt:
+          DateTime.tryParse('${json['received_at'] ?? ''}') ?? DateTime.now(),
+      data: parsedData,
+    );
+  }
+
+  String get copyText {
+    final parts = [
+      title.trim().isEmpty ? kAppName : title.trim(),
+      if (body.trim().isNotEmpty) body.trim(),
+      formatDateTime(receivedAt.toIso8601String()),
+      if (data.isNotEmpty)
+        data.entries.map((entry) => '${entry.key}: ${entry.value}').join('\n'),
+    ];
+    return parts.join('\n\n');
+  }
+}
+
+class NotificationInboxService {
+  const NotificationInboxService();
+
+  static const _storage = FlutterSecureStorage();
+  static const _itemsKey = 'discountlink.notifications.items';
+  static const _maxItems = 100;
+
+  Future<List<StoredNotification>> all() async {
+    final raw = await _storage.read(key: _itemsKey);
+    if (raw == null || raw.trim().isEmpty) return [];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return [];
+      return decoded
+          .whereType<Map>()
+          .map(
+            (item) =>
+                StoredNotification.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .where((item) => item.id.trim().isNotEmpty)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<int> count() async => (await all()).length;
+
+  Future<int> add(StoredNotification notification) async {
+    final items = await all();
+    final next = [
+      notification,
+      ...items.where((item) => item.id != notification.id),
+    ].take(_maxItems).toList();
+    await _save(next);
+    return next.length;
+  }
+
+  Future<int> delete(String id) async {
+    final items = await all();
+    final next = items.where((item) => item.id != id).toList();
+    await _save(next);
+    return next.length;
+  }
+
+  Future<int> clear() async {
+    await _save([]);
+    return 0;
+  }
+
+  Future<void> _save(List<StoredNotification> items) async {
+    await _storage.write(
+      key: _itemsKey,
+      value: jsonEncode(items.map((item) => item.toJson()).toList()),
+    );
+  }
+}
+
+StoredNotification storedNotificationFromRemoteMessage(
+  RemoteMessage message, {
+  required String title,
+  required String body,
+}) {
+  final data = message.data.map((key, value) => MapEntry(key, '$value'));
+  final sentAt = message.sentTime ?? DateTime.now();
+  final explicitId = [message.messageId, data['notification_id'], data['id']]
+      .whereType<String>()
+      .map((value) => value.trim())
+      .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+  final id = explicitId.isNotEmpty
+      ? explicitId
+      : sha1
+            .convert(
+              utf8.encode(
+                [
+                  title,
+                  body,
+                  sentAt.toIso8601String(),
+                  jsonEncode(data),
+                ].join('|'),
+              ),
+            )
+            .toString();
+
+  return StoredNotification(
+    id: id,
+    title: title.trim().isEmpty ? kAppName : title.trim(),
+    body: body.trim(),
+    receivedAt: sentAt,
+    data: data,
+  );
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeFirebase();
@@ -250,6 +411,7 @@ bool get usesApplePushToken =>
 
 Future<String?> firebaseMessagingToken() async {
   try {
+    if (!await notificationPreferences.isEnabled()) return null;
     await ensureFirebaseInitialized(feature: 'push notifications');
     if (usesApplePushToken) {
       final apnsToken = await waitForApnsToken();
@@ -355,6 +517,42 @@ Future<AppleSignInResult> signInWithAppleFirebase() async {
   await ensureFirebaseInitialized(feature: 'Apple sign-in');
 
   try {
+    final provider = AppleAuthProvider()
+      ..addScope('email')
+      ..addScope('name');
+    final firebaseCredential =
+        await (kIsWeb
+                ? FirebaseAuth.instance.signInWithPopup(provider)
+                : FirebaseAuth.instance.signInWithProvider(provider))
+            .timeout(const Duration(minutes: 2));
+    final firebaseUser = firebaseCredential.user;
+    if (firebaseUser == null) {
+      throw Exception(
+        'Apple sign-in finished, but Firebase did not return a user. Try again.',
+      );
+    }
+    return AppleSignInResult(
+      credential: firebaseCredential,
+      email: firebaseUser.email,
+      displayName: firebaseUser.displayName,
+    );
+  } on UnimplementedError {
+    return signInWithAppleNativeFirebase();
+  } on TimeoutException {
+    return signInWithAppleNativeFirebase();
+  } on FirebaseAuthException catch (error) {
+    if (error.code == 'web-context-cancelled' ||
+        error.code == 'user-cancelled' ||
+        error.code == 'canceled' ||
+        error.code == 'operation-not-allowed') {
+      throw Exception(appleSignInErrorMessage(error));
+    }
+    return signInWithAppleNativeFirebase();
+  }
+}
+
+Future<AppleSignInResult> signInWithAppleNativeFirebase() async {
+  try {
     final available = await SignInWithApple.isAvailable();
     if (!available) {
       throw Exception(
@@ -411,6 +609,26 @@ Future<AppleSignInResult> signInWithAppleFirebase() async {
   } on FirebaseAuthException catch (error) {
     throw Exception(appleSignInErrorMessage(error));
   }
+}
+
+Future<String> refreshedFirebaseIdToken(
+  User? user, {
+  required String feature,
+}) async {
+  if (user == null) {
+    throw Exception('$feature did not return a Firebase user.');
+  }
+  try {
+    await user.reload().timeout(const Duration(seconds: 20));
+  } catch (_) {}
+  final currentUser = FirebaseAuth.instance.currentUser ?? user;
+  final token = await currentUser
+      .getIdToken(true)
+      .timeout(const Duration(seconds: 30));
+  if (token == null || token.isEmpty) {
+    throw Exception('Firebase did not return an ID token.');
+  }
+  return token;
 }
 
 String? appleCredentialDisplayName(AuthorizationCredentialAppleID credential) {
@@ -482,6 +700,56 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   OverlayEntry? foregroundNotificationEntry;
   Timer? foregroundNotificationTimer;
   bool checkedInitialNotification = false;
+  bool pushNotificationsEnabled = true;
+  int notificationCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    loadNotificationPreference();
+    loadNotificationCount();
+  }
+
+  Future<void> loadNotificationPreference() async {
+    final enabled = await notificationPreferences.isEnabled();
+    if (!mounted) return;
+    setState(() => pushNotificationsEnabled = enabled);
+  }
+
+  Future<void> loadNotificationCount() async {
+    final count = await notificationInbox.count();
+    if (!mounted) return;
+    setState(() => notificationCount = count);
+  }
+
+  Future<void> recordNotificationMessage(
+    RemoteMessage message, {
+    required String title,
+    required String body,
+  }) async {
+    await recordStoredNotification(
+      storedNotificationFromRemoteMessage(message, title: title, body: body),
+    );
+  }
+
+  Future<void> recordStoredNotification(StoredNotification notification) async {
+    final nextCount = await notificationInbox.add(notification);
+    if (!mounted) return;
+    setState(() => notificationCount = nextCount);
+  }
+
+  ({String title, String body}) notificationContent(RemoteMessage message) {
+    final title = (message.notification?.title ?? '').trim();
+    final body = (message.notification?.body ?? '').trim();
+    final fallbackCode = '${message.data['delivery_code'] ?? ''}'.trim();
+    final fallbackBody = fallbackCode.isNotEmpty
+        ? 'Your delivery code is $fallbackCode.'
+        : '';
+    return (
+      title: title.isNotEmpty ? title : kAppName,
+      body: body.isNotEmpty ? body : fallbackBody,
+    );
+  }
 
   void signedIn(String token, Map<String, dynamic> signedUser) {
     setState(() {
@@ -498,7 +766,20 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
 
   Future<void> registerNotifications() async {
     try {
-      await FirebaseMessaging.instance.requestPermission();
+      final enabled = await notificationPreferences.isEnabled();
+      if (!enabled) {
+        await unregisterDeviceNotifications(persistPreference: false);
+        return;
+      }
+      if (mounted && !pushNotificationsEnabled) {
+        setState(() => pushNotificationsEnabled = true);
+      }
+      await ensureFirebaseInitialized(feature: 'push notifications');
+      final settings = await FirebaseMessaging.instance.requestPermission();
+      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        await unregisterDeviceNotifications(persistPreference: false);
+        return;
+      }
       await FirebaseMessaging.instance
           .setForegroundNotificationPresentationOptions(
             alert: true,
@@ -524,7 +805,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
       }
       fcmTokenSubscription ??= FirebaseMessaging.instance.onTokenRefresh.listen(
         (token) async {
-          if (client.token == null) {
+          if (client.token == null || !pushNotificationsEnabled) {
             return;
           }
           try {
@@ -535,8 +816,102 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
     } catch (_) {}
   }
 
+  Future<void> unregisterDeviceNotifications({
+    required bool persistPreference,
+  }) async {
+    if (persistPreference) {
+      await notificationPreferences.setEnabled(false);
+    }
+    if (mounted && pushNotificationsEnabled) {
+      setState(() => pushNotificationsEnabled = false);
+    }
+    hideForegroundNotificationBanner();
+    final tokenSubscription = fcmTokenSubscription;
+    final foregroundSubscription = foregroundMessageSubscription;
+    final openedSubscription = notificationOpenedSubscription;
+    fcmTokenSubscription = null;
+    foregroundMessageSubscription = null;
+    notificationOpenedSubscription = null;
+    try {
+      await tokenSubscription?.cancel();
+    } catch (_) {}
+    try {
+      await foregroundSubscription?.cancel();
+    } catch (_) {}
+    try {
+      await openedSubscription?.cancel();
+    } catch (_) {}
+    try {
+      if (client.token != null) {
+        await client.post('/me/fcm-token', {'fcm_token': null});
+      }
+    } catch (_) {}
+    try {
+      await ensureFirebaseInitialized(feature: 'push notifications');
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (_) {}
+  }
+
+  Future<void> setPushNotificationsEnabled(bool value) async {
+    if (value) {
+      await notificationPreferences.setEnabled(true);
+      if (mounted) setState(() => pushNotificationsEnabled = true);
+      await registerNotifications();
+    } else {
+      await unregisterDeviceNotifications(persistPreference: true);
+    }
+  }
+
+  Future<String?> refreshPushNotifications() async {
+    await notificationPreferences.setEnabled(true);
+    if (mounted && !pushNotificationsEnabled) {
+      setState(() => pushNotificationsEnabled = true);
+    }
+    try {
+      await ensureFirebaseInitialized(feature: 'push notifications');
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (_) {}
+    await registerNotifications();
+    return firebaseMessagingToken();
+  }
+
+  void showTestNotification() {
+    final title = tx('Notifications are ready', 'Arifa ziko tayari');
+    final body = tx(
+      'DiscountLink can show order, chat, and delivery updates on this device.',
+      'DiscountLink inaweza kuonyesha taarifa za oda, soga, na usafirishaji kwenye kifaa hiki.',
+    );
+    final now = DateTime.now();
+    unawaited(
+      recordStoredNotification(
+        StoredNotification(
+          id: sha1
+              .convert(utf8.encode('test|${now.toIso8601String()}'))
+              .toString(),
+          title: title,
+          body: body,
+          receivedAt: now,
+          data: const {'type': 'test'},
+        ),
+      ),
+    );
+    showTopNotificationBanner(title: title, body: body, isChat: false);
+  }
+
   void showForegroundNotification(RemoteMessage message) {
-    if (client.token == null) return;
+    if (client.token == null || !pushNotificationsEnabled) return;
+
+    final content = notificationContent(message);
+    final effectiveTitle = content.title;
+    final effectiveBody = content.body;
+    if (effectiveTitle.isEmpty && effectiveBody.isEmpty) return;
+    unawaited(
+      recordNotificationMessage(
+        message,
+        title: effectiveTitle,
+        body: effectiveBody,
+      ),
+    );
 
     // Apple displays the native foreground banner configured above. Android
     // does not, so surface the received FCM notification inside the app.
@@ -546,15 +921,6 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
       return;
     }
 
-    final title = (message.notification?.title ?? '').trim();
-    final body = (message.notification?.body ?? '').trim();
-    final fallbackCode = '${message.data['delivery_code'] ?? ''}'.trim();
-    final fallbackBody = fallbackCode.isNotEmpty
-        ? 'Your delivery code is $fallbackCode.'
-        : '';
-    final effectiveTitle = title.isNotEmpty ? title : kAppName;
-    final effectiveBody = body.isNotEmpty ? body : fallbackBody;
-    if (effectiveTitle.isEmpty && effectiveBody.isEmpty) return;
     final isChat = message.data['type'] == 'chat_message';
     final unreadCount =
         int.tryParse('${message.data['unread_count'] ?? 0}') ?? 0;
@@ -714,6 +1080,13 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   }
 
   Future<void> openNotificationMessage(RemoteMessage message) async {
+    if (!pushNotificationsEnabled) return;
+    final content = notificationContent(message);
+    final title = content.title;
+    final body = content.body;
+    if (title.isNotEmpty || body.isNotEmpty) {
+      unawaited(recordNotificationMessage(message, title: title, body: body));
+    }
     final data = message.data;
     final route = '${data['route'] ?? ''}'.trim();
     final type = '${data['type'] ?? ''}'.trim();
@@ -781,17 +1154,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   }
 
   Future<void> signedOut() async {
-    final tokenSubscription = fcmTokenSubscription;
-    fcmTokenSubscription = null;
-    try {
-      await tokenSubscription?.cancel();
-    } catch (_) {}
-    try {
-      await client.post('/me/fcm-token', {'fcm_token': null});
-    } catch (_) {}
-    try {
-      await FirebaseMessaging.instance.deleteToken();
-    } catch (_) {}
+    await unregisterDeviceNotifications(persistPreference: false);
     try {
       await GoogleSignIn.instance.signOut();
     } catch (_) {}
@@ -892,6 +1255,12 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
                   user: user!,
                   onUserChanged: (u) => setState(() => user = u),
                   onSignOut: signedOut,
+                  notificationCount: notificationCount,
+                  onNotificationInboxChanged: loadNotificationCount,
+                  notificationsEnabled: pushNotificationsEnabled,
+                  onNotificationsEnabledChanged: setPushNotificationsEnabled,
+                  onRefreshNotifications: refreshPushNotifications,
+                  onShowTestNotification: showTestNotification,
                 ),
         ),
       ),
@@ -1305,17 +1674,23 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final appleAuth = await signInWithAppleFirebase();
       final firebaseUser = appleAuth.credential.user;
-      final token = await firebaseUser?.getIdToken();
-      if (token == null) {
-        throw Exception('Firebase did not return an ID token.');
-      }
-      final socialPhone = normalizePhoneInput(firebaseUser?.phoneNumber ?? '');
+      final token = await refreshedFirebaseIdToken(
+        firebaseUser,
+        feature: 'Apple sign-in',
+      );
+      final currentFirebaseUser =
+          FirebaseAuth.instance.currentUser ?? firebaseUser;
+      final socialPhone = normalizePhoneInput(
+        currentFirebaseUser?.phoneNumber ?? '',
+      );
       final response = await postSocialLogin({
         'firebase_id_token': token,
-        '_email': appleAuth.email ?? firebaseUser?.email,
+        '_email': appleAuth.email ?? currentFirebaseUser?.email,
         'role': role,
         'full_name':
-            appleAuth.displayName ?? firebaseUser?.displayName ?? 'Apple user',
+            appleAuth.displayName ??
+            currentFirebaseUser?.displayName ??
+            'Apple user',
         'phone': socialPhone.isEmpty
             ? ''
             : requireTwelveDigitPhone(socialPhone),
@@ -1956,14 +2331,18 @@ class _RegisterPageState extends State<RegisterPage> {
     try {
       final appleAuth = await signInWithAppleFirebase();
       final firebaseUser = appleAuth.credential.user;
-      final token = await firebaseUser?.getIdToken();
-      if (token == null) {
-        throw Exception('Firebase did not return an ID token.');
-      }
+      final token = await refreshedFirebaseIdToken(
+        firebaseUser,
+        feature: 'Apple registration',
+      );
+      final currentFirebaseUser =
+          FirebaseAuth.instance.currentUser ?? firebaseUser;
       final response = await socialRegister(
         credentials: {'firebase_id_token': token},
         fallbackName:
-            appleAuth.displayName ?? firebaseUser?.displayName ?? 'Apple user',
+            appleAuth.displayName ??
+            currentFirebaseUser?.displayName ??
+            'Apple user',
       );
       completeSignIn(response);
     } catch (error) {
@@ -2258,12 +2637,24 @@ class HomePage extends StatefulWidget {
     required this.user,
     required this.onUserChanged,
     required this.onSignOut,
+    required this.notificationCount,
+    required this.onNotificationInboxChanged,
+    required this.notificationsEnabled,
+    required this.onNotificationsEnabledChanged,
+    required this.onRefreshNotifications,
+    required this.onShowTestNotification,
   });
   final ApiClient client;
   final String token;
   final Map<String, dynamic> user;
   final ValueChanged<Map<String, dynamic>> onUserChanged;
   final Future<void> Function() onSignOut;
+  final int notificationCount;
+  final Future<void> Function() onNotificationInboxChanged;
+  final bool notificationsEnabled;
+  final Future<void> Function(bool enabled) onNotificationsEnabledChanged;
+  final Future<String?> Function() onRefreshNotifications;
+  final VoidCallback onShowTestNotification;
   @override
   State<HomePage> createState() => _HomePageState();
 }
@@ -2314,6 +2705,14 @@ class _HomePageState extends State<HomePage> {
     return Badge(label: Text(count > 99 ? '99+' : '$count'), child: Icon(icon));
   }
 
+  Future<void> openNotificationInbox() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => const NotificationInboxPage()),
+    );
+    if (!mounted) return;
+    await widget.onNotificationInboxChanged();
+  }
+
   @override
   Widget build(BuildContext context) {
     final role = widget.user['role'] as String;
@@ -2344,6 +2743,10 @@ class _HomePageState extends State<HomePage> {
         user: widget.user,
         onUserChanged: widget.onUserChanged,
         onSignOut: widget.onSignOut,
+        notificationsEnabled: widget.notificationsEnabled,
+        onNotificationsEnabledChanged: widget.onNotificationsEnabledChanged,
+        onRefreshNotifications: widget.onRefreshNotifications,
+        onShowTestNotification: widget.onShowTestNotification,
       ),
     ];
     final destinations = <NavigationDestination>[
@@ -2394,6 +2797,24 @@ class _HomePageState extends State<HomePage> {
             ),
           ],
         ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Badge(
+              label: Text(
+                widget.notificationCount > 99
+                    ? '99+'
+                    : '${widget.notificationCount}',
+              ),
+              isLabelVisible: widget.notificationCount > 0,
+              child: IconButton(
+                tooltip: tx('Notifications', 'Arifa'),
+                onPressed: openNotificationInbox,
+                icon: const Icon(Icons.notifications_outlined),
+              ),
+            ),
+          ),
+        ],
       ),
       body: pages[index],
       bottomNavigationBar: Container(
@@ -2436,6 +2857,207 @@ int unreadCountFromConversations(List conversations) {
   return total;
 }
 
+class NotificationInboxPage extends StatefulWidget {
+  const NotificationInboxPage({super.key});
+
+  @override
+  State<NotificationInboxPage> createState() => _NotificationInboxPageState();
+}
+
+class _NotificationInboxPageState extends State<NotificationInboxPage> {
+  List<StoredNotification> notifications = [];
+  bool loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  Future<void> load() async {
+    final items = await notificationInbox.all();
+    if (!mounted) return;
+    setState(() {
+      notifications = items;
+      loading = false;
+    });
+  }
+
+  Future<void> copyNotification(StoredNotification notification) async {
+    await Clipboard.setData(ClipboardData(text: notification.copyText));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(tx('Notification copied.', 'Arifa imenakiliwa.'))),
+    );
+  }
+
+  Future<void> deleteNotification(StoredNotification notification) async {
+    await notificationInbox.delete(notification.id);
+    if (!mounted) return;
+    setState(
+      () => notifications = notifications
+          .where((item) => item.id != notification.id)
+          .toList(),
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(tx('Notification deleted.', 'Arifa imefutwa.'))),
+    );
+  }
+
+  Future<void> clearNotifications() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tx('Delete all notifications?', 'Futa arifa zote?')),
+        content: Text(
+          tx(
+            'This removes the notification list stored on this device.',
+            'Hii itaondoa orodha ya arifa zilizohifadhiwa kwenye kifaa hiki.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(tx('Cancel', 'Ghairi')),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(tx('Delete all', 'Futa zote')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await notificationInbox.clear();
+    if (!mounted) return;
+    setState(() => notifications = []);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final count = notifications.length;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(tx('Notifications', 'Arifa')),
+        actions: [
+          if (count > 0)
+            IconButton(
+              tooltip: tx('Delete all', 'Futa zote'),
+              onPressed: clearNotifications,
+              icon: const Icon(Icons.delete_sweep_outlined),
+            ),
+        ],
+      ),
+      body: loading
+          ? const ListLoadingIndicator()
+          : RefreshIndicator(
+              onRefresh: load,
+              child: notifications.isEmpty
+                  ? ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        const SizedBox(height: 64),
+                        EmptyState(
+                          icon: Icons.notifications_none_outlined,
+                          title: tx(
+                            'No notifications yet',
+                            'Bado hakuna arifa',
+                          ),
+                          subtitle: tx(
+                            'Order, chat, and delivery alerts will appear here.',
+                            'Arifa za oda, soga, na usafirishaji zitaonekana hapa.',
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      itemCount: notifications.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final notification = notifications[index];
+                        return SurfacePanel(
+                          padding: EdgeInsets.zero,
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.fromLTRB(
+                              14,
+                              8,
+                              8,
+                              8,
+                            ),
+                            leading: const CircleAvatar(
+                              backgroundColor: kPrimaryLightColor,
+                              child: Icon(
+                                Icons.notifications_active_outlined,
+                                color: kPrimaryColor,
+                              ),
+                            ),
+                            title: Text(
+                              notification.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (notification.body.isNotEmpty)
+                                    Text(
+                                      notification.body,
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    formatDateTime(
+                                      notification.receivedAt.toIso8601String(),
+                                    ),
+                                    style: const TextStyle(
+                                      color: kTextColor,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            trailing: SizedBox(
+                              width: 96,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  IconButton(
+                                    tooltip: tx('Copy', 'Nakili'),
+                                    onPressed: () =>
+                                        copyNotification(notification),
+                                    icon: const Icon(Icons.copy_rounded),
+                                  ),
+                                  IconButton(
+                                    tooltip: tx('Delete', 'Futa'),
+                                    onPressed: () =>
+                                        deleteNotification(notification),
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+    );
+  }
+}
+
 class ProfilePage extends StatefulWidget {
   const ProfilePage({
     super.key,
@@ -2444,12 +3066,20 @@ class ProfilePage extends StatefulWidget {
     required this.user,
     required this.onUserChanged,
     required this.onSignOut,
+    required this.notificationsEnabled,
+    required this.onNotificationsEnabledChanged,
+    required this.onRefreshNotifications,
+    required this.onShowTestNotification,
   });
   final ApiClient client;
   final String token;
   final Map<String, dynamic> user;
   final ValueChanged<Map<String, dynamic>> onUserChanged;
   final Future<void> Function() onSignOut;
+  final bool notificationsEnabled;
+  final Future<void> Function(bool enabled) onNotificationsEnabledChanged;
+  final Future<String?> Function() onRefreshNotifications;
+  final VoidCallback onShowTestNotification;
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
@@ -2468,8 +3098,12 @@ class _ProfilePageState extends State<ProfilePage> {
   bool biometricAvailable = false;
   bool biometricEnabled = false;
   bool biometricLoading = false;
+  bool notificationsLoading = false;
   bool accountDeleteLoading = false;
   String otpProvider = 'beem';
+  AuthorizationStatus? notificationPermissionStatus;
+  String? notificationDeviceToken;
+  String? notificationError;
   String? firebaseVerificationId;
   String? visiblePhoneCode;
   String? localPendingPhone;
@@ -2491,6 +3125,7 @@ class _ProfilePageState extends State<ProfilePage> {
     localPendingPhone = '${widget.user['pending_phone'] ?? ''}'.trim();
     loadProvider();
     loadBiometricState();
+    loadNotificationState();
   }
 
   @override
@@ -2519,6 +3154,9 @@ class _ProfilePageState extends State<ProfilePage> {
       name.text = nextName;
     }
     localPendingPhone = '${widget.user['pending_phone'] ?? ''}'.trim();
+    if (oldWidget.notificationsEnabled != widget.notificationsEnabled) {
+      loadNotificationState();
+    }
   }
 
   Future<void> loadProvider() async {
@@ -2536,6 +3174,179 @@ class _ProfilePageState extends State<ProfilePage> {
       biometricAvailable = available;
       biometricEnabled = enabled;
     });
+  }
+
+  Future<void> loadNotificationState({
+    bool showLoading = false,
+    bool? enabledOverride,
+  }) async {
+    if (showLoading && mounted) {
+      setState(() {
+        notificationsLoading = true;
+        notificationError = null;
+      });
+    }
+    try {
+      await ensureFirebaseInitialized(feature: 'push notifications');
+      final settings = await FirebaseMessaging.instance
+          .getNotificationSettings();
+      final enabled = enabledOverride ?? widget.notificationsEnabled;
+      final token =
+          enabled && settings.authorizationStatus != AuthorizationStatus.denied
+          ? await firebaseMessagingToken()
+          : null;
+      if (!mounted) return;
+      setState(() {
+        notificationPermissionStatus = settings.authorizationStatus;
+        notificationDeviceToken = token;
+        notificationError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        notificationPermissionStatus = null;
+        notificationDeviceToken = null;
+        notificationError = error.toString().replaceFirst('Exception: ', '');
+      });
+    } finally {
+      if (showLoading && mounted) {
+        setState(() => notificationsLoading = false);
+      }
+    }
+  }
+
+  Future<void> setNotificationsEnabled(bool value) async {
+    setState(() {
+      notificationsLoading = true;
+      notificationError = null;
+    });
+    try {
+      await widget.onNotificationsEnabledChanged(value);
+      await loadNotificationState(enabledOverride: value);
+      if (!mounted) return;
+      final blocked =
+          notificationPermissionStatus == AuthorizationStatus.denied;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            value && blocked
+                ? tx(
+                    'Notifications are blocked in device settings.',
+                    'Arifa zimezuiwa kwenye mipangilio ya kifaa.',
+                  )
+                : value
+                ? tx('Notifications enabled.', 'Arifa zimewashwa.')
+                : tx(
+                    'Notifications muted on this device.',
+                    'Arifa zimezimwa kwenye kifaa hiki.',
+                  ),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => notificationError = error.toString().replaceFirst(
+            'Exception: ',
+            '',
+          ),
+        );
+        showError(context, error);
+      }
+    } finally {
+      if (mounted) setState(() => notificationsLoading = false);
+    }
+  }
+
+  Future<void> refreshNotifications() async {
+    setState(() {
+      notificationsLoading = true;
+      notificationError = null;
+    });
+    try {
+      final token = await widget.onRefreshNotifications();
+      final settings = await FirebaseMessaging.instance
+          .getNotificationSettings();
+      if (!mounted) return;
+      setState(() {
+        notificationPermissionStatus = settings.authorizationStatus;
+        notificationDeviceToken = token;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            token == null
+                ? tx(
+                    'Notifications are enabled, but the device token is not ready yet.',
+                    'Arifa zimewashwa, lakini tokeni ya kifaa bado haiko tayari.',
+                  )
+                : tx(
+                    'Notification device token refreshed.',
+                    'Tokeni ya arifa ya kifaa imesasishwa.',
+                  ),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => notificationError = error.toString().replaceFirst(
+            'Exception: ',
+            '',
+          ),
+        );
+        showError(context, error);
+      }
+    } finally {
+      if (mounted) setState(() => notificationsLoading = false);
+    }
+  }
+
+  String notificationPermissionLabel() {
+    return switch (notificationPermissionStatus) {
+      AuthorizationStatus.authorized => tx('Allowed', 'Zimeruhusiwa'),
+      AuthorizationStatus.provisional => tx('Provisional', 'Ruhusa ya muda'),
+      AuthorizationStatus.denied => tx('Blocked', 'Zimezuiwa'),
+      AuthorizationStatus.notDetermined => tx('Not requested', 'Hazijaombwa'),
+      null => tx('Unknown', 'Haijulikani'),
+    };
+  }
+
+  String notificationSummary() {
+    final error = notificationError;
+    if (error != null && error.isNotEmpty) return error;
+    if (!widget.notificationsEnabled) {
+      return tx(
+        'This device is muted. DiscountLink will remove its push token from your account.',
+        'Kifaa hiki kimezimwa arifa. DiscountLink itaondoa tokeni ya arifa kwenye akaunti yako.',
+      );
+    }
+    if (notificationPermissionStatus == AuthorizationStatus.denied) {
+      return tx(
+        'Notifications are blocked in device settings. Allow notifications there, then refresh.',
+        'Arifa zimezuiwa kwenye mipangilio ya kifaa. Ziruhusu huko, kisha sasisha.',
+      );
+    }
+    if (notificationDeviceToken == null) {
+      return tx(
+        'Waiting for this device to receive a Firebase notification token.',
+        'Inasubiri kifaa hiki kipokee tokeni ya arifa ya Firebase.',
+      );
+    }
+    return tx(
+      'This device is registered for order, chat, and delivery notifications.',
+      'Kifaa hiki kimesajiliwa kwa arifa za oda, soga, na usafirishaji.',
+    );
+  }
+
+  Color notificationStatusColor() {
+    if (notificationError != null ||
+        notificationPermissionStatus == AuthorizationStatus.denied) {
+      return Colors.red;
+    }
+    if (!widget.notificationsEnabled) return kTextColor;
+    if (notificationDeviceToken != null) return Colors.green;
+    return kPrimaryColor;
   }
 
   Future<void> setBiometricEnabled(bool value) async {
@@ -3029,6 +3840,120 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
               if (biometricLoading) const LinearProgressIndicator(minHeight: 3),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        SurfacePanel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.notifications_active_outlined,
+                    color: kPrimaryColor,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      tx('Notification management', 'Usimamizi wa arifa'),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  StatusPill(
+                    label: widget.notificationsEnabled
+                        ? tx('On', 'Zimewashwa')
+                        : tx('Muted', 'Zimezimwa'),
+                    color: notificationStatusColor(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                notificationSummary(),
+                style: const TextStyle(color: kTextColor, height: 1.35),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  StatusPill(
+                    label:
+                        '${tx('Permission', 'Ruhusa')}: ${notificationPermissionLabel()}',
+                    color: notificationStatusColor(),
+                  ),
+                  StatusPill(
+                    label: notificationDeviceToken == null
+                        ? tx('No device token', 'Hakuna tokeni ya kifaa')
+                        : tx(
+                            'Device token ready',
+                            'Tokeni ya kifaa iko tayari',
+                          ),
+                    color: notificationDeviceToken == null
+                        ? kTextColor
+                        : Colors.green,
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+              Material(
+                type: MaterialType.transparency,
+                child: SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: widget.notificationsEnabled,
+                  onChanged: notificationsLoading
+                      ? null
+                      : setNotificationsEnabled,
+                  secondary: const Icon(Icons.notifications_outlined),
+                  title: Text(
+                    tx(
+                      'Push notifications on this device',
+                      'Arifa za push kwenye kifaa hiki',
+                    ),
+                  ),
+                  subtitle: Text(
+                    tx(
+                      'Turn off to unregister this phone from push notifications.',
+                      'Zima ili kuondoa simu hii kwenye arifa za push.',
+                    ),
+                  ),
+                ),
+              ),
+              if (notificationsLoading)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: LinearProgressIndicator(minHeight: 3),
+                ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: notificationsLoading
+                        ? null
+                        : () => loadNotificationState(showLoading: true),
+                    icon: const Icon(Icons.info_outline),
+                    label: Text(tx('Check status', 'Angalia hali')),
+                  ),
+                  FilledButton.icon(
+                    onPressed: notificationsLoading
+                        ? null
+                        : refreshNotifications,
+                    icon: const Icon(Icons.sync),
+                    label: Text(tx('Refresh token', 'Sasisha tokeni')),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed:
+                        widget.notificationsEnabled && !notificationsLoading
+                        ? widget.onShowTestNotification
+                        : null,
+                    icon: const Icon(Icons.notification_add_outlined),
+                    label: Text(tx('Test banner', 'Jaribu bango')),
+                  ),
+                ],
+              ),
             ],
           ),
         ),

@@ -229,10 +229,13 @@ class AuthController extends Controller
             ! empty($data['google_access_token']) => $google->verifyAccessToken($data['google_access_token']),
             default => $google->verify($data['google_id_token']),
         };
+        $providerUserId = $profile['sub'] ?? $profile['user_id'] ?? null;
         $email = isset($profile['email']) ? $this->normalizeEmail((string) $profile['email']) : null;
-        abort_unless($email, 422, 'The selected account must expose an email address.');
-
-        $user = $this->findUserByEmail($email);
+        $user = $email ? $this->findUserByEmail($email) : null;
+        if (! $user && $providerUserId) {
+            $user = User::where('google_id', $providerUserId)->first();
+        }
+        abort_unless($email || $user, 422, 'Apple sign-in did not return an email address. Remove DiscountLink from your Apple ID Sign in with Apple settings, then try again and share your email.');
         $isNewUser = ! $user;
         if (! $user && (empty($data['full_name']) || empty($data['phone']) || empty($data['nida_number']) || empty($data['address']))) {
             return response()->json([
@@ -252,7 +255,7 @@ class AuthController extends Controller
         );
 
         $attributes = [
-            'google_id' => $profile['sub'] ?? $profile['user_id'] ?? null,
+            'google_id' => $providerUserId,
             'email_verified_at' => now(),
             'latitude' => $data['latitude'] ?? null,
             'longitude' => $data['longitude'] ?? null,
