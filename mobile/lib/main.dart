@@ -544,6 +544,12 @@ class AppleSignInResult {
 Future<AppleSignInResult> signInWithAppleFirebase() async {
   await ensureFirebaseInitialized(feature: 'Apple sign-in');
 
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.macOS)) {
+    return signInWithAppleNativeFirebase();
+  }
+
   try {
     final provider = AppleAuthProvider()
       ..addScope('email')
