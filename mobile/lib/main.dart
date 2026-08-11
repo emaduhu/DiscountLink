@@ -37,7 +37,7 @@ const playStoreUrl = String.fromEnvironment(
 );
 const appStoreUrl = String.fromEnvironment(
   'APP_STORE_URL',
-  defaultValue: 'https://apps.apple.com/search?term=Vigour%20Deals',
+  defaultValue: 'https://apps.apple.com/search?term=Discount%20Link',
 );
 const googleServerClientId = String.fromEnvironment(
   'GOOGLE_SERVER_CLIENT_ID',
@@ -5105,12 +5105,12 @@ class _BuyerPageState extends State<BuyerPage> {
         ? ''
         : '\n${tx('Shop', 'Duka')}: $shopName';
     final message = tx(
-      'I found $productName on Vigour Deals.$shopLine$priceLine\n\nDownload the app to view and buy this product:\nAndroid: $playStoreUrl\niPhone: $appStoreUrl',
-      'Nimepata $productName kwenye Vigour Deals.$shopLine$priceLine\n\nPakua app kuangalia na kununua bidhaa hii:\nAndroid: $playStoreUrl\niPhone: $appStoreUrl',
+      'I found $productName on Discount Link.$shopLine$priceLine\n\nDownload the app to view and buy this product:\nAndroid: $playStoreUrl\niPhone: $appStoreUrl',
+      'Nimepata $productName kwenye Discount Link.$shopLine$priceLine\n\nPakua app kuangalia na kununua bidhaa hii:\nAndroid: $playStoreUrl\niPhone: $appStoreUrl',
     );
 
     await SharePlus.instance.share(
-      ShareParams(text: message, subject: 'View $productName on Vigour Deals'),
+      ShareParams(text: message, subject: 'View $productName on Discount Link'),
     );
   }
 
