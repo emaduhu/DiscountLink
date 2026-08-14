@@ -1,1 +1,46 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"discount-link-532cc","appId":"1:100226634982:android:80072cc2de21a0fcb29727","fileOutput":"android/app/google-services.json"}},"web":{"default":{"projectId":"discount-link-532cc","appId":"1:100226634982:web:aac96ac97dd2b8a3b29727"}},"dart":{"lib/firebase_options.dart":{"projectId":"discount-link-532cc","configurations":{"android":"1:100226634982:android:80072cc2de21a0fcb29727","web":"1:100226634982:web:aac96ac97dd2b8a3b29727"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "discount-link-532cc",
+          "appId": "1:100226634982:android:80072cc2de21a0fcb29727",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "ios": {
+        "default": {
+          "projectId": "discount-link-532cc",
+          "appId": "1:100226634982:ios:c7f47186837c7831b29727",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "macos": {
+        "default": {
+          "projectId": "discount-link-532cc",
+          "appId": "1:100226634982:ios:c7f47186837c7831b29727",
+          "uploadDebugSymbols": false,
+          "fileOutput": "macos/Runner/GoogleService-Info.plist"
+        }
+      },
+      "web": {
+        "default": {
+          "projectId": "discount-link-532cc",
+          "appId": "1:100226634982:web:aac96ac97dd2b8a3b29727"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "discount-link-532cc",
+          "configurations": {
+            "android": "1:100226634982:android:80072cc2de21a0fcb29727",
+            "ios": "1:100226634982:ios:c7f47186837c7831b29727",
+            "macos": "1:100226634982:ios:c7f47186837c7831b29727",
+            "web": "1:100226634982:web:aac96ac97dd2b8a3b29727"
+          }
+        }
+      }
+    }
+  }
+}

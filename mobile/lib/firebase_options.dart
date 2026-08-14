@@ -23,15 +23,9 @@ class DefaultFirebaseOptions {
       case TargetPlatform.android:
         return android;
       case TargetPlatform.iOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for ios - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return ios;
       case TargetPlatform.macOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for macos - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return macos;
       case TargetPlatform.windows:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for windows - '
@@ -55,6 +49,32 @@ class DefaultFirebaseOptions {
     messagingSenderId: '100226634982',
     projectId: 'discount-link-532cc',
     storageBucket: 'discount-link-532cc.firebasestorage.app',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyCg_CZSISfA1Gm24atoWIMGsq3uGBPq0ac',
+    appId: '1:100226634982:ios:c7f47186837c7831b29727',
+    messagingSenderId: '100226634982',
+    projectId: 'discount-link-532cc',
+    storageBucket: 'discount-link-532cc.firebasestorage.app',
+    androidClientId:
+        '100226634982-aogpnipk2vhl1888lbdaebpuq2f27dr6.apps.googleusercontent.com',
+    iosClientId:
+        '100226634982-g82niiqvs9r13u134gsitrkm4ah6fc2k.apps.googleusercontent.com',
+    iosBundleId: 'net.vigourtech.dl',
+  );
+
+  static const FirebaseOptions macos = FirebaseOptions(
+    apiKey: 'AIzaSyCg_CZSISfA1Gm24atoWIMGsq3uGBPq0ac',
+    appId: '1:100226634982:ios:c7f47186837c7831b29727',
+    messagingSenderId: '100226634982',
+    projectId: 'discount-link-532cc',
+    storageBucket: 'discount-link-532cc.firebasestorage.app',
+    androidClientId:
+        '100226634982-aogpnipk2vhl1888lbdaebpuq2f27dr6.apps.googleusercontent.com',
+    iosClientId:
+        '100226634982-g82niiqvs9r13u134gsitrkm4ah6fc2k.apps.googleusercontent.com',
+    iosBundleId: 'net.vigourtech.dl',
   );
 
   static const FirebaseOptions web = FirebaseOptions(

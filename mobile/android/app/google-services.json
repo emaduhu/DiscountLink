@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "100226634982-qsabut1elgoatpe43pbnis4gbenv5nt0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "net.vigourtech.dl",
+            "certificate_hash": "38901e831c00b996282690d3490e4d14eeed1f93"
+          }
+        },
+        {
           "client_id": "100226634982-hiihr773k96r2h63551k9go6eq1sfm5q.apps.googleusercontent.com",
           "client_type": 3
         }
@@ -37,6 +45,13 @@
             {
               "client_id": "100226634982-hiihr773k96r2h63551k9go6eq1sfm5q.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "100226634982-g82niiqvs9r13u134gsitrkm4ah6fc2k.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "net.vigourtech.dl"
+              }
             }
           ]
         }
