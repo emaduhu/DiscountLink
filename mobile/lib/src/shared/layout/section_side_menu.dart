@@ -1,10 +1,25 @@
 part of '../../../main.dart';
 
 class SectionSideMenu extends StatelessWidget {
-  const SectionSideMenu({super.key, required this.title, required this.items});
+  const SectionSideMenu({
+    super.key,
+    required this.title,
+    required this.items,
+    this.onItemSelected,
+  });
 
   final String title;
   final List<SectionMenuItem> items;
+  final ValueChanged<SectionMenuItem>? onItemSelected;
+
+  void _handleItemSelected(SectionMenuItem item) {
+    final handler = onItemSelected;
+    if (handler != null) {
+      handler(item);
+      return;
+    }
+    jumpToSection(item.key);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,7 +60,7 @@ class SectionSideMenu extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 6),
                   child: TextButton.icon(
-                    onPressed: () => jumpToSection(item.key),
+                    onPressed: () => _handleItemSelected(item),
                     icon: Icon(item.icon, size: 18),
                     label: Align(
                       alignment: Alignment.centerLeft,

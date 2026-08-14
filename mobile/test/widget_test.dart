@@ -42,6 +42,84 @@ void main() {
     );
   });
 
+  testWidgets('section menu opens from side navigation on phone screens', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 900);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+
+    final sectionKey = GlobalKey();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ResponsiveSectionListView(
+            menuTitle: 'Menu',
+            menuItems: [
+              SectionMenuItem(
+                label: 'Details',
+                icon: Icons.info_outline,
+                key: sectionKey,
+              ),
+            ],
+            children: [
+              SizedBox(key: sectionKey, height: 200, child: const Text('A')),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(SectionJumpChips), findsNothing);
+    expect(find.byType(SectionSideMenu), findsNothing);
+    expect(find.byTooltip('Menu'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Menu'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SectionSideMenu), findsOneWidget);
+    expect(find.text('Menu'), findsOneWidget);
+    expect(find.text('Details'), findsOneWidget);
+  });
+
+  testWidgets('section menu keeps full side navigation on tablets', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1000, 900);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+
+    final sectionKey = GlobalKey();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ResponsiveSectionListView(
+            menuTitle: 'Menu',
+            menuItems: [
+              SectionMenuItem(
+                label: 'Details',
+                icon: Icons.info_outline,
+                key: sectionKey,
+              ),
+            ],
+            children: [
+              SizedBox(key: sectionKey, height: 200, child: const Text('A')),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(SectionSideMenu), findsOneWidget);
+    expect(tester.getSize(find.byType(SectionSideMenu)).width, kSideMenuWidth);
+  });
+
   testWidgets('product carousel activates only the visible media tile', (
     tester,
   ) async {
