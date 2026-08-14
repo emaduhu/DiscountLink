@@ -82,15 +82,37 @@ Widget _phoneSectionMenuButton(
   String title,
   List<SectionMenuItem> items,
 ) {
-  return Material(
-    color: kPrimaryColor,
-    elevation: 8,
-    borderRadius: BorderRadius.circular(16),
-    child: IconButton(
-      tooltip: title,
-      onPressed: () => _showPhoneSectionMenu(context, title, items),
-      icon: const Icon(Icons.menu_open_rounded),
-      color: Colors.white,
+  return DecoratedBox(
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(
+        colors: [kPrimaryColor, kPrimaryColor2],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      borderRadius: BorderRadius.circular(18),
+      boxShadow: [
+        BoxShadow(
+          color: kPrimaryColor.withValues(alpha: 0.24),
+          blurRadius: 18,
+          offset: const Offset(0, 8),
+        ),
+      ],
+    ),
+    child: Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
+      child: IconButton(
+        tooltip: title,
+        onPressed: () => _showPhoneSectionMenu(context, title, items),
+        icon: const Icon(Icons.menu_open_rounded),
+        color: Colors.white,
+        style: IconButton.styleFrom(
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+      ),
     ),
   );
 }
@@ -113,18 +135,24 @@ Future<void> _showPhoneSectionMenu(
         alignment: Alignment.centerLeft,
         child: Material(
           color: Colors.transparent,
-          child: SizedBox(
-            width: drawerWidth,
-            height: double.infinity,
-            child: SectionSideMenu(
-              title: title,
-              items: items,
-              onItemSelected: (item) {
-                Navigator.of(dialogContext).pop();
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  jumpToSection(item.key);
-                });
-              },
+          child: ClipRRect(
+            borderRadius: const BorderRadius.horizontal(
+              right: Radius.circular(28),
+            ),
+            child: SizedBox(
+              width: drawerWidth,
+              height: double.infinity,
+              child: SectionSideMenu(
+                title: title,
+                items: items,
+                useTopSafeArea: true,
+                onItemSelected: (item) {
+                  Navigator.of(dialogContext).pop();
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    jumpToSection(item.key);
+                  });
+                },
+              ),
             ),
           ),
         ),

@@ -81,6 +81,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(SectionSideMenu), findsOneWidget);
+    expect(
+      tester
+          .widget<SectionSideMenu>(find.byType(SectionSideMenu))
+          .useTopSafeArea,
+      isTrue,
+    );
     expect(find.text('Menu'), findsOneWidget);
     expect(find.text('Details'), findsOneWidget);
   });
@@ -117,6 +123,12 @@ void main() {
     );
 
     expect(find.byType(SectionSideMenu), findsOneWidget);
+    expect(
+      tester
+          .widget<SectionSideMenu>(find.byType(SectionSideMenu))
+          .useTopSafeArea,
+      isFalse,
+    );
     expect(tester.getSize(find.byType(SectionSideMenu)).width, kSideMenuWidth);
   });
 
