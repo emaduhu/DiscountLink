@@ -504,7 +504,11 @@ class _SellerHubApiClient extends ApiClient {
   }
 
   @override
-  Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) {
+  Future<Map<String, dynamic>> post(
+    String path,
+    Map<String, dynamic> body, {
+    bool showBlockingLoader = true,
+  }) {
     postPaths.add(path);
     postBodies.add(Map<String, dynamic>.from(body));
     if (path == '/shops') {
@@ -528,6 +532,7 @@ class _SellerHubApiClient extends ApiClient {
     required Map<String, String> fields,
     required List<File> images,
     required List<File> videos,
+    bool showBlockingLoader = true,
   }) {
     multipartPaths.add(path);
     if (path == '/shops/101/products') {
@@ -540,7 +545,10 @@ class _SellerHubApiClient extends ApiClient {
   }
 
   @override
-  Future<Map<String, dynamic>> delete(String path) async {
+  Future<Map<String, dynamic>> delete(
+    String path, {
+    bool showBlockingLoader = true,
+  }) async {
     deletePaths.add(path);
     if (path == '/shops/101') {
       shopDeleted = true;

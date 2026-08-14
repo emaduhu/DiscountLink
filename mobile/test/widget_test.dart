@@ -19,6 +19,29 @@ void main() {
     expect(find.text('Welcome back'), findsOneWidget);
   });
 
+  testWidgets('login form width is capped on tablet screens', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1000, 1000);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LoginPage(
+          client: ApiClient('https://example.test'),
+          onSignedIn: (_, _) {},
+        ),
+      ),
+    );
+
+    expect(
+      tester.getSize(find.byType(SurfacePanel)).width,
+      lessThanOrEqualTo(kResponsiveFormMaxWidth),
+    );
+  });
+
   testWidgets('product carousel activates only the visible media tile', (
     tester,
   ) async {
