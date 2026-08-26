@@ -25,19 +25,20 @@ class SectionSideMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final surfaceGradient = appIsDark(context)
+        ? const [kDarkSurfaceColor, kDarkScaffoldColor]
+        : const [Colors.white, kSurfaceColor];
     return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Colors.white, kSurfaceColor],
+        gradient: LinearGradient(
+          colors: surfaceGradient,
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
         ),
-        border: Border(
-          right: BorderSide(color: Colors.black.withValues(alpha: 0.06)),
-        ),
+        border: Border(right: BorderSide(color: appBorderColor(context))),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: appShadowColor(context, lightAlpha: 0.05, darkAlpha: 0.26),
             blurRadius: 24,
             offset: const Offset(8, 0),
           ),
@@ -135,7 +136,9 @@ class SectionSideMenu extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.only(bottom: index == items.length - 1 ? 0 : 8),
       child: Material(
-        color: Colors.white.withValues(alpha: 0.92),
+        color: appSurfaceColor(
+          context,
+        ).withValues(alpha: appIsDark(context) ? 0.86 : 0.92),
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           onTap: () => _handleItemSelected(item),
@@ -144,7 +147,7 @@ class SectionSideMenu extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
+              border: Border.all(color: appBorderColor(context)),
             ),
             child: Row(
               children: [
@@ -164,7 +167,7 @@ class SectionSideMenu extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: destructive ? accent : Colors.black87,
+                      color: destructive ? accent : appForegroundColor(context),
                       fontWeight: FontWeight.w800,
                       height: 1.12,
                     ),
@@ -173,7 +176,7 @@ class SectionSideMenu extends StatelessWidget {
                 Icon(
                   Icons.chevron_right_rounded,
                   size: 18,
-                  color: kTextColor.withValues(alpha: 0.55),
+                  color: appMutedTextColor(context).withValues(alpha: 0.55),
                 ),
               ],
             ),

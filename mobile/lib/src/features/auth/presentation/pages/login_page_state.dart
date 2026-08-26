@@ -294,14 +294,14 @@ class _LoginPageState extends State<LoginPage> {
                           style: Theme.of(context).textTheme.headlineSmall
                               ?.copyWith(
                                 fontWeight: FontWeight.w800,
-                                color: Colors.black,
+                                color: appTitleColor(context),
                               ),
                         ),
                         const SizedBox(height: 4),
-                        const Text(
+                        Text(
                           'Sign in with Google, or use email/phone and password.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: kTextColor),
+                          style: TextStyle(color: appMutedTextColor(context)),
                         ),
                         SizedBox(height: compact ? 12 : 16),
                         SurfacePanel(
@@ -388,7 +388,9 @@ class _LoginPageState extends State<LoginPage> {
                                       style: Theme.of(context)
                                           .textTheme
                                           .bodySmall
-                                          ?.copyWith(color: kTextColor),
+                                          ?.copyWith(
+                                            color: appMutedTextColor(context),
+                                          ),
                                     ),
                                   ),
                                   const Expanded(child: Divider()),
@@ -406,9 +408,9 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                                 style: OutlinedButton.styleFrom(
                                   minimumSize: const Size.fromHeight(48),
-                                  foregroundColor: Colors.black,
+                                  foregroundColor: appForegroundColor(context),
                                   side: BorderSide(
-                                    color: Colors.black.withValues(alpha: 0.12),
+                                    color: appBorderColor(context),
                                   ),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(14),
@@ -432,11 +434,11 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                                   style: OutlinedButton.styleFrom(
                                     minimumSize: const Size.fromHeight(48),
-                                    foregroundColor: Colors.black,
+                                    foregroundColor: appForegroundColor(
+                                      context,
+                                    ),
                                     side: BorderSide(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.12,
-                                      ),
+                                      color: appBorderColor(context),
                                     ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(14),

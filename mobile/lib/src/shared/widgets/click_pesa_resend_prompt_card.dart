@@ -30,12 +30,15 @@ class ClickPesaResendPromptCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final gradientColors = appIsDark(context)
+        ? const [kDarkSubtleSurfaceColor, kDarkSurfaceColor, kDarkScaffoldColor]
+        : const [Color(0xfffffbf8), Colors.white, Color(0xfffff2ea)];
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xfffffbf8), Colors.white, Color(0xfffff2ea)],
+        gradient: LinearGradient(
+          colors: gradientColors,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -48,7 +51,7 @@ class ClickPesaResendPromptCard extends StatelessWidget {
             offset: const Offset(0, 12),
           ),
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
+            color: appShadowColor(context, lightAlpha: 0.03, darkAlpha: 0.24),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -92,8 +95,8 @@ class ClickPesaResendPromptCard extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       subtitle,
-                      style: const TextStyle(
-                        color: kTextColor,
+                      style: TextStyle(
+                        color: appMutedTextColor(context),
                         fontSize: 12,
                         height: 1.35,
                         fontWeight: FontWeight.w600,
@@ -116,7 +119,7 @@ class ClickPesaResendPromptCard extends StatelessWidget {
             },
             decoration: InputDecoration(
               filled: true,
-              fillColor: Colors.white,
+              fillColor: appSurfaceColor(context),
               labelText: tx(
                 'ClickPesa payment phone',
                 'Simu ya malipo ya ClickPesa',
@@ -138,9 +141,7 @@ class ClickPesaResendPromptCard extends StatelessWidget {
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
                       ),
-                      side: BorderSide(
-                        color: Colors.black.withValues(alpha: 0.10),
-                      ),
+                      side: BorderSide(color: appBorderColor(context)),
                     ),
                     child: Text(tx('Cancel', 'Ghairi')),
                   ),

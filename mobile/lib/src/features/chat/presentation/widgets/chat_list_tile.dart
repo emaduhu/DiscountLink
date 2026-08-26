@@ -29,7 +29,7 @@ class ChatListTile extends StatelessWidget {
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       leading: CircleAvatar(
         radius: 25,
-        backgroundColor: kPrimaryLightColor,
+        backgroundColor: appPrimarySoftColor(context),
         child: Text(
           initials(name),
           style: const TextStyle(

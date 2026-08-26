@@ -28,8 +28,11 @@ class ProductDealCard extends StatelessWidget {
     final matchPercent = productImageMatchPercent(product);
     final videoCount = productVideoCount(product);
     final shopOpen = product['shop']?['is_open'] == true;
+    final surfaceColor = appSurfaceColor(context);
+    final titleColor = appForegroundColor(context);
+    final mutedTextColor = appMutedTextColor(context);
     return Material(
-      color: Colors.white,
+      color: surfaceColor,
       elevation: 0,
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
@@ -50,12 +53,16 @@ class ProductDealCard extends StatelessWidget {
         ),
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: surfaceColor,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+            border: Border.all(color: appBorderColor(context)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
+                color: appShadowColor(
+                  context,
+                  lightAlpha: 0.05,
+                  darkAlpha: 0.24,
+                ),
                 blurRadius: 18,
                 offset: const Offset(0, 8),
               ),
@@ -71,7 +78,9 @@ class ProductDealCard extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(14),
                     child: DecoratedBox(
-                      decoration: const BoxDecoration(color: kSurfaceColor),
+                      decoration: BoxDecoration(
+                        color: appSubtleSurfaceColor(context),
+                      ),
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
@@ -87,7 +96,9 @@ class ProductDealCard extends StatelessWidget {
                               alignment: Alignment.topLeft,
                               child: _ProductBadge(
                                 label: '$matchPercent% match',
-                                color: Colors.black87,
+                                color: appIsDark(context)
+                                    ? kDarkSubtleSurfaceColor
+                                    : Colors.black87,
                               ),
                             ),
                           if (hasDiscount)
@@ -106,7 +117,9 @@ class ProductDealCard extends StatelessWidget {
                               child: _ProductBadge(
                                 label:
                                     '$videoCount video${videoCount == 1 ? '' : 's'}',
-                                color: Colors.black87,
+                                color: appIsDark(context)
+                                    ? kDarkSubtleSurfaceColor
+                                    : Colors.black87,
                               ),
                             ),
                         ],
@@ -119,7 +132,8 @@ class ProductDealCard extends StatelessWidget {
                   product['name'] ?? 'Product',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
+                    color: titleColor,
                     fontWeight: FontWeight.w800,
                     height: 1.16,
                   ),
@@ -167,8 +181,8 @@ class ProductDealCard extends StatelessWidget {
                     'TZS ${money.format(actual)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: kTextColor,
+                    style: TextStyle(
+                      color: mutedTextColor,
                       decoration: TextDecoration.lineThrough,
                       fontSize: 11,
                     ),

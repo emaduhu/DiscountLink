@@ -13,15 +13,16 @@ class _OfferPriceRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mutedTextColor = appMutedTextColor(context);
     return Row(
       children: [
         Expanded(
-          child: Text(label, style: const TextStyle(color: kTextColor)),
+          child: Text(label, style: TextStyle(color: mutedTextColor)),
         ),
         Text(
           value,
           style: TextStyle(
-            color: strong ? Colors.black : kTextColor,
+            color: strong ? appForegroundColor(context) : mutedTextColor,
             fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
           ),
         ),

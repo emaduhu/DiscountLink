@@ -14,7 +14,7 @@ class _ProductPriceRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = TextStyle(
-      color: highlighted ? kPrimaryColor : kTextColor,
+      color: highlighted ? kPrimaryColor : appMutedTextColor(context),
       fontWeight: highlighted ? FontWeight.w900 : FontWeight.w700,
     );
     return Padding(

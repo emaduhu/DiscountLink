@@ -16,14 +16,14 @@ class EmptyState extends StatelessWidget {
     return SurfacePanel(
       child: Column(
         children: [
-          Icon(icon, color: kTextColor, size: 44),
+          Icon(icon, color: appMutedTextColor(context), size: 44),
           const SizedBox(height: 8),
           Text(title, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 4),
           Text(
             subtitle,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: kTextColor),
+            style: TextStyle(color: appMutedTextColor(context)),
           ),
         ],
       ),

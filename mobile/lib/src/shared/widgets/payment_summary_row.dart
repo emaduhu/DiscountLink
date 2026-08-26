@@ -16,7 +16,7 @@ class PaymentSummaryRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final style = TextStyle(
       fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
-      color: strong ? Colors.black : kTextColor,
+      color: strong ? appForegroundColor(context) : appMutedTextColor(context),
     );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),

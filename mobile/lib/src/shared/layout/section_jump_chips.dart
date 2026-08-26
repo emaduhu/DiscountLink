@@ -16,7 +16,7 @@ class SectionJumpChips extends StatelessWidget {
           Text(
             title,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              color: kTextColor,
+              color: appMutedTextColor(context),
               fontWeight: FontWeight.w900,
             ),
           ),

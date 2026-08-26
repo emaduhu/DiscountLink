@@ -16,7 +16,10 @@ class InfoCard extends StatelessWidget {
           ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 6),
-        Text(subtitle, style: const TextStyle(color: kTextColor, height: 1.35)),
+        Text(
+          subtitle,
+          style: TextStyle(color: appMutedTextColor(context), height: 1.35),
+        ),
       ],
     ),
   );

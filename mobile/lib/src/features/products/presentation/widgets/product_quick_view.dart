@@ -48,7 +48,7 @@ class ProductQuickView extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   product['description'] ?? '',
-                  style: const TextStyle(color: kTextColor),
+                  style: TextStyle(color: appMutedTextColor(context)),
                 ),
                 if (product['shop'] is Map) ...[
                   const SizedBox(height: 8),
@@ -70,7 +70,9 @@ class ProductQuickView extends StatelessWidget {
                   const SizedBox(height: 8),
                   StatusPill(
                     label: '$matchPercent% visual match',
-                    color: Colors.black87,
+                    color: appIsDark(context)
+                        ? kDarkMutedTextColor
+                        : Colors.black87,
                   ),
                 ],
                 const SizedBox(height: 10),

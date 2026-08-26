@@ -21,7 +21,9 @@ class ProductPriceBreakdown extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: kPrimaryLightColor.withValues(alpha: 0.42),
+        color: appIsDark(context)
+            ? kPrimaryColor.withValues(alpha: 0.16)
+            : kPrimaryLightColor.withValues(alpha: 0.42),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: kPrimaryColor.withValues(alpha: 0.14)),
       ),
@@ -47,8 +49,8 @@ class ProductPriceBreakdown extends StatelessWidget {
                   'TZS ${money.format(actual)}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: kTextColor,
+                  style: TextStyle(
+                    color: appMutedTextColor(context),
                     decoration: TextDecoration.lineThrough,
                     fontWeight: FontWeight.w700,
                   ),

@@ -29,8 +29,8 @@ class CategoryStrip extends StatelessWidget {
                   Container(
                     width: 54,
                     height: 54,
-                    decoration: const BoxDecoration(
-                      color: kPrimaryLightColor,
+                    decoration: BoxDecoration(
+                      color: appPrimarySoftColor(context),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(item.icon, color: kPrimaryColor),

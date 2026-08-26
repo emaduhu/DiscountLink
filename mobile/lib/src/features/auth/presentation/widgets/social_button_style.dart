@@ -1,9 +1,9 @@
 part of '../../../../../main.dart';
 
-ButtonStyle socialButtonStyle() => OutlinedButton.styleFrom(
+ButtonStyle socialButtonStyle(BuildContext context) => OutlinedButton.styleFrom(
   minimumSize: const Size.fromHeight(44),
   visualDensity: VisualDensity.compact,
-  foregroundColor: Colors.black,
-  side: BorderSide(color: Colors.black.withValues(alpha: 0.12)),
+  foregroundColor: appForegroundColor(context),
+  side: BorderSide(color: appBorderColor(context)),
   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
 );

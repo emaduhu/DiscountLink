@@ -15,17 +15,18 @@ class _ProductIconAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final surfaceColor = appSurfaceColor(context);
     return IconButton(
       tooltip: tooltip,
       onPressed: onPressed,
       icon: Icon(icon, size: 18),
       style: IconButton.styleFrom(
         fixedSize: const Size(38, 38),
-        backgroundColor: filled ? kPrimaryColor : Colors.white,
-        foregroundColor: filled ? Colors.white : Colors.black87,
+        backgroundColor: filled ? kPrimaryColor : surfaceColor,
+        foregroundColor: filled ? Colors.white : appForegroundColor(context),
         side: filled
             ? BorderSide.none
-            : BorderSide(color: Colors.black.withValues(alpha: 0.08)),
+            : BorderSide(color: appBorderColor(context)),
         shape: const CircleBorder(),
       ),
     );

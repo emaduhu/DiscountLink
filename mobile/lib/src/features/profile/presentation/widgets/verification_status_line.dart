@@ -19,9 +19,9 @@ class VerificationStatusLine extends StatelessWidget {
     final code = visibleCode;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: kSurfaceColor,
+        color: appSubtleSurfaceColor(context),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
+        border: Border.all(color: appBorderColor(context)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(10),
@@ -30,7 +30,7 @@ class VerificationStatusLine extends StatelessWidget {
           children: [
             Text(
               sent ? 'Code sent to $destination' : pendingText,
-              style: const TextStyle(color: kTextColor, fontSize: 12),
+              style: TextStyle(color: appMutedTextColor(context), fontSize: 12),
             ),
             if (code != null && code.isNotEmpty) ...[
               const SizedBox(height: 6),

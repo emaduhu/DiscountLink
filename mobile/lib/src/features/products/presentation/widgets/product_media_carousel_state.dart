@@ -17,7 +17,9 @@ class _ProductMediaCarouselState extends State<ProductMediaCarousel> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),
                 child: DecoratedBox(
-                  decoration: const BoxDecoration(color: kSurfaceColor),
+                  decoration: BoxDecoration(
+                    color: appSubtleSurfaceColor(context),
+                  ),
                   child: ProductMediaTile(
                     media: widget.media[index],
                     active: index == current,
@@ -40,7 +42,9 @@ class _ProductMediaCarouselState extends State<ProductMediaCarousel> {
                   height: 7,
                   margin: const EdgeInsets.symmetric(horizontal: 3),
                   decoration: BoxDecoration(
-                    color: current == index ? kPrimaryColor : Colors.black26,
+                    color: current == index
+                        ? kPrimaryColor
+                        : appMutedTextColor(context).withValues(alpha: 0.38),
                     borderRadius: BorderRadius.circular(99),
                   ),
                 ),

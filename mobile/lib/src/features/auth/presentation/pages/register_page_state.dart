@@ -269,7 +269,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       label: Text(
                         tx('Register with Google', 'Jisajili na Google'),
                       ),
-                      style: socialButtonStyle(),
+                      style: socialButtonStyle(context),
                     ),
                     if (showApple) ...[
                       const SizedBox(height: 8),
@@ -279,7 +279,7 @@ class _RegisterPageState extends State<RegisterPage> {
                         label: Text(
                           tx('Register with Apple', 'Jisajili na Apple'),
                         ),
-                        style: socialButtonStyle(),
+                        style: socialButtonStyle(context),
                       ),
                     ],
                   ],

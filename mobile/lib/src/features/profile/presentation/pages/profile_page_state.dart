@@ -25,6 +25,7 @@ class _ProfilePageState extends State<ProfilePage> {
   String? visiblePhoneCode;
   String? localPendingPhone;
   final profileOverviewKey = GlobalKey();
+  final profileSettingsKey = GlobalKey();
   final profileAccountKey = GlobalKey();
   final profileNotificationsKey = GlobalKey();
   final profileEmailKey = GlobalKey();
@@ -626,6 +627,7 @@ class _ProfilePageState extends State<ProfilePage> {
         '${localPendingPhone?.isNotEmpty == true ? localPendingPhone : widget.user['pending_phone'] ?? ''}'
             .trim();
     final hasPendingPhone = pendingPhone.isNotEmpty;
+    final mutedTextColor = appMutedTextColor(context);
     return ResponsiveSectionListView(
       menuTitle: tx('Profile menu', 'Menyu ya wasifu'),
       menuItems: [
@@ -633,6 +635,11 @@ class _ProfilePageState extends State<ProfilePage> {
           label: tx('Overview', 'Muhtasari'),
           icon: Icons.account_circle_outlined,
           key: profileOverviewKey,
+        ),
+        SectionMenuItem(
+          label: tx('Settings', 'Mipangilio'),
+          icon: Icons.settings_outlined,
+          key: profileSettingsKey,
         ),
         SectionMenuItem(
           label: tx('Account', 'Akaunti'),
@@ -669,7 +676,7 @@ class _ProfilePageState extends State<ProfilePage> {
             children: [
               CircleAvatar(
                 radius: 34,
-                backgroundColor: kPrimaryLightColor,
+                backgroundColor: appPrimarySoftColor(context),
                 child: Text(
                   initials(widget.user['name'] ?? 'DL'),
                   style: const TextStyle(
@@ -693,7 +700,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     const SizedBox(height: 4),
                     Text(
                       '${widget.user['role']} - ${widget.user['email'] ?? ''}',
-                      style: const TextStyle(color: kTextColor),
+                      style: TextStyle(color: mutedTextColor),
                     ),
                     const SizedBox(height: 8),
                     Wrap(
@@ -730,12 +737,27 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         const SizedBox(height: 12),
         SurfacePanel(
+          key: profileSettingsKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                tx('Settings', 'Mipangilio'),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              const LanguageSwitch(),
+              const Divider(height: 24),
+              const ThemeModeSwitch(),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        SurfacePanel(
           key: profileAccountKey,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              LanguageSwitch(),
-              const Divider(height: 24),
               Field(
                 controller: name,
                 label: tx('Full name', 'Jina kamili'),
@@ -844,7 +866,7 @@ class _ProfilePageState extends State<ProfilePage> {
               const SizedBox(height: 8),
               Text(
                 notificationSummary(),
-                style: const TextStyle(color: kTextColor, height: 1.35),
+                style: TextStyle(color: mutedTextColor, height: 1.35),
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -1099,7 +1121,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   'Delete this account and remove this device session.',
                   'Futa akaunti hii na ondoa kipindi cha kifaa hiki.',
                 ),
-                style: const TextStyle(color: kTextColor),
+                style: TextStyle(color: mutedTextColor),
               ),
               const SizedBox(height: 12),
               FilledButton.icon(

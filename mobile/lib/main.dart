@@ -33,6 +33,8 @@ part 'src/core/config/app_config.dart';
 part 'src/core/firebase/firebase_helpers.dart';
 part 'src/core/localization/app_language.dart';
 part 'src/core/localization/localization.dart';
+part 'src/core/theme/app_theme.dart';
+part 'src/core/theme/theme_preference_service.dart';
 part 'src/core/network/api_client.dart';
 part 'src/core/network/api_exception.dart';
 part 'src/core/network/network_activity_controller.dart';
@@ -99,6 +101,7 @@ part 'src/features/profile/presentation/pages/profile_page.dart';
 part 'src/features/profile/presentation/pages/profile_page_state.dart';
 part 'src/features/profile/presentation/widgets/language_switch.dart';
 part 'src/features/profile/presentation/widgets/profile_line.dart';
+part 'src/features/profile/presentation/widgets/theme_mode_switch.dart';
 part 'src/features/profile/presentation/widgets/verification_status_line.dart';
 part 'src/features/seller/presentation/pages/seller_page.dart';
 part 'src/features/seller/presentation/pages/seller_page_state.dart';
@@ -139,5 +142,8 @@ part 'src/shared/widgets/surface_panel.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeFirebase();
+  try {
+    appThemeMode.value = await themePreferences.mode();
+  } catch (_) {}
   runApp(const DiscountLinkApp());
 }

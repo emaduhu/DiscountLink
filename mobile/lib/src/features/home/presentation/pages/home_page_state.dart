@@ -160,11 +160,11 @@ class _HomePageState extends State<HomePage> {
       body: pages[index],
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: appSurfaceColor(context),
           borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
+              color: appShadowColor(context, lightAlpha: 0.08, darkAlpha: 0.30),
               blurRadius: 24,
               offset: const Offset(0, -10),
             ),
@@ -173,7 +173,7 @@ class _HomePageState extends State<HomePage> {
         child: NavigationBar(
           selectedIndex: index,
           backgroundColor: Colors.transparent,
-          indicatorColor: kPrimaryLightColor,
+          indicatorColor: appPrimarySoftColor(context),
           destinations: destinations,
           onDestinationSelected: (v) => setState(() => index = v),
         ),

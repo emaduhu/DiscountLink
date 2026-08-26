@@ -291,11 +291,15 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
                   },
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: appSurfaceColor(context),
                       borderRadius: BorderRadius.circular(18),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.18),
+                          color: appShadowColor(
+                            context,
+                            lightAlpha: 0.18,
+                            darkAlpha: 0.30,
+                          ),
                           blurRadius: 22,
                           offset: const Offset(0, 10),
                         ),
@@ -305,7 +309,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
                     child: Row(
                       children: [
                         CircleAvatar(
-                          backgroundColor: kPrimaryLightColor,
+                          backgroundColor: appPrimarySoftColor(context),
                           child: Icon(
                             isChat
                                 ? Icons.chat_bubble_outline
@@ -326,8 +330,8 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
                                       title,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.black,
+                                      style: TextStyle(
+                                        color: appTitleColor(context),
                                         fontWeight: FontWeight.w900,
                                       ),
                                     ),
@@ -358,10 +362,10 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
                                     ),
                                   ],
                                   const SizedBox(width: 8),
-                                  const Text(
+                                  Text(
                                     'now',
                                     style: TextStyle(
-                                      color: kTextColor,
+                                      color: appMutedTextColor(context),
                                       fontSize: 11,
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -374,8 +378,8 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
                                   body,
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: kTextColor,
+                                  style: TextStyle(
+                                    color: appMutedTextColor(context),
                                     fontWeight: FontWeight.w600,
                                     height: 1.25,
                                   ),
@@ -507,90 +511,46 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   Widget build(BuildContext context) {
     return ValueListenableBuilder<AppLanguage>(
       valueListenable: appLanguage,
-      builder: (context, _, _) => MaterialApp(
-        navigatorKey: appNavigatorKey,
-        scaffoldMessengerKey: appScaffoldMessengerKey,
-        title: kAppName,
-        debugShowCheckedModeBanner: false,
-        builder: (context, child) => GlobalNetworkLoadingOverlay(
-          child: child ?? const SizedBox.shrink(),
-        ),
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: kPrimaryColor,
-            brightness: Brightness.light,
+      builder: (context, _, _) => ValueListenableBuilder<ThemeMode>(
+        valueListenable: appThemeMode,
+        builder: (context, themeMode, _) => MaterialApp(
+          navigatorKey: appNavigatorKey,
+          scaffoldMessengerKey: appScaffoldMessengerKey,
+          title: kAppName,
+          debugShowCheckedModeBanner: false,
+          builder: (context, child) => GlobalNetworkLoadingOverlay(
+            child: child ?? const SizedBox.shrink(),
           ),
-          scaffoldBackgroundColor: kSurfaceColor,
-          useMaterial3: true,
-          appBarTheme: const AppBarTheme(
-            elevation: 0,
-            centerTitle: true,
-            backgroundColor: kSurfaceColor,
-            foregroundColor: Colors.black,
+          theme: discountLinkTheme(Brightness.light),
+          darkTheme: discountLinkTheme(Brightness.dark),
+          themeMode: themeMode,
+          home: UpgradeAlert(
+            upgrader: Upgrader(
+              durationUntilAlertAgain: const Duration(seconds: 0),
+            ),
+            showIgnore: false,
+            showLater: false,
+            showReleaseNotes: false,
+            child: showSplash
+                ? SplashPage(
+                    onContinue: () => setState(() => showSplash = false),
+                  )
+                : user == null
+                ? LoginPage(client: client, onSignedIn: signedIn)
+                : HomePage(
+                    client: client,
+                    token: client.token ?? '',
+                    user: user!,
+                    onUserChanged: (u) => setState(() => user = u),
+                    onSignOut: signedOut,
+                    notificationCount: notificationCount,
+                    onNotificationInboxChanged: loadNotificationCount,
+                    notificationsEnabled: pushNotificationsEnabled,
+                    onNotificationsEnabledChanged: setPushNotificationsEnabled,
+                    onRefreshNotifications: refreshPushNotifications,
+                    onShowTestNotification: showTestNotification,
+                  ),
           ),
-          inputDecorationTheme: InputDecorationTheme(
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 13,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide.none,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(
-                color: Colors.black.withValues(alpha: 0.06),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: kPrimaryColor, width: 1.4),
-            ),
-          ),
-          filledButtonTheme: FilledButtonThemeData(
-            style: FilledButton.styleFrom(
-              backgroundColor: kPrimaryColor,
-              foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(48),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-          ),
-          cardTheme: const CardThemeData(
-            margin: EdgeInsets.zero,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.all(Radius.circular(14)),
-            ),
-          ),
-        ),
-        home: UpgradeAlert(
-          upgrader: Upgrader(
-            durationUntilAlertAgain: const Duration(seconds: 0),
-          ),
-          showIgnore: false,
-          showLater: false,
-          showReleaseNotes: false,
-          child: showSplash
-              ? SplashPage(onContinue: () => setState(() => showSplash = false))
-              : user == null
-              ? LoginPage(client: client, onSignedIn: signedIn)
-              : HomePage(
-                  client: client,
-                  token: client.token ?? '',
-                  user: user!,
-                  onUserChanged: (u) => setState(() => user = u),
-                  onSignOut: signedOut,
-                  notificationCount: notificationCount,
-                  onNotificationInboxChanged: loadNotificationCount,
-                  notificationsEnabled: pushNotificationsEnabled,
-                  onNotificationsEnabledChanged: setPushNotificationsEnabled,
-                  onRefreshNotifications: refreshPushNotifications,
-                  onShowTestNotification: showTestNotification,
-                ),
         ),
       ),
     );

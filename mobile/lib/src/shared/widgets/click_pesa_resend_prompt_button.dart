@@ -13,6 +13,9 @@ class ClickPesaResendPromptButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onPressed != null;
+    final gradientColors = appIsDark(context)
+        ? const [kDarkSubtleSurfaceColor, kDarkSurfaceColor]
+        : const [Color(0xfffffbf8), Color(0xffffecdf)];
     return Opacity(
       opacity: enabled ? 1 : 0.58,
       child: Material(
@@ -20,8 +23,8 @@ class ClickPesaResendPromptButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         child: Ink(
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xfffffbf8), Color(0xffffecdf)],
+            gradient: LinearGradient(
+              colors: gradientColors,
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -63,8 +66,8 @@ class ClickPesaResendPromptButton extends StatelessWidget {
                   Expanded(
                     child: Text(
                       label,
-                      style: const TextStyle(
-                        color: Colors.black87,
+                      style: TextStyle(
+                        color: appForegroundColor(context),
                         fontWeight: FontWeight.w900,
                         height: 1.2,
                       ),
@@ -72,7 +75,7 @@ class ClickPesaResendPromptButton extends StatelessWidget {
                   ),
                   Icon(
                     Icons.chevron_right,
-                    color: enabled ? kPrimaryColor : kTextColor,
+                    color: enabled ? kPrimaryColor : appMutedTextColor(context),
                   ),
                 ],
               ),

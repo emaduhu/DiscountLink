@@ -45,7 +45,9 @@ class MarketplaceHeader extends StatelessWidget {
           child: IconButton(
             onPressed: onCart,
             style: IconButton.styleFrom(
-              backgroundColor: Colors.white,
+              backgroundColor: appSurfaceColor(context),
+              foregroundColor: appForegroundColor(context),
+              side: BorderSide(color: appBorderColor(context)),
               fixedSize: const Size(52, 52),
             ),
             icon: cartLoading

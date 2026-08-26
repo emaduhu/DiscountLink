@@ -21,9 +21,22 @@ class ChatBubble extends StatelessWidget {
       if (time.isNotEmpty) time,
       if (status.isNotEmpty) status,
     ].join(' · ');
+    final dark = appIsDark(context);
+    final bubbleColor = mine
+        ? dark
+              ? const Color(0xff294536)
+              : const Color(0xffdcf8c6)
+        : appSurfaceColor(context);
+    final bubbleTextColor = mine
+        ? dark
+              ? const Color(0xffe4f4e9)
+              : Colors.black87
+        : appForegroundColor(context);
     final metadataColor = mine
-        ? const Color(0xff5f7f4a)
-        : kTextColor.withValues(alpha: 0.88);
+        ? dark
+              ? const Color(0xffa6c9b0)
+              : const Color(0xff5f7f4a)
+        : appMutedTextColor(context).withValues(alpha: 0.88);
     final content = token == null
         ? Text(body)
         : InkWell(
@@ -55,8 +68,8 @@ class ChatBubble extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   tx('Tap to open in app', 'Bonyeza kufungua kwenye app'),
-                  style: const TextStyle(
-                    color: kTextColor,
+                  style: TextStyle(
+                    color: appMutedTextColor(context),
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
@@ -73,7 +86,7 @@ class ChatBubble extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.fromLTRB(12, 9, 8, 6),
         decoration: BoxDecoration(
-          color: mine ? const Color(0xffdcf8c6) : Colors.white,
+          color: bubbleColor,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
             topRight: const Radius.circular(16),
@@ -82,7 +95,7 @@ class ChatBubble extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
+              color: appShadowColor(context, lightAlpha: 0.05, darkAlpha: 0.24),
               blurRadius: 8,
               offset: const Offset(0, 3),
             ),
@@ -92,7 +105,10 @@ class ChatBubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            content,
+            DefaultTextStyle.merge(
+              style: TextStyle(color: bubbleTextColor),
+              child: content,
+            ),
             const SizedBox(height: 4),
             Align(
               alignment: Alignment.centerRight,

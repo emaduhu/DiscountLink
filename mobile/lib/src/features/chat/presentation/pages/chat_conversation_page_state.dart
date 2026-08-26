@@ -660,7 +660,7 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
                 ? Center(
                     child: Text(
                       tx('No messages yet.', 'Bado hakuna ujumbe.'),
-                      style: const TextStyle(color: kTextColor),
+                      style: TextStyle(color: appMutedTextColor(context)),
                     ),
                   )
                 : ResponsiveCenter(
@@ -685,17 +685,17 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
             top: false,
             child: Container(
               padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-              color: Colors.white,
+              color: appSurfaceColor(context),
               child: ResponsiveCenter(
                 maxWidth: kResponsiveChatMaxWidth,
                 child: isBlocked
                     ? Row(
                         children: [
-                          const Expanded(
+                          Expanded(
                             child: Text(
                               'Messaging is disabled for this chat.',
                               style: TextStyle(
-                                color: kTextColor,
+                                color: appMutedTextColor(context),
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
@@ -720,7 +720,7 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
                               decoration: InputDecoration(
                                 hintText: tx('Message', 'Ujumbe'),
                                 filled: true,
-                                fillColor: kSurfaceColor,
+                                fillColor: appSubtleSurfaceColor(context),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(24),
                                   borderSide: BorderSide.none,

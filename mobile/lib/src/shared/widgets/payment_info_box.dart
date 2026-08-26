@@ -14,14 +14,17 @@ class PaymentInfoBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mutedTextColor = appMutedTextColor(context);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: active ? kPrimaryLightColor : kSurfaceColor,
+        color: active
+            ? appPrimarySoftColor(context)
+            : appSubtleSurfaceColor(context),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: active
               ? kPrimaryColor.withValues(alpha: 0.18)
-              : Colors.black.withValues(alpha: 0.05),
+              : appBorderColor(context),
         ),
       ),
       child: Padding(
@@ -29,13 +32,17 @@ class PaymentInfoBox extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: active ? kPrimaryColor : kTextColor, size: 20),
+            Icon(
+              icon,
+              color: active ? kPrimaryColor : mutedTextColor,
+              size: 20,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 text,
                 style: TextStyle(
-                  color: active ? kPrimaryColor : kTextColor,
+                  color: active ? kPrimaryColor : mutedTextColor,
                   fontSize: 12,
                   fontWeight: active ? FontWeight.w800 : FontWeight.w600,
                   height: 1.35,

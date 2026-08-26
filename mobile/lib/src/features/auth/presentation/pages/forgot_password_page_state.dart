@@ -86,10 +86,10 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                   ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 6),
-                const Text(
+                Text(
                   'Enter your email to receive a reset code, then create a new password.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: kTextColor),
+                  style: TextStyle(color: appMutedTextColor(context)),
                 ),
                 const SizedBox(height: 18),
                 Field(

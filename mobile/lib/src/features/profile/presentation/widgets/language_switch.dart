@@ -9,9 +9,9 @@ class LanguageSwitch extends StatelessWidget {
       valueListenable: appLanguage,
       builder: (context, language, _) => Row(
         children: [
-          const CircleAvatar(
-            backgroundColor: kPrimaryLightColor,
-            child: Icon(Icons.language, color: kPrimaryColor),
+          CircleAvatar(
+            backgroundColor: appPrimarySoftColor(context),
+            child: const Icon(Icons.language, color: kPrimaryColor),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -25,7 +25,10 @@ class LanguageSwitch extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   tx('Choose app language', 'Chagua lugha ya programu'),
-                  style: const TextStyle(color: kTextColor, fontSize: 12),
+                  style: TextStyle(
+                    color: appMutedTextColor(context),
+                    fontSize: 12,
+                  ),
                 ),
               ],
             ),

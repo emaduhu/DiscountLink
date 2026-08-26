@@ -26,14 +26,17 @@ class SplashPage extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                     fontWeight: FontWeight.w800,
-                    color: Colors.black,
+                    color: appTitleColor(context),
                   ),
                 ),
                 const SizedBox(height: 10),
-                const Text(
+                Text(
                   'Discounted products, verified sellers, tracked delivery, and fast checkout in one shopping flow.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: kTextColor, height: 1.45),
+                  style: TextStyle(
+                    color: appMutedTextColor(context),
+                    height: 1.45,
+                  ),
                 ),
                 const Spacer(),
                 FilledButton(

@@ -18,7 +18,7 @@ class ProfileLine extends StatelessWidget {
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: kPrimaryLightColor,
+            backgroundColor: appPrimarySoftColor(context),
             child: Icon(icon, color: kPrimaryColor),
           ),
           const SizedBox(width: 12),
@@ -28,7 +28,10 @@ class ProfileLine extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(color: kTextColor, fontSize: 12),
+                  style: TextStyle(
+                    color: appMutedTextColor(context),
+                    fontSize: 12,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(

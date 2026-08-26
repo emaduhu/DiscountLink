@@ -21,7 +21,7 @@ class RoleSelector extends StatelessWidget {
             selected: value == role.$1,
             label: Text(role.$2),
             avatar: Icon(role.$3, size: 18),
-            selectedColor: kPrimaryLightColor,
+            selectedColor: appPrimarySoftColor(context),
             checkmarkColor: kPrimaryColor,
             onSelected: (_) => onChanged(role.$1),
           ),

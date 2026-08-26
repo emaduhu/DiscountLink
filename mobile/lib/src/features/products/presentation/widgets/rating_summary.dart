@@ -9,6 +9,7 @@ class RatingSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final rating = productRating(product);
     final count = productRatingCount(product);
+    final mutedTextColor = appMutedTextColor(context);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -21,7 +22,9 @@ class RatingSummary extends StatelessWidget {
         Text(
           rating == null ? 'New' : rating.toStringAsFixed(1),
           style: TextStyle(
-            color: rating == null ? kTextColor : Colors.black,
+            color: rating == null
+                ? mutedTextColor
+                : appForegroundColor(context),
             fontWeight: FontWeight.w800,
             fontSize: compact ? 12 : 14,
           ),
@@ -30,7 +33,10 @@ class RatingSummary extends StatelessWidget {
           const SizedBox(width: 3),
           Text(
             '($count)',
-            style: TextStyle(color: kTextColor, fontSize: compact ? 11 : 13),
+            style: TextStyle(
+              color: mutedTextColor,
+              fontSize: compact ? 11 : 13,
+            ),
           ),
         ],
       ],
