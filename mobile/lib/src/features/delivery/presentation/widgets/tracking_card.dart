@@ -18,6 +18,13 @@ class TrackingCard extends StatelessWidget {
         '${order['delivery_code'] ?? order['delivery_code_demo'] ?? ''}'.trim();
     final deliveryCodeNotice =
         '${order['delivery_code_notice'] ?? 'Share this code only after the order arrives. It releases seller and delivery payments.'}';
+    final mutedTextColor = appMutedTextColor(context);
+    final deliveryCodeBackgroundColor = appIsDark(context)
+        ? kPrimaryColor.withValues(alpha: 0.16)
+        : kPrimaryLightColor;
+    final deliveryCodeTextColor = appIsDark(context)
+        ? kDarkTextColor
+        : Colors.black87;
 
     return SurfacePanel(
       child: Column(
@@ -44,7 +51,7 @@ class TrackingCard extends StatelessWidget {
             order['delivery_address'] ?? '',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: kTextColor),
+            style: TextStyle(color: mutedTextColor),
           ),
           if (items.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -67,8 +74,13 @@ class TrackingCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: kPrimaryLightColor,
+                color: deliveryCodeBackgroundColor,
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: kPrimaryColor.withValues(
+                    alpha: appIsDark(context) ? 0.24 : 0.10,
+                  ),
+                ),
               ),
               child: Row(
                 children: [
@@ -77,7 +89,8 @@ class TrackingCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       'Buyer delivery code\n$deliveryCode',
-                      style: const TextStyle(
+                      style: TextStyle(
+                        color: deliveryCodeTextColor,
                         fontWeight: FontWeight.w900,
                         height: 1.25,
                       ),
@@ -89,8 +102,8 @@ class TrackingCard extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               deliveryCodeNotice,
-              style: const TextStyle(
-                color: kTextColor,
+              style: TextStyle(
+                color: mutedTextColor,
                 fontSize: 12,
                 height: 1.3,
               ),

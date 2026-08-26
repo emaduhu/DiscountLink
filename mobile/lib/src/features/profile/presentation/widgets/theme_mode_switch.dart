@@ -8,24 +8,21 @@ class ThemeModeSwitch extends StatelessWidget {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: appThemeMode,
       builder: (context, themeMode, _) {
-        final picker = DropdownButtonHideUnderline(
-          child: DropdownButton<ThemeMode>(
-            value: themeMode,
-            borderRadius: BorderRadius.circular(16),
-            onChanged: (selection) {
-              if (selection != null) {
-                unawaited(setAppThemeMode(selection));
-              }
-            },
-            items: ThemeMode.values
-                .map(
-                  (mode) => DropdownMenuItem<ThemeMode>(
-                    value: mode,
-                    child: Text(appThemeModeLabel(mode)),
-                  ),
-                )
-                .toList(),
-          ),
+        final selector = SegmentedButton<ThemeMode>(
+          showSelectedIcon: false,
+          selected: {themeMode},
+          segments: ThemeMode.values
+              .map(
+                (mode) => ButtonSegment<ThemeMode>(
+                  value: mode,
+                  icon: Icon(appThemeModeIcon(mode), size: 18),
+                  label: Text(appThemeModeLabel(mode)),
+                ),
+              )
+              .toList(),
+          onSelectionChanged: (selection) {
+            unawaited(setAppThemeMode(selection.first));
+          },
         );
 
         final details = Row(
@@ -65,14 +62,21 @@ class ThemeModeSwitch extends StatelessWidget {
                 children: [
                   details,
                   const SizedBox(height: 10),
-                  Align(alignment: Alignment.centerRight, child: picker),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: selector,
+                    ),
+                  ),
                 ],
               );
             }
             return Row(
               children: [
                 Expanded(child: details),
-                picker,
+                const SizedBox(width: 12),
+                selector,
               ],
             );
           },

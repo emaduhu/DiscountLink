@@ -85,7 +85,7 @@ class _OrdersPageState extends State<OrdersPage> {
             padding: const EdgeInsets.only(bottom: 6),
             child: Text(
               'Updated ${DateFormat('HH:mm').format(lastUpdated!)}',
-              style: const TextStyle(color: kTextColor, fontSize: 12),
+              style: TextStyle(color: appMutedTextColor(context), fontSize: 12),
             ),
           ),
         if (!loading && orderTotal != null)
@@ -93,7 +93,7 @@ class _OrdersPageState extends State<OrdersPage> {
             padding: const EdgeInsets.only(bottom: 6),
             child: Text(
               'Showing ${orders.length} of $orderTotal orders',
-              style: const TextStyle(color: kTextColor, fontSize: 12),
+              style: TextStyle(color: appMutedTextColor(context), fontSize: 12),
             ),
           ),
         const SizedBox(height: 8),
