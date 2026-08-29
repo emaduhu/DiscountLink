@@ -149,11 +149,12 @@ class _CartPageState extends State<CartPage> {
       });
       final push = r['ussd_push'] as Map<String, dynamic>?;
       final payment = r['payment'] as Map<String, dynamic>?;
+      final deliveryCode = '${r['delivery_code'] ?? ''}'.trim();
       setState(() {
         lastCheckoutPayment = payment;
         lastCheckoutPush = push;
         lastCheckoutOrder = (r['order'] as Map?)?.cast<String, dynamic>();
-        lastDeliveryCode = '${r['delivery_code'] ?? r['delivery_code_demo']}';
+        lastDeliveryCode = deliveryCode.isEmpty ? null : deliveryCode;
         resendPaymentPhone.text = '${payment?['phone'] ?? paymentPhone}';
       });
       final deliveryNotifications =
@@ -163,6 +164,26 @@ class _CartPageState extends State<CartPage> {
         if (deliveryNotifications['sms'] == true) 'SMS',
         if (deliveryNotifications['fcm'] == true) 'push notification',
       ];
+      final deliveryCodeMessage = deliveryCode.isEmpty
+          ? tx(
+              'Your buyer delivery code will appear in My orders when it is ready.',
+              'Kodi yako ya kupokea mzigo itaonekana kwenye Oda zangu ikiwa tayari.',
+            )
+          : '${tx('Approve the USSD prompt on your phone. Keep this buyer delivery code:', 'Kubali ombi la USSD kwenye simu yako. Hifadhi kodi hii ya kupokea mzigo:')} $deliveryCode';
+      final deliveryNotificationMessage = deliveryCode.isEmpty
+          ? tx(
+              'Keep checking My orders before sharing any delivery confirmation.',
+              'Endelea kuangalia Oda zangu kabla ya kutoa uthibitisho wowote wa mzigo.',
+            )
+          : deliveryNotificationSummary.isEmpty
+          ? tx(
+              'We could not confirm an SMS or push copy; keep the code shown here.',
+              'Hatujaweza kuthibitisha nakala ya SMS au arifa; hifadhi kodi iliyo hapa.',
+            )
+          : tx(
+              'A copy was also sent by ${deliveryNotificationSummary.join(' and ')}.',
+              'Nakala pia imetumwa kwa ${deliveryNotificationSummary.join(' na ')}.',
+            );
       resendAfterCheckout =
           await showDialog<bool>(
             context: context,
@@ -175,9 +196,8 @@ class _CartPageState extends State<CartPage> {
                   '${tx('Order', 'Oda')}: ${r['order']['reference']}\n'
                   '${tx('Amount', 'Kiasi')}: TZS ${money.format(num.tryParse('${r['order']['grand_total'] ?? cartGrandTotal()}') ?? cartGrandTotal())}\n'
                   '${paymentRequestDetails(payment: payment, push: push, fallbackPhone: paymentPhone)}\n\n'
-                  '${tx('Approve the USSD prompt on your phone. Keep this buyer delivery code:', 'Kubali ombi la USSD kwenye simu yako. Hifadhi kodi hii ya kupokea mzigo:')} '
-                  '${r['delivery_code'] ?? r['delivery_code_demo']}\n\n'
-                  '${deliveryNotificationSummary.isEmpty ? tx('We could not confirm an SMS or push copy; keep the code shown here.', 'Hatujaweza kuthibitisha nakala ya SMS au arifa; hifadhi kodi iliyo hapa.') : tx('A copy was also sent by ${deliveryNotificationSummary.join(' and ')}.', 'Nakala pia imetumwa kwa ${deliveryNotificationSummary.join(' na ')}.')}\n\n'
+                  '$deliveryCodeMessage\n\n'
+                  '$deliveryNotificationMessage\n\n'
                   '${tx('Share the delivery code only after the order arrives.', 'Toa kodi ya mzigo baada tu ya kupokea oda yako.')}',
                 ),
               ),

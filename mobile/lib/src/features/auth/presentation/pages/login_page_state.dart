@@ -9,8 +9,8 @@ class _LoginPageState extends State<LoginPage> {
   static const _socialRegistrationRequiredMessage =
       'Complete registration with your name, phone, NIDA number, and address before using social sign-in';
 
-  final email = TextEditingController(text: 'buyer@discountlink.local');
-  final password = TextEditingController(text: 'password');
+  final email = TextEditingController();
+  final password = TextEditingController();
   String role = 'buyer';
   bool loading = false;
   bool biometricAvailable = false;

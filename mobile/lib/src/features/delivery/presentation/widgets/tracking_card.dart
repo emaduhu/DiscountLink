@@ -14,8 +14,7 @@ class TrackingCard extends StatelessWidget {
     final delivererLongitude = toDouble(assignment?['deliverer_longitude']);
     final items = (order['items'] as List?) ?? [];
     final money = NumberFormat('#,##0.00');
-    final deliveryCode =
-        '${order['delivery_code'] ?? order['delivery_code_demo'] ?? ''}'.trim();
+    final deliveryCode = '${order['delivery_code'] ?? ''}'.trim();
     final deliveryCodeNotice =
         '${order['delivery_code_notice'] ?? 'Share this code only after the order arrives. It releases seller and delivery payments.'}';
     final mutedTextColor = appMutedTextColor(context);

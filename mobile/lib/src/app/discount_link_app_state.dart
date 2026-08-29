@@ -2,6 +2,9 @@ part of '../../main.dart';
 
 class _DiscountLinkAppState extends State<DiscountLinkApp> {
   final client = ApiClient(apiBaseUrl);
+  final updateEnforcer = MandatoryUpdateUpgrader(
+    durationUntilAlertAgain: Duration.zero,
+  );
   Map<String, dynamic>? user;
   bool showSplash = true;
   StreamSubscription<String>? fcmTokenSubscription;
@@ -501,6 +504,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   @override
   void dispose() {
     hideForegroundNotificationBanner();
+    updateEnforcer.dispose();
     fcmTokenSubscription?.cancel();
     foregroundMessageSubscription?.cancel();
     notificationOpenedSubscription?.cancel();
@@ -525,9 +529,9 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
           darkTheme: discountLinkTheme(Brightness.dark),
           themeMode: themeMode,
           home: UpgradeAlert(
-            upgrader: Upgrader(
-              durationUntilAlertAgain: const Duration(seconds: 0),
-            ),
+            upgrader: updateEnforcer,
+            barrierDismissible: false,
+            shouldPopScope: () => false,
             showIgnore: false,
             showLater: false,
             showReleaseNotes: false,

@@ -938,14 +938,15 @@ class _ProfilePageState extends State<ProfilePage> {
                     icon: const Icon(Icons.sync),
                     label: Text(tx('Refresh token', 'Sasisha tokeni')),
                   ),
-                  OutlinedButton.icon(
-                    onPressed:
-                        widget.notificationsEnabled && !notificationsLoading
-                        ? widget.onShowTestNotification
-                        : null,
-                    icon: const Icon(Icons.notification_add_outlined),
-                    label: Text(tx('Test banner', 'Jaribu bango')),
-                  ),
+                  if (kDebugMode)
+                    OutlinedButton.icon(
+                      onPressed:
+                          widget.notificationsEnabled && !notificationsLoading
+                          ? widget.onShowTestNotification
+                          : null,
+                      icon: const Icon(Icons.notification_add_outlined),
+                      label: Text(tx('Test banner', 'Jaribu bango')),
+                    ),
                 ],
               ),
             ],

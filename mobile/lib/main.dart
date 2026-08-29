@@ -35,6 +35,7 @@ part 'src/core/localization/app_language.dart';
 part 'src/core/localization/localization.dart';
 part 'src/core/theme/app_theme.dart';
 part 'src/core/theme/theme_preference_service.dart';
+part 'src/core/update/mandatory_update_upgrader.dart';
 part 'src/core/network/api_client.dart';
 part 'src/core/network/api_exception.dart';
 part 'src/core/network/network_activity_controller.dart';

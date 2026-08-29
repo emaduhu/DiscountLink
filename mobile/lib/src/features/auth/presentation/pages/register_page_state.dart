@@ -1,12 +1,12 @@
 part of '../../../../../main.dart';
 
 class _RegisterPageState extends State<RegisterPage> {
-  final name = TextEditingController(text: 'Demo Buyer');
-  final phone = TextEditingController(text: '255700000001');
+  final name = TextEditingController();
+  final phone = TextEditingController();
   final nida = TextEditingController();
-  final address = TextEditingController(text: 'Dar es Salaam');
+  final address = TextEditingController();
   final email = TextEditingController();
-  final password = TextEditingController(text: 'password');
+  final password = TextEditingController();
   String role = 'buyer';
   bool termsAccepted = false;
   bool loading = false;
