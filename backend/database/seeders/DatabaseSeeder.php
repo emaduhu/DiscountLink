@@ -16,9 +16,10 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call(AdminUserSeeder::class);
-        $this->call(SampleFlowSeeder::class);
 
         if (! app()->isProduction()) {
+            $this->call(SampleFlowSeeder::class);
+
             User::updateOrCreate(
                 ['email' => 'test@example.com'],
                 User::factory()->make([

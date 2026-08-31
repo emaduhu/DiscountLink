@@ -77,7 +77,6 @@ return [
     ],
 
     'discountlink' => [
-        'admin_token' => env('DISCOUNTLINK_ADMIN_TOKEN'),
         'admin_email' => env('DISCOUNTLINK_ADMIN_EMAIL', 'admin@dl.vigourtech.net'),
         'admin_password' => env('DISCOUNTLINK_ADMIN_PASSWORD'),
         'token_days' => env('DISCOUNTLINK_TOKEN_DAYS', 90),

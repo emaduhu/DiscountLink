@@ -9,7 +9,7 @@ Set these values in `backend/.env` before launch:
 - `SMS_PROVIDER=beem_africa`, `BEEM_ACCESS_KEY`, `BEEM_SECRET_KEY`, `BEEM_SENDER=VIGOURTECH`, `BEEM_SMS_URL=https://apisms.beem.africa/v1/send` for OTP SMS. The older `BEEM_API_KEY`, `BEEM_SENDER_ID`, and `BEEM_BASE_URL` names remain supported as fallbacks.
 - `CLICKPESA_API_KEY`, `CLICKPESA_BASE_URL`, `CLICKPESA_WEBHOOK_SECRET`, `CLICKPESA_QUEUE`, and `CLICKPESA_QUEUE_TRIES` for queued collections and disbursements. Configure ClickPesa to sign callbacks and set the matching checksum secret; paid product-campaign callbacks are deliberately ignored when this secret is blank or the checksum is invalid.
 - `FCM_SERVER_KEY` for delivery notifications.
-- `DISCOUNTLINK_ADMIN_TOKEN` for the management dashboard.
+- `DISCOUNTLINK_ADMIN_EMAIL` and `DISCOUNTLINK_ADMIN_PASSWORD` for the initial management dashboard admin account.
 
 ## Backend deployment
 

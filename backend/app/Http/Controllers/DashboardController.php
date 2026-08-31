@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AppSetting;
+use App\Models\AuditLog;
 use App\Models\Conversation;
 use App\Models\ConversationReport;
 use App\Models\DeliveryAssignment;
@@ -366,7 +367,7 @@ class DashboardController extends Controller
             return redirect()->guest(route('admin.login'));
         }
 
-        $dashboardPages = ['dashboard', 'charts', 'settings', 'users', 'shops', 'products', 'campaigns', 'reports', 'chats', 'notifications', 'orders', 'deliveries', 'payments'];
+        $dashboardPages = ['dashboard', 'charts', 'settings', 'users', 'shops', 'products', 'campaigns', 'reports', 'chats', 'notifications', 'orders', 'deliveries', 'payments', 'audits'];
         $activePage = $request->query('page', 'dashboard');
         if (! in_array($activePage, $dashboardPages, true)) {
             $activePage = 'dashboard';
@@ -385,6 +386,7 @@ class DashboardController extends Controller
         $deliveriesPerPage = $this->perPage($request, 'deliveries_per_page', 25);
         $paymentsPerPage = $this->perPage($request, 'payments_per_page', 25);
         $campaignsPerPage = $this->perPage($request, 'campaigns_per_page', 25);
+        $auditsPerPage = $this->perPage($request, 'audits_per_page', 25);
 
         $usersSearch = $this->search($request, 'users_q');
         $shopsSearch = $this->search($request, 'shops_q');
@@ -396,6 +398,7 @@ class DashboardController extends Controller
         $deliveriesSearch = $this->search($request, 'deliveries_q');
         $paymentsSearch = $this->search($request, 'payments_q');
         $campaignsSearch = $this->search($request, 'campaigns_q');
+        $auditsSearch = $this->search($request, 'audits_q');
         $serviceFeeRevenue = (float) Order::whereNotNull('paid_at')->sum('service_fee_total');
         $registrationFeeRevenue = (float) Payment::where('type', 'shop_registration_fee')
             ->whereIn('status', ['paid', 'success', 'completed'])
@@ -418,6 +421,7 @@ class DashboardController extends Controller
                 'service_fee_revenue' => 'TZS '.number_format($serviceFeeRevenue, 2),
                 'registration_fee_revenue' => 'TZS '.number_format($registrationFeeRevenue, 2),
                 'campaign_revenue' => 'TZS '.number_format($campaignRevenue, 2),
+                'audit_logs' => AuditLog::count(),
             ],
             'charts' => $this->dashboardCharts($serviceFeeRevenue, $registrationFeeRevenue, $campaignRevenue),
             'orders' => Order::with('buyer', 'seller', 'shop', 'deliveryAssignment.deliverer')
@@ -534,6 +538,24 @@ class DashboardController extends Controller
                 ->latest()
                 ->paginate($notificationsPerPage, ['*'], 'notifications_page')
                 ->withQueryString(),
+            'auditLogs' => AuditLog::query()
+                ->when($auditsSearch, fn ($query, string $search) => $query->where(fn ($builder) => $builder
+                    ->where('event', 'like', "%{$search}%")
+                    ->orWhere('action', 'like', "%{$search}%")
+                    ->orWhere('source', 'like', "%{$search}%")
+                    ->orWhere('route_name', 'like', "%{$search}%")
+                    ->orWhere('method', 'like', "%{$search}%")
+                    ->orWhere('path', 'like', "%{$search}%")
+                    ->orWhere('actor_role', 'like', "%{$search}%")
+                    ->orWhere('actor_name', 'like', "%{$search}%")
+                    ->orWhere('actor_email', 'like', "%{$search}%")
+                    ->orWhere('auditable_type', 'like', "%{$search}%")
+                    ->orWhere('auditable_id', is_numeric($search) ? (int) $search : 0)
+                    ->orWhere('actor_id', is_numeric($search) ? (int) $search : 0))
+                )
+                ->latest('created_at')
+                ->paginate($auditsPerPage, ['*'], 'audits_page')
+                ->withQueryString(),
             'settings' => [
                 'otp_provider' => AppSetting::get('otp_provider', config('services.otp.provider', 'beem')),
                 'beem_sender_id' => AppSetting::get('beem_sender_id', config('services.beem.sender_id')),
@@ -558,6 +580,7 @@ class DashboardController extends Controller
                 'deliveries_q' => $deliveriesSearch,
                 'payments_q' => $paymentsSearch,
                 'campaigns_q' => $campaignsSearch,
+                'audits_q' => $auditsSearch,
             ],
             'perPage' => [
                 'users_per_page' => $usersPerPage,
@@ -570,6 +593,7 @@ class DashboardController extends Controller
                 'deliveries_per_page' => $deliveriesPerPage,
                 'payments_per_page' => $paymentsPerPage,
                 'campaigns_per_page' => $campaignsPerPage,
+                'audits_per_page' => $auditsPerPage,
             ],
             'activePage' => $activePage,
         ]);

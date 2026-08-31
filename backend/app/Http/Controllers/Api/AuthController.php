@@ -60,6 +60,8 @@ class AuthController extends Controller
             'is_active' => true,
             'terms_accepted_at' => now(),
         ]);
+        $this->setAuditActor($request, $user);
+
         if (! empty($data['fcm_token'])) {
             $fcmTokens->claim($user, $data['fcm_token']);
         }
@@ -106,6 +108,8 @@ class AuthController extends Controller
 
         abort_if(! $user || ! $user->password || ! Hash::check($data['password'], $user->password), 422, 'Invalid login credentials.');
         abort_unless($user->is_active, 403, 'Your account is blocked.');
+
+        $this->setAuditActor($request, $user);
 
         if (! empty($data['fcm_token'])) {
             $fcmTokens->claim($user, $data['fcm_token']);
@@ -188,6 +192,8 @@ class AuthController extends Controller
             422,
             'Invalid or expired password reset code.',
         );
+
+        $this->setAuditActor($request, $user);
 
         $user->update(['password' => $data['password']]);
         DB::table('password_reset_tokens')->where('email', $user->email)->delete();
@@ -290,11 +296,14 @@ class AuthController extends Controller
         }
 
         if ($user) {
+            $this->setAuditActor($request, $user);
             $user->update($attributes);
             $user = $user->fresh();
         } else {
             $user = User::create(['email' => $email] + $attributes);
         }
+        $this->setAuditActor($request, $user);
+
         if (! empty($data['fcm_token'])) {
             $fcmTokens->claim($user, $data['fcm_token']);
         }
@@ -597,6 +606,11 @@ class AuthController extends Controller
         return (bool) config('services.discountlink.show_verification_codes') ? $code : null;
     }
 
+    private function setAuditActor(Request $request, User $user): void
+    {
+        $request->attributes->set('audit_actor', $user);
+    }
+
     private function findUserByEmail(string $email): ?User
     {
         return User::whereRaw('LOWER(email) = ?', [$this->normalizeEmail($email)])->first();
@@ -614,7 +628,12 @@ class AuthController extends Controller
 
     private function normalizePhone(string $phone): string
     {
-        return preg_replace('/[\s-]+/', '', trim($phone)) ?? '';
+        $phone = trim($phone);
+        if (str_starts_with($phone, '+')) {
+            $phone = substr($phone, 1);
+        }
+
+        return preg_replace('/[\s-]+/', '', $phone) ?? '';
     }
 
     /**

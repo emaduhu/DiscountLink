@@ -25,15 +25,15 @@ php artisan serve
 For tests, create a separate MySQL database named `discountlink_test` (or
 override the `DB_*` variables when running the suite), then run `composer test`.
 
-Admin dashboard: `http://127.0.0.1:8000/dashboard?token=change-me`
+Admin dashboard: `http://127.0.0.1:8000/dashboard`
 
-Sample app users:
+Local seeding creates sample app users outside production:
 
 - Buyer: `buyer@discountlink.local` or `255700000001`
 - Seller: `seller@discountlink.local` or `255700000002`
 - Deliverer: `deliverer@discountlink.local` or `255700000003`
 
-Password for all sample users: `password`.
+Password for all local sample users: `password`.
 
 ## Mobile quick start
 
@@ -44,6 +44,28 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api
 ```
 
 For local Google auth testing, the backend accepts `dev-google-token:user@example.com` only when `APP_ENV=local`.
+
+## Audit logging
+
+The backend stores operational audit logs in the `audit_logs` table. Mutating
+HTTP requests (`POST`, `PUT`, `PATCH`, and `DELETE`) are recorded for API, admin,
+and web traffic; read-only `GET`, `HEAD`, and `OPTIONS` requests are skipped.
+Eloquent `created`, `updated`, `deleted`, `restored`, and `forceDeleted` events
+are also recorded for application models, except for audit-log rows themselves
+and noisy token `last_used_at` updates.
+
+Each entry stores the request id, source, event/action, actor snapshot, target
+model, route/path, response status, duration, sanitized request payload, route
+parameters, and old/new model values where applicable. Sensitive fields such as
+passwords, tokens, OTP codes, checksums, Firebase/Google credentials, FCM tokens,
+and delivery codes are redacted before storage.
+
+Admins can inspect and search the log from the dashboard using
+`/dashboard?page=audits`. Run the audit coverage with:
+
+```bash
+php artisan test tests/Feature/AuditLogTest.php
+```
 
 ## Product media API
 
