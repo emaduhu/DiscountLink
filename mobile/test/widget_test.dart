@@ -6,6 +6,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 void main() {
+  test(
+    'login phone identifiers are normalized to Tanzanian country format',
+    () {
+      expect(normalizeLoginIdentifier('+255 700 000 001'), '255700000001');
+      expect(normalizeLoginIdentifier('0700 000 001'), '255700000001');
+      expect(normalizeLoginIdentifier('700000001'), '255700000001');
+      expect(
+        normalizeLoginIdentifier(' BUYER@example.com '),
+        'buyer@example.com',
+      );
+    },
+  );
+
   testWidgets('renders Discount Link login', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -17,6 +30,103 @@ void main() {
     );
 
     expect(find.text('Welcome back'), findsOneWidget);
+  });
+
+  testWidgets('login password visibility can be toggled', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LoginPage(
+          client: ApiClient('https://example.test'),
+          onSignedIn: (_, _) {},
+        ),
+      ),
+    );
+
+    final passwordInput = find.descendant(
+      of: find.byWidgetPredicate(
+        (widget) => widget is Field && widget.label == 'Password',
+      ),
+      matching: find.byType(TextField),
+    );
+    expect(tester.widget<TextField>(passwordInput).obscureText, isTrue);
+
+    await tester.ensureVisible(find.byTooltip('Show password'));
+    await tester.tap(find.byTooltip('Show password'));
+    await tester.pump();
+
+    expect(tester.widget<TextField>(passwordInput).obscureText, isFalse);
+    expect(find.byTooltip('Hide password'), findsOneWidget);
+  });
+
+  testWidgets('registration password visibility can be toggled', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 1100);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RegisterPage(
+          client: ApiClient('https://example.test'),
+          onSignedIn: (_, _) {},
+        ),
+      ),
+    );
+
+    final passwordInput = find.descendant(
+      of: find.byWidgetPredicate(
+        (widget) => widget is Field && widget.label == 'Password',
+      ),
+      matching: find.byType(TextField),
+    );
+    expect(tester.widget<TextField>(passwordInput).obscureText, isTrue);
+
+    await tester.tap(find.byTooltip('Show password'));
+    await tester.pump();
+
+    expect(tester.widget<TextField>(passwordInput).obscureText, isFalse);
+    expect(find.byTooltip('Hide password'), findsOneWidget);
+  });
+
+  testWidgets('pending Google registration collects a password', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 1100);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RegisterPage(
+          client: ApiClient('https://example.test'),
+          onSignedIn: (_, _) {},
+          pendingSocialProviderName: 'Google',
+          pendingSocialPayload: {
+            'google_id_token': 'dev-google-token:social@example.com',
+            'role': 'buyer',
+            'full_name': 'Social Buyer',
+          },
+        ),
+      ),
+    );
+
+    expect(find.text('Create password'), findsOneWidget);
+    expect(find.text('Email'), findsNothing);
+
+    final passwordInput = find.descendant(
+      of: find.byWidgetPredicate(
+        (widget) => widget is Field && widget.label == 'Create password',
+      ),
+      matching: find.byType(TextField),
+    );
+    expect(tester.widget<TextField>(passwordInput).obscureText, isTrue);
   });
 
   testWidgets('login form width is capped on tablet screens', (tester) async {
@@ -215,7 +325,64 @@ void main() {
     expect(productDeliveryPrice(product), 100);
     expect(productTotalPrice(product), 950);
     expect(productHasDiscount(product), isTrue);
+    expect(productDiscountModeForProduct(product), productDiscountModePercent);
+    expect(
+      productDiscountValueForMode(product, productDiscountModePercent),
+      '15',
+    );
+    expect(
+      productDiscountMultipartFields(
+        priceText: '1000',
+        discountMode: productDiscountModePercent,
+        discountText: '15',
+      ),
+      {'discount_percent': '15'},
+    );
   });
+
+  test(
+    'product discount helpers convert fixed amount off to discount price',
+    () {
+      final product = {
+        'price': '1000.00',
+        'discount_price': '800.00',
+        'discount_percent': '0',
+        'delivery_price': '100.00',
+      };
+
+      expect(productBuyerPrice(product), 800);
+      expect(productDiscountAmountOff(product), 200);
+      expect(productDiscountModeForProduct(product), productDiscountModeAmount);
+      expect(
+        productDiscountValueForMode(product, productDiscountModeAmount),
+        '200',
+      );
+      expect(
+        productDiscountMultipartFields(
+          priceText: '1000',
+          discountMode: productDiscountModeAmount,
+          discountText: '200',
+        ),
+        {'discount_percent': '0', 'discount_price': '800'},
+      );
+      expect(
+        productDiscountJsonFields(
+          priceText: '1000',
+          discountMode: productDiscountModeAmount,
+          discountText: '200',
+        ),
+        {'discount_percent': 0.0, 'discount_price': 800.0},
+      );
+      expect(
+        () => productDiscountMultipartFields(
+          priceText: '1000',
+          discountMode: productDiscountModeAmount,
+          discountText: '1001',
+        ),
+        throwsA(isA<Exception>()),
+      );
+    },
+  );
 
   test('chat helpers format message time and outgoing delivery status', () {
     appLanguage.value = AppLanguage.en;

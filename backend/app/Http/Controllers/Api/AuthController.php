@@ -106,8 +106,19 @@ class AuthController extends Controller
             ? $this->findUserByEmail($identifier)
             : User::where('phone', $identifier)->first();
 
-        abort_if(! $user || ! $user->password || ! Hash::check($data['password'], $user->password), 422, 'Invalid login credentials.');
+        abort_if(! $user, 422, 'Invalid login credentials.');
         abort_unless($user->is_active, 403, 'Your account is blocked.');
+        if (! $user->password) {
+            if ($user->google_id) {
+                return response()->json([
+                    'code' => 'password_setup_required',
+                    'message' => 'This Google account does not have a password yet. Use Forgot password to create one, or sign in with Google and create a password.',
+                ], 422);
+            }
+
+            abort(422, 'Invalid login credentials.');
+        }
+        abort_unless(Hash::check($data['password'], $user->password), 422, 'Invalid login credentials.');
 
         $this->setAuditActor($request, $user);
 
@@ -223,6 +234,7 @@ class AuthController extends Controller
             'full_name' => ['nullable', 'string', 'max:160'],
             'phone' => ['nullable', 'string', 'regex:/^\d{12}$/'],
             'nida_number' => ['nullable', 'string', 'min:8', 'max:40'],
+            'password' => ['nullable', 'string', 'min:6', 'max:120'],
             'address' => ['nullable', 'string', 'max:255'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
@@ -243,10 +255,10 @@ class AuthController extends Controller
         }
         abort_unless($email || $user, 422, 'Apple sign-in did not return an email address. Remove DiscountLink from your Apple ID Sign in with Apple settings, then try again and share your email.');
         $isNewUser = ! $user;
-        if (! $user && (empty($data['full_name']) || empty($data['phone']) || empty($data['nida_number']) || empty($data['address']))) {
+        if (! $user && (empty($data['full_name']) || empty($data['phone']) || empty($data['nida_number']) || empty($data['address']) || empty($data['password']))) {
             return response()->json([
                 'code' => 'social_registration_required',
-                'message' => 'Complete registration with your name, phone, NIDA number, and address before using social sign-in.',
+                'message' => 'Complete registration with your name, phone, NIDA number, address, and password before using social sign-in.',
             ], 422);
         }
         abort_if(
@@ -259,6 +271,12 @@ class AuthController extends Controller
             422,
             'You must accept the Terms and Conditions before signing in.'
         );
+        if ($user && $user->google_id && ! $user->password && empty($data['password'])) {
+            return response()->json([
+                'code' => 'social_password_required',
+                'message' => 'Create a password for this Google account to enable email or phone number sign-in.',
+            ], 422);
+        }
 
         $attributes = [
             'google_id' => $providerUserId,
@@ -268,9 +286,13 @@ class AuthController extends Controller
         ];
         if (! $user) {
             $attributes['role'] = $data['role'];
+            $attributes['password'] = $data['password'];
             $attributes['terms_accepted_at'] = now();
         } elseif (! $user->terms_accepted_at && ! empty($data['terms_accepted'])) {
             $attributes['terms_accepted_at'] = now();
+        }
+        if ($user && ! $user->password && ! empty($data['password'])) {
+            $attributes['password'] = $data['password'];
         }
         if (! empty($data['full_name'])) {
             $attributes['name'] = $data['full_name'];
@@ -308,7 +330,7 @@ class AuthController extends Controller
             $fcmTokens->claim($user, $data['fcm_token']);
         }
         $credentialsEmailSent = $isNewUser
-            ? $this->sendRegistrationCredentialsEmail($user)
+            ? $this->sendRegistrationCredentialsEmail($user, $data['password'] ?? null)
             : false;
         $phoneOtp = match (true) {
             $isNewUser => $this->sendPhoneOtp($user, $otp),
@@ -633,7 +655,18 @@ class AuthController extends Controller
             $phone = substr($phone, 1);
         }
 
-        return preg_replace('/[\s-]+/', '', $phone) ?? '';
+        $phone = preg_replace('/[\s\-()]+/', '', $phone) ?? '';
+        if (str_starts_with($phone, '00')) {
+            $phone = substr($phone, 2);
+        }
+        if (preg_match('/^0\d{9}$/', $phone) === 1) {
+            return '255'.substr($phone, 1);
+        }
+        if (preg_match('/^[67]\d{8}$/', $phone) === 1) {
+            return '255'.$phone;
+        }
+
+        return $phone;
     }
 
     /**

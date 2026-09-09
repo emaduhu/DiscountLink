@@ -7,7 +7,7 @@ class _LoginPageState extends State<LoginPage> {
   static const _socialTermsCreateMessage =
       'accept the Terms and Conditions before creating an account';
   static const _socialRegistrationRequiredMessage =
-      'Complete registration with your name, phone, NIDA number, and address before using social sign-in';
+      'Complete registration with your name, phone, NIDA number, address, and password before using social sign-in';
 
   final email = TextEditingController();
   final password = TextEditingController();
@@ -15,6 +15,7 @@ class _LoginPageState extends State<LoginPage> {
   bool loading = false;
   bool biometricAvailable = false;
   bool biometricSaved = false;
+  bool passwordVisible = false;
   String? biometricAccountLabel;
   String biometricMethodLabel = 'biometrics';
 
@@ -328,7 +329,20 @@ class _LoginPageState extends State<LoginPage> {
                                 controller: password,
                                 label: tx('Password', 'Nenosiri'),
                                 icon: Icons.lock_outline,
-                                obscure: true,
+                                obscure: !passwordVisible,
+                                suffixIcon: IconButton(
+                                  tooltip: passwordVisible
+                                      ? tx('Hide password', 'Ficha nenosiri')
+                                      : tx('Show password', 'Onyesha nenosiri'),
+                                  onPressed: () => setState(
+                                    () => passwordVisible = !passwordVisible,
+                                  ),
+                                  icon: Icon(
+                                    passwordVisible
+                                        ? Icons.visibility_off_outlined
+                                        : Icons.visibility_outlined,
+                                  ),
+                                ),
                               ),
                               Align(
                                 alignment: Alignment.centerRight,

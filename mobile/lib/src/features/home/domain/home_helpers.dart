@@ -6,6 +6,19 @@ int profileIndexForRole(String role) => switch (role) {
   _ => 1,
 };
 
+int homePageCountForRole(String role) => switch (role) {
+  'buyer' => 4,
+  'seller' || 'deliverer' => 3,
+  _ => 2,
+};
+
+int normalizedHomeIndexForRole(String role, int index) {
+  final lastIndex = homePageCountForRole(role) - 1;
+  if (index < 0) return 0;
+  if (index > lastIndex) return lastIndex;
+  return index;
+}
+
 int unreadCountFromConversations(List conversations) {
   var total = 0;
   for (final item in conversations) {

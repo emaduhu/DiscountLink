@@ -1,2 +1,11 @@
 dist/
 .idea/deviceManager.xml
+
+# Local IDE files
+backend/*.iml
+
+# Generated deployment archives/scripts
+backend/build/
+
+# Packaged store asset archives are generated from the committed image folders.
+mobile/store_assets/actual/*.zip

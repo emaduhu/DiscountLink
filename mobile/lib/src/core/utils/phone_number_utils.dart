@@ -2,10 +2,18 @@ part of '../../../main.dart';
 
 String normalizePhoneInput(String value) {
   final trimmed = value.trim();
-  final withoutCountryPrefix = trimmed.startsWith('+')
-      ? trimmed.substring(1)
-      : trimmed;
-  return withoutCountryPrefix.replaceAll(RegExp(r'[\s-]+'), '');
+  var normalized = trimmed.startsWith('+') ? trimmed.substring(1) : trimmed;
+  normalized = normalized.replaceAll(RegExp(r'[\s\-()]+'), '');
+  if (normalized.startsWith('00')) {
+    normalized = normalized.substring(2);
+  }
+  if (RegExp(r'^0\d{9}$').hasMatch(normalized)) {
+    return '255${normalized.substring(1)}';
+  }
+  if (RegExp(r'^[67]\d{8}$').hasMatch(normalized)) {
+    return '255$normalized';
+  }
+  return normalized;
 }
 
 String normalizeLoginIdentifier(String value) {

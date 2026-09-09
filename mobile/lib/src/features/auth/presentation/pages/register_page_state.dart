@@ -10,6 +10,7 @@ class _RegisterPageState extends State<RegisterPage> {
   String role = 'buyer';
   bool termsAccepted = false;
   bool loading = false;
+  bool passwordVisible = false;
 
   @override
   void initState() {
@@ -54,11 +55,11 @@ class _RegisterPageState extends State<RegisterPage> {
     if (mounted) Navigator.of(context).pop();
   }
 
-  void requireRegistrationDetails({required bool includeEmailPassword}) {
+  void requireRegistrationDetails({required bool includeEmail}) {
     final missing = <String>[];
     if (role.trim().isEmpty) missing.add(tx('account type', 'aina ya akaunti'));
     if (name.text.trim().isEmpty) missing.add(tx('full name', 'jina kamili'));
-    if (includeEmailPassword && email.text.trim().isEmpty) {
+    if (includeEmail && email.text.trim().isEmpty) {
       missing.add(tx('email', 'barua pepe'));
     }
     if (phone.text.trim().isEmpty) missing.add(tx('phone', 'simu'));
@@ -66,7 +67,7 @@ class _RegisterPageState extends State<RegisterPage> {
       missing.add(tx('NIDA number', 'namba ya NIDA'));
     }
     if (address.text.trim().isEmpty) missing.add(tx('address', 'anwani'));
-    if (includeEmailPassword && password.text.isEmpty) {
+    if (password.text.isEmpty) {
       missing.add(tx('password', 'nenosiri'));
     }
     if (!termsAccepted) {
@@ -83,7 +84,7 @@ class _RegisterPageState extends State<RegisterPage> {
   Future<void> register() async {
     setState(() => loading = true);
     try {
-      requireRegistrationDetails(includeEmailPassword: true);
+      requireRegistrationDetails(includeEmail: true);
       final normalizedPhone = requireTwelveDigitPhone(phone.text);
       final response = await widget.client.post('/auth/register', {
         'role': role,
@@ -129,7 +130,7 @@ class _RegisterPageState extends State<RegisterPage> {
     required Map<String, dynamic> credentials,
     required String fallbackName,
   }) async {
-    requireRegistrationDetails(includeEmailPassword: false);
+    requireRegistrationDetails(includeEmail: false);
     final normalizedPhone = requireTwelveDigitPhone(phone.text);
     return widget.client.post('/auth/google', {
       ...credentials,
@@ -137,6 +138,7 @@ class _RegisterPageState extends State<RegisterPage> {
       'full_name': name.text.trim().isEmpty ? fallbackName : name.text.trim(),
       'phone': normalizedPhone,
       'nida_number': nida.text.trim(),
+      'password': password.text,
       'address': address.text.trim(),
       'fcm_token': await fcmToken(),
       'terms_accepted': true,
@@ -326,32 +328,51 @@ class _RegisterPageState extends State<RegisterPage> {
                     label: tx('Default address', 'Anwani ya msingi'),
                     icon: Icons.place_outlined,
                   ),
-                  if (!hasPendingSocialLogin)
-                    Field(
-                      controller: password,
-                      label: tx('Password', 'Nenosiri'),
-                      icon: Icons.lock_outline,
-                      obscure: true,
-                    ),
-                  CheckboxListTile(
-                    value: termsAccepted,
-                    onChanged: loading
-                        ? null
-                        : (value) =>
-                              setState(() => termsAccepted = value ?? false),
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      tx(
-                        'I accept the Terms and Conditions',
-                        'Ninakubali Vigezo na Masharti',
+                  Field(
+                    controller: password,
+                    label: hasPendingSocialLogin
+                        ? tx(
+                            'Create password',
+                            'Tengeneza nenosiri',
+                          )
+                        : tx('Password', 'Nenosiri'),
+                    icon: Icons.lock_outline,
+                    obscure: !passwordVisible,
+                    suffixIcon: IconButton(
+                      tooltip: passwordVisible
+                          ? tx('Hide password', 'Ficha nenosiri')
+                          : tx('Show password', 'Onyesha nenosiri'),
+                      onPressed: () =>
+                          setState(() => passwordVisible = !passwordVisible),
+                      icon: Icon(
+                        passwordVisible
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
                       ),
-                      style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
-                    subtitle: Text(
-                      tx(
-                        'Required before creating a Discount Link account.',
-                        'Inahitajika kabla ya kufungua akaunti ya Discount Link.',
+                  ),
+                  Material(
+                    color: Colors.transparent,
+                    child: CheckboxListTile(
+                      value: termsAccepted,
+                      onChanged: loading
+                          ? null
+                          : (value) =>
+                                setState(() => termsAccepted = value ?? false),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        tx(
+                          'I accept the Terms and Conditions',
+                          'Ninakubali Vigezo na Masharti',
+                        ),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: Text(
+                        tx(
+                          'Required before creating a Discount Link account.',
+                          'Inahitajika kabla ya kufungua akaunti ya Discount Link.',
+                        ),
                       ),
                     ),
                   ),

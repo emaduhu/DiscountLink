@@ -7,6 +7,8 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   );
   Map<String, dynamic>? user;
   bool showSplash = true;
+  bool restoringStartupState = true;
+  int restoredHomeIndex = 0;
   StreamSubscription<String>? fcmTokenSubscription;
   StreamSubscription<RemoteMessage>? foregroundMessageSubscription;
   StreamSubscription<RemoteMessage>? notificationOpenedSubscription;
@@ -19,8 +21,38 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
   @override
   void initState() {
     super.initState();
+    restoreStartupState();
     loadNotificationPreference();
     loadNotificationCount();
+  }
+
+  Future<void> restoreStartupState() async {
+    PersistedSession? session;
+    var hasSeenSplash = false;
+    var homeIndex = 0;
+    try {
+      session = await sessionPersistence.restore();
+      hasSeenSplash = await sessionPersistence.hasSeenSplash();
+      homeIndex = await sessionPersistence.homeIndex() ?? 0;
+    } catch (_) {}
+
+    final restoredSession = session;
+    if (!mounted) return;
+    setState(() {
+      if (restoredSession != null) {
+        client.token = restoredSession.token;
+        user = restoredSession.user;
+        showSplash = false;
+      } else {
+        showSplash = !hasSeenSplash;
+      }
+      restoredHomeIndex = homeIndex;
+      restoringStartupState = false;
+    });
+
+    if (restoredSession != null) {
+      registerNotifications();
+    }
   }
 
   Future<void> loadNotificationPreference() async {
@@ -68,13 +100,52 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
     setState(() {
       client.token = token;
       user = signedUser;
+      showSplash = false;
     });
+    unawaited(saveCurrentSession());
     biometricAuth.isEnabledFor(signedUser).then((enabled) {
       if (enabled) {
         biometricAuth.enable(token: token, user: signedUser);
       }
     });
     registerNotifications();
+  }
+
+  Future<void> saveCurrentSession() async {
+    final token = client.token;
+    final signedUser = user;
+    if (token == null || token.isEmpty || signedUser == null) return;
+
+    try {
+      await sessionPersistence.save(token: token, user: signedUser);
+    } catch (_) {}
+  }
+
+  void updateSignedUser(Map<String, dynamic> updatedUser) {
+    setState(() => user = updatedUser);
+    unawaited(saveCurrentSession());
+  }
+
+  void persistHomeIndex(int index) {
+    restoredHomeIndex = index;
+    unawaited(saveHomeIndex(index));
+  }
+
+  void continueFromSplash() {
+    setState(() => showSplash = false);
+    unawaited(markSplashSeen());
+  }
+
+  Future<void> saveHomeIndex(int index) async {
+    try {
+      await sessionPersistence.setHomeIndex(index);
+    } catch (_) {}
+  }
+
+  Future<void> markSplashSeen() async {
+    try {
+      await sessionPersistence.setSplashSeen();
+    } catch (_) {}
   }
 
   Future<void> registerNotifications() async {
@@ -240,7 +311,13 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
       return;
     }
 
-    final isChat = message.data['type'] == 'chat_message';
+    final type = '${message.data['type'] ?? ''}'.trim();
+    final route = '${message.data['route'] ?? ''}'.trim();
+    final isChat = type == 'chat_message';
+    final isProduct =
+        route == 'product' ||
+        type == 'product_added' ||
+        type == 'product_campaign';
     final unreadCount =
         int.tryParse('${message.data['unread_count'] ?? 0}') ?? 0;
 
@@ -248,8 +325,11 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
       title: effectiveTitle,
       body: effectiveBody,
       isChat: isChat,
+      isProduct: isProduct,
       unreadCount: isChat ? unreadCount : 0,
-      onTap: isChat ? () => unawaited(openNotificationMessage(message)) : null,
+      onTap: (isChat || isProduct)
+          ? () => unawaited(openNotificationMessage(message))
+          : null,
     );
   }
 
@@ -257,6 +337,7 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
     required String title,
     required String body,
     required bool isChat,
+    bool isProduct = false,
     int unreadCount = 0,
     VoidCallback? onTap,
   }) {
@@ -316,6 +397,8 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
                           child: Icon(
                             isChat
                                 ? Icons.chat_bubble_outline
+                                : isProduct
+                                ? Icons.local_offer_outlined
                                 : Icons.notifications_active_outlined,
                             color: kPrimaryColor,
                           ),
@@ -422,13 +505,28 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
     final type = '${data['type'] ?? ''}'.trim();
     if (route == 'chat' || type == 'chat_message') {
       await openChatFromNotification('${data['conversation_id'] ?? ''}');
+      return;
     }
+    if (route == 'product' ||
+        type == 'product_added' ||
+        type == 'product_campaign') {
+      await openProductFromNotification('${data['product_id'] ?? ''}');
+    }
+  }
+
+  Future<NavigatorState?> notificationNavigator() async {
+    for (var attempt = 0; attempt < 10; attempt++) {
+      final navigator = appNavigatorKey.currentState;
+      if (navigator != null) return navigator;
+      await Future<void>.delayed(const Duration(milliseconds: 180));
+    }
+    return appNavigatorKey.currentState;
   }
 
   Future<void> openChatFromNotification(String conversationId) async {
     final id = conversationId.trim();
     final signedUser = user;
-    final navigator = appNavigatorKey.currentState;
+    final navigator = await notificationNavigator();
     if (id.isEmpty ||
         client.token == null ||
         signedUser == null ||
@@ -460,6 +558,25 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
         error.toString().replaceFirst('Exception: ', ''),
       );
     }
+  }
+
+  Future<void> openProductFromNotification(String productId) async {
+    final id = int.tryParse(productId.trim());
+    final signedUser = user;
+    final navigator = await notificationNavigator();
+    if (id == null ||
+        client.token == null ||
+        signedUser == null ||
+        navigator == null) {
+      return;
+    }
+
+    await navigator.push<void>(
+      MaterialPageRoute(
+        builder: (_) =>
+            ProductDetailsPage(client: client, user: signedUser, productId: id),
+      ),
+    );
   }
 
   void hideForegroundNotificationBanner() {
@@ -497,7 +614,11 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
         client.token = null;
         user = null;
         showSplash = false;
+        restoredHomeIndex = 0;
       });
+      try {
+        await sessionPersistence.clearSession();
+      } catch (_) {}
     });
   }
 
@@ -535,17 +656,21 @@ class _DiscountLinkAppState extends State<DiscountLinkApp> {
             showIgnore: false,
             showLater: false,
             showReleaseNotes: false,
-            child: showSplash
-                ? SplashPage(
-                    onContinue: () => setState(() => showSplash = false),
+            child: restoringStartupState
+                ? const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
                   )
+                : showSplash
+                ? SplashPage(onContinue: continueFromSplash)
                 : user == null
                 ? LoginPage(client: client, onSignedIn: signedIn)
                 : HomePage(
                     client: client,
                     token: client.token ?? '',
                     user: user!,
-                    onUserChanged: (u) => setState(() => user = u),
+                    initialIndex: restoredHomeIndex,
+                    onSelectedIndexChanged: persistHomeIndex,
+                    onUserChanged: updateSignedUser,
                     onSignOut: signedOut,
                     notificationCount: notificationCount,
                     onNotificationInboxChanged: loadNotificationCount,

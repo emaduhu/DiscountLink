@@ -36,6 +36,7 @@ const kSideMenuWidth = 204.0;
 final appLanguage = ValueNotifier<AppLanguage>(AppLanguage.en);
 final appThemeMode = ValueNotifier<ThemeMode>(ThemeMode.system);
 const biometricAuth = BiometricAuthService();
+const sessionPersistence = SessionPersistenceService();
 const themePreferences = ThemePreferenceService();
 const notificationPreferences = NotificationPreferenceService();
 const notificationInbox = NotificationInboxService();

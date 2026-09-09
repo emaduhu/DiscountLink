@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
@@ -80,10 +81,10 @@ class RegistrationTermsTest extends TestCase
         ])
             ->assertUnprocessable()
             ->assertJsonPath('code', 'social_registration_required')
-            ->assertJsonPath('message', 'Complete registration with your name, phone, NIDA number, and address before using social sign-in.');
+            ->assertJsonPath('message', 'Complete registration with your name, phone, NIDA number, address, and password before using social sign-in.');
     }
 
-    public function test_new_social_user_can_complete_registration_with_same_social_token(): void
+    public function test_new_social_user_can_complete_registration_with_same_social_token_and_password_login(): void
     {
         Mail::fake();
 
@@ -93,6 +94,7 @@ class RegistrationTermsTest extends TestCase
             'full_name' => 'New Social',
             'phone' => '255700111333',
             'nida_number' => '19900101123456789001',
+            'password' => 'social-secret',
             'address' => 'Dar es Salaam',
             'terms_accepted' => true,
         ])
@@ -104,5 +106,65 @@ class RegistrationTermsTest extends TestCase
             'email' => 'newsocial@example.com',
             'phone' => '255700111333',
         ]);
+        $user = User::where('email', 'newsocial@example.com')->firstOrFail();
+        $this->assertTrue(Hash::check('social-secret', $user->password));
+
+        $this->postJson('/api/auth/login', [
+            'identifier' => 'NEWSOCIAL@example.com',
+            'password' => 'social-secret',
+        ])
+            ->assertOk()
+            ->assertJsonPath('user.email', 'newsocial@example.com');
+
+        $this->postJson('/api/auth/login', [
+            'identifier' => '0700 111 333',
+            'password' => 'social-secret',
+        ])
+            ->assertOk()
+            ->assertJsonPath('user.phone', '255700111333');
+    }
+
+    public function test_existing_google_user_without_password_can_create_one_during_social_sign_in(): void
+    {
+        $email = 'legacy-social-password@example.com';
+        $user = User::factory()->create([
+            'email' => $email,
+            'phone' => '255700111334',
+            'google_id' => sha1($email),
+            'password' => null,
+            'terms_accepted_at' => now(),
+        ]);
+
+        $this->postJson('/api/auth/google', [
+            'google_id_token' => 'dev-google-token:'.$email,
+            'role' => 'buyer',
+        ])
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'social_password_required')
+            ->assertJsonPath('message', 'Create a password for this Google account to enable email or phone number sign-in.');
+
+        $this->postJson('/api/auth/google', [
+            'google_id_token' => 'dev-google-token:'.$email,
+            'role' => 'buyer',
+            'password' => 'social-secret',
+        ])
+            ->assertOk()
+            ->assertJsonPath('user.email', $email);
+
+        $this->assertTrue(Hash::check('social-secret', $user->fresh()->password));
+
+        $this->postJson('/api/auth/login', [
+            'identifier' => 'LEGACY-SOCIAL-PASSWORD@example.com',
+            'password' => 'social-secret',
+        ])
+            ->assertOk()
+            ->assertJsonPath('user.email', $email);
+
+        $this->postJson('/api/auth/login', [
+            'identifier' => '0700 111 334',
+            'password' => 'social-secret',
+        ])
+            ->assertOk()
+            ->assertJsonPath('user.phone', '255700111334');
     }
 }

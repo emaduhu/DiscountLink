@@ -36,6 +36,7 @@ Route::middleware(AuthenticateApiToken::class)->group(function () {
     Route::get('/shop-categories', [ShopController::class, 'categories']);
 
     Route::get('/products', [ProductController::class, 'index']);
+    Route::get('/products/{product}', [ProductController::class, 'show']);
     Route::post('/products/image-search', [ProductController::class, 'imageSearch']);
     Route::post('/products/{product}/rating', [ProductController::class, 'rate']);
 

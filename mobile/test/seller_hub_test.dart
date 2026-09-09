@@ -342,6 +342,38 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('product create sends fixed amount discounts as discount price', (
+    tester,
+  ) async {
+    final client = _SellerHubApiClient();
+    await _pumpSellerHub(tester, client);
+
+    final state = tester.state(find.byType(SellerPage)) as dynamic;
+    state.productName.text = 'New product';
+    state.description.text = 'New product description';
+    state.price.text = '1000';
+    state.discountMode = productDiscountModeAmount;
+    state.discount.text = '200';
+    state.delivery.text = '100';
+    state.stock.text = '10';
+    state.selectedProductImages = [
+      for (final image in _productImageFiles()) XFile(image.path),
+    ];
+
+    await state.publishProduct();
+
+    expect(client.multipartPaths, contains('/shops/101/products'));
+    expect(client.multipartFields.last, {
+      'name': 'New product',
+      'description': 'New product description',
+      'price': '1000',
+      'discount_percent': '0',
+      'discount_price': '800',
+      'delivery_price': '100',
+      'stock': '10',
+    });
+  });
+
   testWidgets('shop delete confirms and calls the soft-delete endpoint', (
     tester,
   ) async {
@@ -427,6 +459,7 @@ class _SellerHubApiClient extends ApiClient {
   final postPaths = <String>[];
   final postBodies = <Map<String, dynamic>>[];
   final multipartPaths = <String>[];
+  final multipartFields = <Map<String, String>>[];
   final deletePaths = <String>[];
   bool shopDeleted = false;
 
@@ -535,6 +568,7 @@ class _SellerHubApiClient extends ApiClient {
     bool showBlockingLoader = true,
   }) {
     multipartPaths.add(path);
+    multipartFields.add(Map<String, String>.from(fields));
     if (path == '/shops/101/products') {
       return productCreateRequest?.future ??
           Future.value({

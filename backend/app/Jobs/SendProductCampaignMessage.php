@@ -66,8 +66,10 @@ class SendProductCampaignMessage implements ShouldQueue
             } else {
                 // Use the snapshotted token even if the user has since refreshed their device token.
                 $user->setAttribute('fcm_token', $delivery->destination);
+                $isNewProductAnnouncement = str_starts_with((string) $delivery->campaign->reference, 'DLNEW-');
                 $sent = $fcm->sendToUser($user, $delivery->campaign->title, $delivery->campaign->message, [
-                    'type' => 'product_campaign',
+                    'type' => $isNewProductAnnouncement ? 'product_added' : 'product_campaign',
+                    'route' => 'product',
                     'campaign_id' => (string) $delivery->campaign->id,
                     'product_id' => (string) $delivery->campaign->product_id,
                     'seller_id' => (string) $delivery->campaign->seller_id,

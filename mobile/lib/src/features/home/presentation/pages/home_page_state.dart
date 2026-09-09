@@ -8,16 +8,29 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    final role = widget.user['role'] as String;
+    index = normalizedHomeIndexForRole(role, widget.initialIndex);
     if (widget.user['_open_phone_verification'] == true ||
         widget.user['email_verified_at'] == null ||
         widget.user['phone_verified_at'] == null) {
-      index = profileIndexForRole(widget.user['role'] as String);
+      index = profileIndexForRole(role);
     }
+    widget.onSelectedIndexChanged(index);
     loadUnreadChatCount();
     unreadChatTimer = Timer.periodic(
       const Duration(seconds: 10),
       (_) => loadUnreadChatCount(),
     );
+  }
+
+  @override
+  void didUpdateWidget(covariant HomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final role = widget.user['role'] as String;
+    final nextIndex = normalizedHomeIndexForRole(role, index);
+    if (nextIndex == index) return;
+    setState(() => index = nextIndex);
+    widget.onSelectedIndexChanged(nextIndex);
   }
 
   @override
@@ -175,7 +188,10 @@ class _HomePageState extends State<HomePage> {
           backgroundColor: Colors.transparent,
           indicatorColor: appPrimarySoftColor(context),
           destinations: destinations,
-          onDestinationSelected: (v) => setState(() => index = v),
+          onDestinationSelected: (v) {
+            setState(() => index = v);
+            widget.onSelectedIndexChanged(v);
+          },
         ),
       ),
     );

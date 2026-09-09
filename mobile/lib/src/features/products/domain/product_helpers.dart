@@ -22,6 +22,9 @@ double productDiscountPercent(Map<String, dynamic> product) {
   return value.clamp(0, 100).toDouble();
 }
 
+const productDiscountModePercent = 'percent';
+const productDiscountModeAmount = 'amount';
+
 double? productDiscountPrice(Map<String, dynamic> product) {
   final explicit = num.tryParse('${product['discount_price'] ?? ''}');
   if (explicit != null) return explicit.toDouble();
@@ -31,6 +34,93 @@ double? productDiscountPrice(Map<String, dynamic> product) {
   if (actual <= 0 || percent <= 0) return null;
 
   return ((actual * (1 - (percent / 100))) * 100).roundToDouble() / 100;
+}
+
+double? productDiscountAmountOff(Map<String, dynamic> product) {
+  final actual = productActualPrice(product);
+  final discounted = productDiscountPrice(product);
+  if (actual <= 0 || discounted == null || discounted >= actual) return null;
+
+  return ((actual - discounted) * 100).roundToDouble() / 100;
+}
+
+String productDiscountModeForProduct(Map<String, dynamic> product) {
+  if (productDiscountPercent(product) > 0) return productDiscountModePercent;
+  if ((productDiscountAmountOff(product) ?? 0) > 0) {
+    return productDiscountModeAmount;
+  }
+  return productDiscountModePercent;
+}
+
+String productDiscountValueForMode(Map<String, dynamic> product, String mode) {
+  final value = mode == productDiscountModeAmount
+      ? productDiscountAmountOff(product) ?? 0
+      : productDiscountPercent(product);
+  return compactDecimal(value);
+}
+
+String compactDecimal(num value) {
+  return value.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '');
+}
+
+Map<String, String> productDiscountMultipartFields({
+  required String priceText,
+  required String discountMode,
+  required String discountText,
+}) {
+  if (discountMode == productDiscountModeAmount) {
+    final price = requiredProductPrice(priceText);
+    final amount = optionalDiscountAmount(discountText);
+    if (amount > price) {
+      throw Exception('Discount amount cannot be greater than product price.');
+    }
+
+    return {
+      'discount_percent': '0',
+      if (amount > 0) 'discount_price': compactDecimal(price - amount),
+    };
+  }
+
+  return {
+    'discount_percent': discountText.trim().isEmpty ? '0' : discountText.trim(),
+  };
+}
+
+Map<String, dynamic> productDiscountJsonFields({
+  required String priceText,
+  required String discountMode,
+  required String discountText,
+}) {
+  final fields = productDiscountMultipartFields(
+    priceText: priceText,
+    discountMode: discountMode,
+    discountText: discountText,
+  );
+
+  return {
+    'discount_percent': double.tryParse(fields['discount_percent'] ?? '0') ?? 0,
+    if (fields['discount_price'] != null)
+      'discount_price': double.parse(fields['discount_price']!),
+  };
+}
+
+double requiredProductPrice(String value) {
+  final price = double.tryParse(value.trim());
+  if (price == null || price < 0) {
+    throw Exception('Enter a valid product price.');
+  }
+  return price;
+}
+
+double optionalDiscountAmount(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return 0;
+
+  final amount = double.tryParse(trimmed);
+  if (amount == null || amount < 0) {
+    throw Exception('Enter a valid discount amount.');
+  }
+  return amount;
 }
 
 double productBuyerPrice(Map<String, dynamic> product) {

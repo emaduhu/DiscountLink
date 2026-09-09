@@ -5,8 +5,12 @@ class _ProductEditDraft {
     : name = TextEditingController(text: product['name'] ?? ''),
       description = TextEditingController(text: product['description'] ?? ''),
       price = TextEditingController(text: '${product['price'] ?? ''}'),
+      discountMode = productDiscountModeForProduct(product),
       discount = TextEditingController(
-        text: '${product['discount_percent'] ?? '0'}',
+        text: productDiscountValueForMode(
+          product,
+          productDiscountModeForProduct(product),
+        ),
       ),
       delivery = TextEditingController(
         text: '${product['delivery_price'] ?? ''}',
@@ -16,6 +20,7 @@ class _ProductEditDraft {
   final TextEditingController name;
   final TextEditingController description;
   final TextEditingController price;
+  String discountMode;
   final TextEditingController discount;
   final TextEditingController delivery;
   final TextEditingController stock;

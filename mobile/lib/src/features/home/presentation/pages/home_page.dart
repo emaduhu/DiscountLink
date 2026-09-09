@@ -6,6 +6,8 @@ class HomePage extends StatefulWidget {
     required this.client,
     required this.token,
     required this.user,
+    required this.initialIndex,
+    required this.onSelectedIndexChanged,
     required this.onUserChanged,
     required this.onSignOut,
     required this.notificationCount,
@@ -18,6 +20,8 @@ class HomePage extends StatefulWidget {
   final ApiClient client;
   final String token;
   final Map<String, dynamic> user;
+  final int initialIndex;
+  final ValueChanged<int> onSelectedIndexChanged;
   final ValueChanged<Map<String, dynamic>> onUserChanged;
   final Future<void> Function() onSignOut;
   final int notificationCount;

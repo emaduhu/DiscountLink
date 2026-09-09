@@ -11,6 +11,7 @@ class _SellerPageState extends State<SellerPage> {
   final description = TextEditingController();
   final price = TextEditingController();
   final discount = TextEditingController();
+  String discountMode = productDiscountModePercent;
   final delivery = TextEditingController();
   final stock = TextEditingController(text: '10');
   final delivererName = TextEditingController();
@@ -645,7 +646,11 @@ class _SellerPageState extends State<SellerPage> {
           'name': productName.text,
           'description': description.text,
           'price': price.text,
-          'discount_percent': discount.text,
+          ...productDiscountMultipartFields(
+            priceText: price.text,
+            discountMode: discountMode,
+            discountText: discount.text,
+          ),
           'delivery_price': delivery.text,
           'stock': stock.text,
         },
@@ -999,7 +1004,11 @@ class _SellerPageState extends State<SellerPage> {
             'name': draft.name.text.trim(),
             'description': draft.description.text.trim(),
             'price': draft.price.text,
-            'discount_percent': draft.discount.text,
+            ...productDiscountMultipartFields(
+              priceText: draft.price.text,
+              discountMode: draft.discountMode,
+              discountText: draft.discount.text,
+            ),
             'delivery_price': draft.delivery.text,
             'stock': draft.stock.text,
             if (clearReplacementProductVideos) 'clear_videos': '1',
@@ -1016,7 +1025,11 @@ class _SellerPageState extends State<SellerPage> {
           'name': draft.name.text.trim(),
           'description': draft.description.text.trim(),
           'price': double.parse(draft.price.text),
-          'discount_percent': double.tryParse(draft.discount.text) ?? 0,
+          ...productDiscountJsonFields(
+            priceText: draft.price.text,
+            discountMode: draft.discountMode,
+            discountText: draft.discount.text,
+          ),
           'delivery_price': double.parse(draft.delivery.text),
           'stock': int.parse(draft.stock.text),
         });
@@ -1589,11 +1602,40 @@ class _SellerPageState extends State<SellerPage> {
                 icon: Icons.sell_outlined,
                 keyboard: TextInputType.number,
               ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  initialValue: discountMode,
+                  items: const [
+                    DropdownMenuItem(
+                      value: productDiscountModePercent,
+                      child: Text('Percentage off'),
+                    ),
+                    DropdownMenuItem(
+                      value: productDiscountModeAmount,
+                      child: Text('Fixed amount off'),
+                    ),
+                  ],
+                  onChanged: (value) => setState(() {
+                    discountMode = value ?? productDiscountModePercent;
+                    discount.clear();
+                  }),
+                  decoration: const InputDecoration(
+                    labelText: 'Discount type',
+                    prefixIcon: Icon(Icons.discount_outlined),
+                  ),
+                ),
+              ),
               Field(
                 controller: discount,
-                label: 'Discount percent',
-                icon: Icons.percent,
-                keyboard: TextInputType.number,
+                label: discountMode == productDiscountModeAmount
+                    ? 'Discount amount off (TZS)'
+                    : 'Discount percent',
+                icon: discountMode == productDiscountModeAmount
+                    ? Icons.payments_outlined
+                    : Icons.percent,
+                keyboard: const TextInputType.numberWithOptions(decimal: true),
               ),
               Field(
                 controller: delivery,
@@ -1999,11 +2041,48 @@ class _SellerPageState extends State<SellerPage> {
                                   icon: Icons.sell_outlined,
                                   keyboard: TextInputType.number,
                                 ),
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: DropdownButtonFormField<String>(
+                                    isExpanded: true,
+                                    initialValue: productDraft!.discountMode,
+                                    items: const [
+                                      DropdownMenuItem(
+                                        value: productDiscountModePercent,
+                                        child: Text('Percentage off'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: productDiscountModeAmount,
+                                        child: Text('Fixed amount off'),
+                                      ),
+                                    ],
+                                    onChanged: (value) => setState(() {
+                                      productDraft!.discountMode =
+                                          value ?? productDiscountModePercent;
+                                      productDraft!.discount.clear();
+                                    }),
+                                    decoration: const InputDecoration(
+                                      labelText: 'Discount type',
+                                      prefixIcon: Icon(Icons.discount_outlined),
+                                    ),
+                                  ),
+                                ),
                                 Field(
                                   controller: productDraft!.discount,
-                                  label: 'Discount percent',
-                                  icon: Icons.percent,
-                                  keyboard: TextInputType.number,
+                                  label:
+                                      productDraft!.discountMode ==
+                                          productDiscountModeAmount
+                                      ? 'Discount amount off (TZS)'
+                                      : 'Discount percent',
+                                  icon:
+                                      productDraft!.discountMode ==
+                                          productDiscountModeAmount
+                                      ? Icons.payments_outlined
+                                      : Icons.percent,
+                                  keyboard:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
                                 ),
                                 Field(
                                   controller: productDraft!.delivery,

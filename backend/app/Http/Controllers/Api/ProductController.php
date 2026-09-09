@@ -36,6 +36,19 @@ class ProductController extends Controller
         return response()->json(['products' => $query->latest()->paginate($this->perPage($request))]);
     }
 
+    public function show(Request $request, Product $product): JsonResponse
+    {
+        $product->load('shop')->loadAvg('ratings', 'rating')->loadCount('ratings');
+
+        abort_unless(
+            $product->is_active && $product->stock > 0 && $product->shop?->is_active,
+            404,
+            'This product is no longer available.',
+        );
+
+        return response()->json(['product' => $product]);
+    }
+
     public function imageSearch(Request $request, ProductImageMatcher $matcher): JsonResponse
     {
         $request->validate([

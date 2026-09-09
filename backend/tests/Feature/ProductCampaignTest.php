@@ -283,6 +283,83 @@ class ProductCampaignTest extends TestCase
         );
     }
 
+    public function test_new_product_fcm_payload_routes_users_to_the_product(): void
+    {
+        Queue::fake();
+
+        $seller = User::factory()->create([
+            'role' => 'seller',
+            'fcm_token' => 'new-product-seller-route-token',
+            'is_active' => true,
+        ]);
+        $token = 'new-product-route-token-'.$seller->id;
+        ApiToken::create([
+            'user_id' => $seller->id,
+            'name' => 'test',
+            'token_hash' => hash('sha256', $token),
+        ]);
+        $shop = Shop::create([
+            'seller_id' => $seller->id,
+            'name' => 'Route Shop',
+            'category' => 'General',
+            'address' => 'Dar es Salaam',
+            'is_active' => true,
+        ]);
+
+        $response = $this->withToken($token)->postJson("/api/shops/{$shop->id}/products", [
+            'name' => 'Tap Ready Product',
+            'description' => 'Open this from a notification',
+            'price' => 1000,
+            'discount_price' => 800,
+            'delivery_price' => 100,
+            'stock' => 5,
+            'images' => [
+                'https://example.com/products/tap-ready-1.jpg',
+                'https://example.com/products/tap-ready-2.jpg',
+                'https://example.com/products/tap-ready-3.jpg',
+            ],
+        ]);
+
+        $product = Product::findOrFail($response->json('product.id'));
+        $campaign = ProductCampaign::where('product_id', $product->id)->firstOrFail();
+        (new DispatchProductCampaign($campaign->id))->handle(app(ProductCampaignService::class));
+        $delivery = $campaign->deliveries()->firstOrFail();
+
+        $fcm = Mockery::mock(FcmService::class);
+        $fcm->shouldReceive('sendToUser')
+            ->once()
+            ->with(
+                Mockery::on(fn (User $user): bool => $user->is($seller) && $user->fcm_token === $delivery->destination),
+                $campaign->title,
+                $campaign->message,
+                Mockery::on(fn (array $data): bool => $data['type'] === 'product_added'
+                    && $data['route'] === 'product'
+                    && $data['campaign_id'] === (string) $campaign->id
+                    && $data['product_id'] === (string) $product->id
+                    && $data['seller_id'] === (string) $seller->id),
+            )
+            ->andReturnTrue();
+
+        (new SendProductCampaignMessage($delivery->id))->handle(
+            app(ProductCampaignService::class),
+            app(OtpProviderService::class),
+            $fcm,
+        );
+
+        $this->assertSame('sent', $delivery->fresh()->status);
+    }
+
+    public function test_authenticated_user_can_open_a_single_product_for_notification_taps(): void
+    {
+        [$seller, $product, $token] = $this->sellerProductAndToken();
+
+        $this->withToken($token)->getJson("/api/products/{$product->id}")
+            ->assertOk()
+            ->assertJsonPath('product.id', $product->id)
+            ->assertJsonPath('product.seller_id', $seller->id)
+            ->assertJsonPath('product.shop.name', 'Campaign Shop');
+    }
+
     public function test_campaign_payment_resend_can_use_a_corrected_phone(): void
     {
         [$seller, $product, $token] = $this->sellerProductAndToken([

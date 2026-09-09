@@ -10,6 +10,7 @@ class Field extends StatelessWidget {
     this.obscure = false,
     this.maxLength,
     this.inputFormatters,
+    this.suffixIcon,
   });
   final TextEditingController controller;
   final String label;
@@ -18,6 +19,7 @@ class Field extends StatelessWidget {
   final bool obscure;
   final int? maxLength;
   final List<TextInputFormatter>? inputFormatters;
+  final Widget? suffixIcon;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 10),
@@ -27,7 +29,11 @@ class Field extends StatelessWidget {
       obscureText: obscure,
       maxLength: maxLength,
       inputFormatters: inputFormatters,
-      decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon),
+        suffixIcon: suffixIcon,
+      ),
     ),
   );
 }
