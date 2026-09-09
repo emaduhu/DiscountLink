@@ -94,7 +94,7 @@ NSColor.white.withAlphaComponent(0.16).setFill()
 NSBezierPath(ovalIn: NSRect(x: -120, y: 245, width: 360, height: 360)).fill()
 NSBezierPath(ovalIn: NSRect(x: 690, y: -120, width: 420, height: 420)).fill()
 
-let iconFrame = NSRect(x: 58, y: 342, width: 76, height: 76)
+let iconFrame = NSRect(x: 58, y: 348, width: 70, height: 70)
 let iconPath = NSBezierPath(roundedRect: iconFrame, xRadius: 18, yRadius: 18)
 NSGraphicsContext.saveGraphicsState()
 iconPath.addClip()
@@ -103,25 +103,25 @@ NSGraphicsContext.restoreGraphicsState()
 
 drawText(
     "Discount Link",
-    at: NSPoint(x: 58, y: 256),
-    font: NSFont.systemFont(ofSize: 58, weight: .heavy),
+    at: NSPoint(x: 146, y: 302),
+    font: NSFont.systemFont(ofSize: 48, weight: .heavy),
     color: NSColor(red: 0.12, green: 0.10, blue: 0.18, alpha: 1),
-    width: 430
+    width: 350
 )
 drawText(
     "Sellers can now shop deals too, with product alerts, secure chat, and tracked delivery.",
-    at: NSPoint(x: 62, y: 188),
-    font: NSFont.systemFont(ofSize: 24, weight: .semibold),
+    at: NSPoint(x: 62, y: 220),
+    font: NSFont.systemFont(ofSize: 23, weight: .semibold),
     color: NSColor(red: 0.25, green: 0.21, blue: 0.30, alpha: 1),
     width: 410
 )
 
 drawText(
     "Seller marketplace access",
-    at: NSPoint(x: 92, y: 112),
+    at: NSPoint(x: 62, y: 130),
     font: NSFont.systemFont(ofSize: 18, weight: .bold),
     color: NSColor(red: 1.0, green: 0.39, blue: 0.21, alpha: 1),
-    width: 230
+    width: 280
 )
 
 drawRoundedImage(

@@ -1,6 +1,6 @@
 # DiscountLink v1.0.36 Store Assets
 
-These assets were generated from actual app screens using the v1.0.36 screenshot harness and simulator/test-rendered captures. PNG deliverables were flattened to remove alpha channels while preserving dimensions.
+These assets were generated from actual app screens using the v1.0.36 screenshot harness. Screenshots are placed inside branded store-promo frames so the upload assets stay visually useful even when the underlying app screen has a light background. PNG deliverables were flattened to remove alpha channels while preserving dimensions.
 
 ## Google Play
 
@@ -31,6 +31,7 @@ These assets were generated from actual app screens using the v1.0.36 screenshot
 
 ## Generation helpers
 
-- `tool/store_screenshot_app.dart` renders deterministic app states with mocked API data.
+- `tool/store_screenshot_app.dart` renders deterministic app states with mocked API data inside branded store-promo frames.
+- `tool/store_asset_generation_test.dart` regenerates every Play Store and App Store phone/tablet image with `flutter test --update-goldens`.
 - `tool/generate_play_feature_graphic.swift` composes the Play feature graphic from real phone screenshots and the app icon.
 - `tool/flatten_store_png_alpha.swift` removes PNG alpha channels for upload-ready assets.

@@ -24,6 +24,24 @@ class _StoreScreenshotApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final client = _StoreScreenshotApiClient();
+    final page = switch (scenario) {
+      'splash' => SplashPage(onContinue: () {}),
+      'login' => LoginPage(client: client, onSignedIn: (_, _) {}),
+      'seller_marketplace' => _home(
+        role: 'seller',
+        selectedIndex: 1,
+        client: client,
+      ),
+      'seller_discount_amount' => const _SellerDiscountAmountScreenshotPage(),
+      'active_orders' => _home(
+        role: 'seller',
+        selectedIndex: 2,
+        client: client,
+      ),
+      'delivery_tracking' => const _DeliveryTrackingScreenshotPage(),
+      'secure_chat' => _home(role: 'buyer', selectedIndex: 2, client: client),
+      _ => _home(role: 'buyer', selectedIndex: 0, client: client),
+    };
     return MaterialApp(
       title: kAppName,
       debugShowCheckedModeBanner: false,
@@ -32,24 +50,233 @@ class _StoreScreenshotApp extends StatelessWidget {
       theme: discountLinkTheme(Brightness.light),
       darkTheme: discountLinkTheme(Brightness.dark),
       themeMode: ThemeMode.light,
-      home: switch (scenario) {
-        'splash' => SplashPage(onContinue: () {}),
-        'login' => LoginPage(client: client, onSignedIn: (_, _) {}),
-        'seller_marketplace' => _home(
-          role: 'seller',
-          selectedIndex: 1,
-          client: client,
-        ),
-        'seller_discount_amount' => const _SellerDiscountAmountScreenshotPage(),
-        'active_orders' => _home(
-          role: 'seller',
-          selectedIndex: 2,
-          client: client,
-        ),
-        'delivery_tracking' => const _DeliveryTrackingScreenshotPage(),
-        'secure_chat' => _home(role: 'buyer', selectedIndex: 2, client: client),
-        _ => _home(role: 'buyer', selectedIndex: 0, client: client),
+      home: _StorePromoFrame(scenario: scenario, child: page),
+    );
+  }
+}
+
+class _StorePromoFrame extends StatelessWidget {
+  const _StorePromoFrame({required this.scenario, required this.child});
+
+  final String scenario;
+  final Widget child;
+
+  ({String title, String subtitle}) get copy => switch (scenario) {
+    'splash' => (
+      title: 'Discount Link',
+      subtitle: 'Deals, sellers, secure checkout, and tracked delivery.',
+    ),
+    'login' => (
+      title: 'Fast secure access',
+      subtitle: 'Sign in with Google, email, phone, and password.',
+    ),
+    'seller_marketplace' => (
+      title: 'Sellers can shop too',
+      subtitle: 'Use one seller account to sell products and buy deals.',
+    ),
+    'seller_discount_amount' => (
+      title: 'Fixed amount discounts',
+      subtitle: 'TZS 1,000 minus TZS 200 becomes TZS 800.',
+    ),
+    'active_orders' => (
+      title: 'Seller buyer orders',
+      subtitle: 'Track purchases and delivery codes from the seller account.',
+    ),
+    'delivery_tracking' => (
+      title: 'Tracked delivery',
+      subtitle: 'Follow assigned delivery movement and customer details.',
+    ),
+    'secure_chat' => (
+      title: 'Secure chat',
+      subtitle: 'Chat with buyers, sellers, and deliverers in one app.',
+    ),
+    _ => (
+      title: 'Shop better deals',
+      subtitle: 'Discover products, discounts, and delivery tracking.',
+    ),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        final isTablet = size.width >= 1200;
+        final frameWidth = size.width * (isTablet ? 0.72 : 0.78);
+        final frameHeight = size.height * (isTablet ? 0.70 : 0.68);
+        final logicalWidth = isTablet ? 900.0 : 430.0;
+        final logicalHeight = isTablet ? 1180.0 : 932.0;
+        final textWidth = size.width * (isTablet ? 0.70 : 0.82);
+        final topPadding = size.height * (isTablet ? 0.055 : 0.06);
+        final content = copy;
+
+        return Scaffold(
+          body: DecoratedBox(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFFFFF3EA),
+                  Color(0xFFFF7043),
+                  Color(0xFF241A35),
+                ],
+              ),
+            ),
+            child: Stack(
+              children: [
+                Positioned(
+                  top: -size.width * 0.18,
+                  left: -size.width * 0.18,
+                  child: _StoreGlow(size: size.width * 0.55),
+                ),
+                Positioned(
+                  bottom: -size.width * 0.24,
+                  right: -size.width * 0.20,
+                  child: _StoreGlow(size: size.width * 0.72, dark: true),
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    size.width * 0.07,
+                    topPadding,
+                    size.width * 0.07,
+                    size.height * 0.055,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(
+                              isTablet ? 28 : 22,
+                            ),
+                            child: Image.asset(
+                              'assets/images/app_icon.png',
+                              width: isTablet ? 86 : 70,
+                              height: isTablet ? 86 : 70,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          const SizedBox(width: 18),
+                          Expanded(
+                            child: Text(
+                              kAppName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: const Color(0xFF20182E),
+                                fontSize: isTablet ? 38 : 30,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.8,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: size.height * 0.028),
+                      ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: textWidth),
+                        child: Text(
+                          content.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: isTablet ? 72 : 52,
+                            fontWeight: FontWeight.w900,
+                            height: 0.98,
+                            letterSpacing: -1.4,
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: size.height * 0.014),
+                      ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: textWidth),
+                        child: Text(
+                          content.subtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.90),
+                            fontSize: isTablet ? 31 : 23,
+                            fontWeight: FontWeight.w700,
+                            height: 1.18,
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      Center(
+                        child: Container(
+                          width: frameWidth,
+                          height: frameHeight,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(
+                              isTablet ? 48 : 38,
+                            ),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.86),
+                              width: isTablet ? 12 : 8,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.28),
+                                blurRadius: isTablet ? 44 : 34,
+                                offset: const Offset(0, 20),
+                              ),
+                            ],
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: FittedBox(
+                            fit: BoxFit.cover,
+                            child: SizedBox(
+                              width: logicalWidth,
+                              height: logicalHeight,
+                              child: MediaQuery(
+                                data: MediaQuery.of(context).copyWith(
+                                  size: Size(logicalWidth, logicalHeight),
+                                  padding: EdgeInsets.zero,
+                                  viewPadding: EdgeInsets.zero,
+                                  viewInsets: EdgeInsets.zero,
+                                  devicePixelRatio: 1,
+                                ),
+                                child: child,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
       },
+    );
+  }
+}
+
+class _StoreGlow extends StatelessWidget {
+  const _StoreGlow({required this.size, this.dark = false});
+
+  final double size;
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: (dark ? const Color(0xFF4B335C) : Colors.white).withValues(
+          alpha: dark ? 0.24 : 0.18,
+        ),
+      ),
     );
   }
 }
