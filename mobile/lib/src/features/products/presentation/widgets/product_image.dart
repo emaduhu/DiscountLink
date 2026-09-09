@@ -14,8 +14,11 @@ class ProductImage extends StatelessWidget {
         errorBuilder: (_, _, _) => const Icon(Icons.image_outlined, size: 48),
       );
     }
-    final file = File(source);
-    if (file.existsSync()) {
+    final filePath = source.startsWith('file://')
+        ? Uri.parse(source).toFilePath()
+        : source;
+    final file = File(filePath);
+    if (filePath.startsWith('/') && file.existsSync()) {
       return Image.file(
         file,
         fit: fit ?? BoxFit.cover,

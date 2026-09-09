@@ -134,7 +134,7 @@ class ProductCampaignService
                 'paid_at' => now(),
             ]);
 
-            $recipientCount = $this->snapshotRecipients($campaign);
+            $recipientCount = $this->snapshotRecipients($campaign, allActiveUsers: true);
             if ($recipientCount === 0) {
                 $campaign->delete();
 
@@ -257,13 +257,13 @@ class ProductCampaignService
         return max(0, round((float) AppSetting::get($key, '0.00'), 4));
     }
 
-    private function eligibleRecipients(string $channel): Builder
+    private function eligibleRecipients(string $channel, bool $allActiveUsers = false): Builder
     {
         $this->assertChannel($channel);
 
         return User::query()
             ->where('is_active', true)
-            ->whereIn('role', ['buyer', 'seller', 'deliverer'])
+            ->when(! $allActiveUsers, fn (Builder $query) => $query->whereIn('role', ['buyer', 'seller', 'deliverer']))
             ->when(
                 $channel === self::CHANNEL_SMS,
                 fn (Builder $query) => $query
@@ -276,11 +276,11 @@ class ProductCampaignService
             );
     }
 
-    private function snapshotRecipients(ProductCampaign $campaign): int
+    private function snapshotRecipients(ProductCampaign $campaign, bool $allActiveUsers = false): int
     {
         $count = 0;
 
-        $this->eligibleRecipients($campaign->channel)
+        $this->eligibleRecipients($campaign->channel, $allActiveUsers)
             ->select(['id', 'phone', 'fcm_token'])
             ->orderBy('id')
             ->chunkById(500, function ($users) use ($campaign, &$count) {

@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 let fileManager = FileManager.default
 let root = URL(fileURLWithPath: fileManager.currentDirectoryPath)
-let assetsRoot = root.appendingPathComponent("store_assets/actual/v1.0.34")
+let assetsRoot = root.appendingPathComponent("store_assets/actual/v1.0.36")
 
 guard fileManager.fileExists(atPath: assetsRoot.path) else {
   fatalError("Missing store assets directory: \(assetsRoot.path)")

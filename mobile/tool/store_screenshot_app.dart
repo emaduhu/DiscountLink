@@ -35,10 +35,15 @@ class _StoreScreenshotApp extends StatelessWidget {
       home: switch (scenario) {
         'splash' => SplashPage(onContinue: () {}),
         'login' => LoginPage(client: client, onSignedIn: (_, _) {}),
+        'seller_marketplace' => _home(
+          role: 'seller',
+          selectedIndex: 1,
+          client: client,
+        ),
         'seller_discount_amount' => const _SellerDiscountAmountScreenshotPage(),
         'active_orders' => _home(
-          role: 'buyer',
-          selectedIndex: 1,
+          role: 'seller',
+          selectedIndex: 2,
           client: client,
         ),
         'delivery_tracking' => const _DeliveryTrackingScreenshotPage(),
@@ -283,6 +288,16 @@ class _SellerDiscountAmountScreenshotPageState
               icon: Icon(Icons.add_business_outlined),
               selectedIcon: Icon(Icons.add_business),
               label: 'Sell',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.storefront_outlined),
+              selectedIcon: Icon(Icons.storefront),
+              label: 'Shop',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.receipt_long_outlined),
+              selectedIcon: Icon(Icons.receipt_long),
+              label: 'Orders',
             ),
             NavigationDestination(
               icon: Icon(Icons.chat_bubble_outline),

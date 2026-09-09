@@ -11,7 +11,7 @@ class OrderController extends Controller
 {
     public function active(Request $request): JsonResponse
     {
-        abort_unless($request->user()->role === 'buyer', 403);
+        abort_unless(in_array($request->user()->role, ['buyer', 'seller'], true), 403);
 
         $orders = Order::with([
             'items',

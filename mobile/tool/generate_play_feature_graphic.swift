@@ -8,7 +8,7 @@ struct FeatureSource {
 }
 
 let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-let outputURL = root.appendingPathComponent("store_assets/actual/v1.0.34/play_store/feature_graphic/feature_graphic_1024x500.jpg")
+let outputURL = root.appendingPathComponent("store_assets/actual/v1.0.36/play_store/feature_graphic/feature_graphic_1024x500.jpg")
 try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
 func image(_ relativePath: String) -> NSImage {
@@ -109,7 +109,7 @@ drawText(
     width: 430
 )
 drawText(
-    "Deals, seller tools, secure chat, and tracked delivery in one clean app.",
+    "Sellers can now shop deals too, with product alerts, secure chat, and tracked delivery.",
     at: NSPoint(x: 62, y: 188),
     font: NSFont.systemFont(ofSize: 24, weight: .semibold),
     color: NSColor(red: 0.25, green: 0.21, blue: 0.30, alpha: 1),
@@ -117,7 +117,7 @@ drawText(
 )
 
 drawText(
-    "Real-time product alerts",
+    "Seller marketplace access",
     at: NSPoint(x: 92, y: 112),
     font: NSFont.systemFont(ofSize: 18, weight: .bold),
     color: NSColor(red: 1.0, green: 0.39, blue: 0.21, alpha: 1),
@@ -126,7 +126,7 @@ drawText(
 
 drawRoundedImage(
     FeatureSource(
-        path: "store_assets/actual/v1.0.34/play_store/phone/screenshots/01_buyer_marketplace.png",
+        path: "store_assets/actual/v1.0.36/play_store/phone/screenshots/01_seller_marketplace.png",
         frame: NSRect(x: 512, y: 54, width: 170, height: 340),
         radius: 26,
         shadow: 0.20
@@ -134,7 +134,7 @@ drawRoundedImage(
 )
 drawRoundedImage(
     FeatureSource(
-        path: "store_assets/actual/v1.0.34/play_store/phone/screenshots/02_seller_discount_amount.png",
+        path: "store_assets/actual/v1.0.36/play_store/phone/screenshots/02_seller_discount_amount.png",
         frame: NSRect(x: 654, y: 96, width: 170, height: 340),
         radius: 26,
         shadow: 0.22
@@ -142,7 +142,7 @@ drawRoundedImage(
 )
 drawRoundedImage(
     FeatureSource(
-        path: "store_assets/actual/v1.0.34/play_store/phone/screenshots/04_delivery_tracking.png",
+        path: "store_assets/actual/v1.0.36/play_store/phone/screenshots/04_delivery_tracking.png",
         frame: NSRect(x: 792, y: 45, width: 170, height: 340),
         radius: 26,
         shadow: 0.20

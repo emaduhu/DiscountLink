@@ -88,7 +88,7 @@ class ProductController extends Controller
 
     public function rate(Request $request, Product $product): JsonResponse
     {
-        abort_unless($request->user()->role === 'buyer', 403, 'Only buyers can rate products.');
+        abort_unless(in_array($request->user()->role, ['buyer', 'seller'], true), 403, 'Only buyers and sellers can rate products.');
         abort_unless(
             $product->is_active && $product->stock > 0 && $product->shop?->is_active,
             422,

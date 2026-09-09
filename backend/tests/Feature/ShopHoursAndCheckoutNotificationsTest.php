@@ -175,6 +175,79 @@ class ShopHoursAndCheckoutNotificationsTest extends TestCase
         $this->assertSame('255755000012', $payment->fresh()->phone);
     }
 
+    public function test_seller_can_buy_products_using_the_marketplace_flow(): void
+    {
+        $buyerSeller = User::factory()->create([
+            'role' => 'seller',
+            'phone' => '255700000022',
+            'phone_verified_at' => now(),
+            'address' => 'Seller buyer address',
+            'fcm_token' => 'seller-buyer-fcm-token',
+        ]);
+        $shopOwner = User::factory()->create(['role' => 'seller']);
+        $shop = $this->shop($shopOwner);
+        $product = $this->product($shopOwner, $shop);
+        $buyerSellerToken = $this->apiToken($buyerSeller);
+
+        $this->withToken($buyerSellerToken)
+            ->postJson("/api/cart/{$product->id}", ['quantity' => 2])
+            ->assertCreated()
+            ->assertJsonPath('item.buyer_id', $buyerSeller->id)
+            ->assertJsonPath('item.product_id', $product->id)
+            ->assertJsonPath('item.quantity', 2);
+
+        $this->withToken($buyerSellerToken)
+            ->getJson('/api/cart')
+            ->assertOk()
+            ->assertJsonPath('summary.subtotal', 2000)
+            ->assertJsonPath('summary.delivery_total', 400)
+            ->assertJsonPath('summary.grand_total', 2400);
+
+        $this->withToken($buyerSellerToken)
+            ->postJson("/api/products/{$product->id}/rating", [
+                'rating' => 5,
+                'comment' => 'Works for sellers buying too.',
+            ])
+            ->assertOk()
+            ->assertJsonPath('product.id', $product->id);
+        $this->assertDatabaseHas('product_ratings', [
+            'product_id' => $product->id,
+            'buyer_id' => $buyerSeller->id,
+            'rating' => 5,
+        ]);
+
+        $clickPesa = Mockery::mock(ClickPesaService::class);
+        $clickPesa->shouldReceive('requestUssdPush')
+            ->once()
+            ->with(Mockery::on(fn (Payment $payment): bool => $payment->user_id === $buyerSeller->id
+                && $payment->type === 'collection'
+                && (float) $payment->amount === 2400.0))
+            ->andReturn(['reference' => 'seller-buyer-checkout', 'status' => 'processing']);
+        $this->app->instance(ClickPesaService::class, $clickPesa);
+
+        $notifications = Mockery::mock(DeliveryCodeNotificationService::class);
+        $notifications->shouldReceive('send')
+            ->once()
+            ->withArgs(fn (User $recipient, Order $order, string $deliveryCode): bool => $recipient->is($buyerSeller)
+                && $order->buyer_id === $buyerSeller->id
+                && preg_match('/^(?!.*(.).*\\1)\\d{4}$/', $deliveryCode) === 1)
+            ->andReturn(['sms' => true, 'fcm' => true]);
+        $this->app->instance(DeliveryCodeNotificationService::class, $notifications);
+
+        $this->withToken($buyerSellerToken)
+            ->postJson('/api/checkout', ['delivery_address' => 'Seller buyer address'])
+            ->assertCreated()
+            ->assertJsonPath('order.buyer_id', $buyerSeller->id)
+            ->assertJsonPath('order.seller_id', $shopOwner->id)
+            ->assertJsonPath('payment.user_id', $buyerSeller->id);
+
+        $this->withToken($buyerSellerToken)
+            ->getJson('/api/orders/active')
+            ->assertOk()
+            ->assertJsonPath('orders.0.buyer_id', $buyerSeller->id)
+            ->assertJsonPath('orders.0.shop.id', $shop->id);
+    }
+
     public function test_checkout_is_rejected_while_shop_is_closed(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-21 20:00:00', 'Africa/Dar_es_Salaam'));

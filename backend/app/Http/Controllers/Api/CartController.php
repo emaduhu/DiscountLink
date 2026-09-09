@@ -25,6 +25,11 @@ use Throwable;
 
 class CartController extends Controller
 {
+    private function userCanBuy(User $user): bool
+    {
+        return in_array($user->role, ['buyer', 'seller'], true);
+    }
+
     private function deliveryCode(): string
     {
         $digits = range(0, 9);
@@ -82,7 +87,7 @@ class CartController extends Controller
 
     public function add(Request $request, Product $product): JsonResponse
     {
-        abort_unless($request->user()->role === 'buyer', 403, 'Only buyers can add to cart.');
+        abort_unless($this->userCanBuy($request->user()), 403, 'Only buyers and sellers can add to cart.');
         abort_unless(
             $product->is_active && $product->stock > 0 && $product->shop?->is_active,
             422,
@@ -111,7 +116,7 @@ class CartController extends Controller
 
     public function addDiscountLink(Request $request, string $token): JsonResponse
     {
-        abort_unless($request->user()->role === 'buyer', 403, 'Only buyers can add discount links to cart.');
+        abort_unless($this->userCanBuy($request->user()), 403, 'Only buyers and sellers can add discount links to cart.');
         $data = $request->validate(['quantity' => ['nullable', 'integer', 'min:1']]);
         $discountLink = DiscountLink::with('product.shop')
             ->where('token', $token)
@@ -141,7 +146,7 @@ class CartController extends Controller
 
     public function remove(Request $request, Product $product): JsonResponse
     {
-        abort_unless($request->user()->role === 'buyer', 403, 'Only buyers can remove cart items.');
+        abort_unless($this->userCanBuy($request->user()), 403, 'Only buyers and sellers can remove cart items.');
         Cart::where('buyer_id', $request->user()->id)->where('product_id', $product->id)->delete();
 
         return response()->json(['message' => 'Item removed from cart.']);
@@ -153,7 +158,7 @@ class CartController extends Controller
         ClickPesaService $clickPesa,
         DeliveryCodeNotificationService $deliveryCodeNotifications,
     ): JsonResponse {
-        abort_unless($request->user()->role === 'buyer', 403);
+        abort_unless($this->userCanBuy($request->user()), 403);
         abort_unless($request->user()->phone && $request->user()->phone_verified_at, 422, 'Verify your phone before payment.');
         $data = $request->validate([
             'delivery_address' => ['nullable', 'string', 'max:255'],

@@ -71,6 +71,8 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final role = widget.user['role'] as String;
     final pages = <Widget>[
+      if (role == 'seller')
+        SellerPage(client: widget.client, user: widget.user),
       if (role == 'buyer')
         BuyerPage(
           client: widget.client,
@@ -79,7 +81,12 @@ class _HomePageState extends State<HomePage> {
         ),
       if (role == 'buyer') OrdersPage(client: widget.client),
       if (role == 'seller')
-        SellerPage(client: widget.client, user: widget.user),
+        BuyerPage(
+          client: widget.client,
+          user: widget.user,
+          onUserChanged: widget.onUserChanged,
+        ),
+      if (role == 'seller') OrdersPage(client: widget.client),
       if (role == 'deliverer')
         DeliveryPage(
           client: widget.client,
@@ -104,6 +111,12 @@ class _HomePageState extends State<HomePage> {
       ),
     ];
     final destinations = <NavigationDestination>[
+      if (role == 'seller')
+        const NavigationDestination(
+          icon: Icon(Icons.add_business_outlined),
+          selectedIcon: Icon(Icons.add_business),
+          label: 'Sell',
+        ),
       if (role == 'buyer')
         const NavigationDestination(
           icon: Icon(Icons.storefront_outlined),
@@ -118,9 +131,15 @@ class _HomePageState extends State<HomePage> {
         ),
       if (role == 'seller')
         const NavigationDestination(
-          icon: Icon(Icons.add_business_outlined),
-          selectedIcon: Icon(Icons.add_business),
-          label: 'Sell',
+          icon: Icon(Icons.storefront_outlined),
+          selectedIcon: Icon(Icons.storefront),
+          label: 'Shop',
+        ),
+      if (role == 'seller')
+        const NavigationDestination(
+          icon: Icon(Icons.receipt_long_outlined),
+          selectedIcon: Icon(Icons.receipt_long),
+          label: 'Orders',
         ),
       if (role == 'deliverer')
         const NavigationDestination(

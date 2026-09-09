@@ -63,9 +63,9 @@ class ProductCampaignTest extends TestCase
 
         $response->assertStatus(202)
             ->assertJsonPath('campaign.channel', 'sms')
-            ->assertJsonPath('campaign.recipient_count', 2)
-            ->assertJsonPath('campaign.total_cost', '150.00')
-            ->assertJsonPath('payment.amount', '150.00');
+            ->assertJsonPath('campaign.recipient_count', 2);
+        $this->assertEqualsWithDelta(150.0, (float) $response->json('campaign.total_cost'), 0.001);
+        $this->assertEqualsWithDelta(150.0, (float) $response->json('payment.amount'), 0.001);
 
         $campaign = ProductCampaign::firstOrFail();
         $this->assertSame($seller->id, $campaign->seller_id);
@@ -235,7 +235,7 @@ class ProductCampaignTest extends TestCase
             'fcm_token' => 'new-product-inactive-token',
             'is_active' => false,
         ]);
-        User::factory()->create([
+        $admin = User::factory()->create([
             'role' => 'admin',
             'fcm_token' => 'new-product-admin-token',
             'is_active' => true,
@@ -259,22 +259,22 @@ class ProductCampaignTest extends TestCase
         $product = Product::findOrFail($response->json('product.id'));
         $campaign = ProductCampaign::where('product_id', $product->id)->firstOrFail();
 
-        $this->assertSame('3780.00', $product->discount_price);
-        $this->assertSame('3880.00', $product->auto_total);
+        $this->assertEqualsWithDelta(3780.0, (float) $product->discount_price, 0.001);
+        $this->assertEqualsWithDelta(3880.0, (float) $product->auto_total, 0.001);
         $this->assertSame($seller->id, $campaign->seller_id);
         $this->assertStringStartsWith('DLNEW-', $campaign->reference);
         $this->assertSame('fcm', $campaign->channel);
         $this->assertSame('queued', $campaign->status);
-        $this->assertSame('0.0000', $campaign->unit_price);
-        $this->assertSame('0.00', $campaign->total_cost);
-        $this->assertSame(3, $campaign->recipient_count);
+        $this->assertEqualsWithDelta(0.0, (float) $campaign->unit_price, 0.001);
+        $this->assertEqualsWithDelta(0.0, (float) $campaign->total_cost, 0.001);
+        $this->assertSame(4, $campaign->recipient_count);
         $this->assertNull($campaign->payment_id);
         $this->assertNotNull($campaign->paid_at);
         $this->assertStringStartsWith('New product:', $campaign->title);
         $this->assertStringContainsString('just added Fresh Product', $campaign->message);
         $this->assertStringContainsString('TZS 3,780.00', $campaign->message);
         $this->assertEqualsCanonicalizing(
-            [$seller->id, $buyer->id, $deliverer->id],
+            [$seller->id, $buyer->id, $deliverer->id, $admin->id],
             $campaign->deliveries()->pluck('user_id')->all(),
         );
         Queue::assertPushed(

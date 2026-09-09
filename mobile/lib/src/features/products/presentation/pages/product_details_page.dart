@@ -195,7 +195,7 @@ class _ProductDetailsContent extends StatelessWidget {
     );
     final shop = product['shop'];
     final matchPercent = productImageMatchPercent(product);
-    final isBuyer = user['role'] == 'buyer';
+    final canBuy = user['role'] == 'buyer' || user['role'] == 'seller';
     final sellerId = '${product['seller_id'] ?? ''}';
     final currentUserId = '${user['id'] ?? ''}';
     final canStartChat = sellerId.isNotEmpty && sellerId != currentUserId;
@@ -246,7 +246,7 @@ class _ProductDetailsContent extends StatelessWidget {
               ],
               const SizedBox(height: 12),
               RatingSummary(product: product),
-              if (isBuyer) ...[
+              if (canBuy) ...[
                 const SizedBox(height: 8),
                 RatingPicker(onRate: onRate),
               ],
@@ -259,13 +259,13 @@ class _ProductDetailsContent extends StatelessWidget {
           child: ProductPriceBreakdown(product: product, money: money),
         ),
         const SizedBox(height: 16),
-        if (isBuyer)
+        if (canBuy)
           FilledButton.icon(
             onPressed: onAddToCart,
             icon: const Icon(Icons.add_shopping_cart),
             label: Text(tx('Add to cart', 'Weka kikapuni')),
           ),
-        if (isBuyer) const SizedBox(height: 8),
+        if (canBuy) const SizedBox(height: 8),
         OutlinedButton.icon(
           onPressed: onShare,
           icon: const Icon(Icons.ios_share_outlined),

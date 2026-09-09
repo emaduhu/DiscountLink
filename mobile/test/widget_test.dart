@@ -152,6 +152,79 @@ void main() {
     );
   });
 
+  testWidgets('seller home includes marketplace and orders tabs', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(430, 1000);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+
+    final client = _HomePageApiClient();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomePage(
+          client: client,
+          token: 'seller-token',
+          user: {
+            'id': 7,
+            'role': 'seller',
+            'name': 'Seller Buyer',
+            'email': 'seller@example.test',
+            'phone': '255700000007',
+            'phone_verified_at': '2026-09-09T00:00:00.000000Z',
+            'email_verified_at': '2026-09-09T00:00:00.000000Z',
+            'address': 'Dar es Salaam',
+          },
+          initialIndex: 0,
+          onSelectedIndexChanged: (_) {},
+          onUserChanged: (_) {},
+          onSignOut: () async {},
+          notificationCount: 0,
+          onNotificationInboxChanged: () async {},
+          notificationsEnabled: true,
+          onNotificationsEnabledChanged: (_) async {},
+          onRefreshNotifications: () async => null,
+          onShowTestNotification: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(homePageCountForRole('seller'), 5);
+    expect(profileIndexForRole('seller'), 4);
+    expect(find.text('Sell'), findsOneWidget);
+    expect(find.text('Shop'), findsOneWidget);
+    expect(find.text('Orders'), findsOneWidget);
+
+    await tester.tap(find.text('Shop'));
+    await tester.pumpAndSettle();
+
+    expect(client.getPaths, contains('/products'));
+    expect(client.getPaths, contains('/cart'));
+    expect(find.text('Popular products'), findsOneWidget);
+  });
+
+  testWidgets('seller product details include buyer actions', (tester) async {
+    final client = _ProductDetailsApiClient();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ProductDetailsPage(
+          client: client,
+          user: {'id': 7, 'role': 'seller', 'name': 'Seller Buyer'},
+          productId: 77,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Market item'), findsWidgets);
+    expect(find.text('Add to cart'), findsOneWidget);
+    expect(find.byType(RatingPicker), findsOneWidget);
+  });
+
   testWidgets('section menu opens from side navigation on phone screens', (
     tester,
   ) async {
@@ -450,6 +523,110 @@ void main() {
     final pauseIndex = videoPlatform.calls.lastIndexOf('pause');
     expect(pauseIndex, greaterThan(playIndex));
   });
+}
+
+class _ProductDetailsApiClient extends ApiClient {
+  _ProductDetailsApiClient() : super('https://example.test');
+
+  @override
+  Future<Map<String, dynamic>> get(
+    String path, [
+    Map<String, String>? query,
+  ]) async {
+    if (path == '/products/77') {
+      return {
+        'product': {
+          'id': 77,
+          'seller_id': 12,
+          'name': 'Market item',
+          'description': 'A product sellers can buy too.',
+          'price': '1000.00',
+          'discount_percent': '0',
+          'delivery_price': '100.00',
+          'auto_total': '1100.00',
+          'stock': 5,
+          'images': ['assets/images/product_popular_1.png'],
+          'media': <dynamic>[],
+          'shop': {'id': 3, 'name': 'Market shop', 'is_open': true},
+        },
+      };
+    }
+    throw StateError('Unexpected GET $path');
+  }
+}
+
+class _HomePageApiClient extends ApiClient {
+  _HomePageApiClient() : super('https://example.test');
+
+  final getPaths = <String>[];
+
+  @override
+  Future<Map<String, dynamic>> get(
+    String path, [
+    Map<String, String>? query,
+  ]) async {
+    getPaths.add(path);
+    if (path == '/conversations') {
+      return {'conversations': []};
+    }
+    if (path == '/shop-categories') {
+      return {
+        'categories': ['Electronics', 'Food'],
+      };
+    }
+    if (path == '/seller/shops') {
+      return {
+        'shops': {'data': [], 'current_page': 1, 'last_page': 1, 'total': 0},
+        'registration_fee': {'amount': 0, 'currency': 'TZS', 'enabled': false},
+        'deliverer_invitations': [],
+      };
+    }
+    if (path == '/seller/campaigns') {
+      return {
+        'campaigns': {
+          'data': [],
+          'current_page': 1,
+          'last_page': 1,
+          'total': 0,
+        },
+        'pricing': {
+          'fcm': {
+            'unit_price': 0,
+            'eligible_recipient_count': 0,
+            'estimated_total': 0,
+          },
+          'sms': {
+            'unit_price': 0,
+            'eligible_recipient_count': 0,
+            'estimated_total': 0,
+          },
+        },
+      };
+    }
+    if (path == '/products') {
+      return {
+        'products': {'data': [], 'current_page': 1, 'last_page': 1, 'total': 0},
+      };
+    }
+    if (path == '/cart') {
+      return {
+        'items': [],
+        'service_fee': {
+          'rate': 0,
+          'amount': 0,
+          'currency': 'TZS',
+          'enabled': false,
+        },
+        'summary': {
+          'subtotal': 0,
+          'delivery_total': 0,
+          'service_fee_total': 0,
+          'grand_total': 0,
+        },
+      };
+    }
+    throw StateError('Unexpected GET $path');
+  }
 }
 
 class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {

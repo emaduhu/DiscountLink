@@ -2,13 +2,15 @@ part of '../../../../main.dart';
 
 int profileIndexForRole(String role) => switch (role) {
   'buyer' => 3,
-  'seller' || 'deliverer' => 2,
+  'seller' => 4,
+  'deliverer' => 2,
   _ => 1,
 };
 
 int homePageCountForRole(String role) => switch (role) {
   'buyer' => 4,
-  'seller' || 'deliverer' => 3,
+  'seller' => 5,
+  'deliverer' => 3,
   _ => 2,
 };
 
