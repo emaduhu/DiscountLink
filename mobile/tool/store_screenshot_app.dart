@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:discount_link/main.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -102,10 +104,16 @@ class _StorePromoFrame extends StatelessWidget {
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
         final isTablet = size.width >= 1200;
-        final frameWidth = size.width * (isTablet ? 0.72 : 0.78);
-        final frameHeight = size.height * (isTablet ? 0.70 : 0.68);
         final logicalWidth = isTablet ? 900.0 : 430.0;
         final logicalHeight = isTablet ? 1180.0 : 932.0;
+        final maxFrameWidth = size.width * (isTablet ? 0.72 : 0.78);
+        final maxFrameHeight = size.height * (isTablet ? 0.70 : 0.68);
+        final frameAspect = logicalWidth / logicalHeight;
+        final frameHeight = math.min(
+          maxFrameHeight,
+          maxFrameWidth / frameAspect,
+        );
+        final frameWidth = frameHeight * frameAspect;
         final textWidth = size.width * (isTablet ? 0.70 : 0.82);
         final topPadding = size.height * (isTablet ? 0.055 : 0.06);
         final content = copy;
@@ -230,7 +238,7 @@ class _StorePromoFrame extends StatelessWidget {
                           ),
                           clipBehavior: Clip.antiAlias,
                           child: FittedBox(
-                            fit: BoxFit.cover,
+                            fit: BoxFit.contain,
                             child: SizedBox(
                               width: logicalWidth,
                               height: logicalHeight,
