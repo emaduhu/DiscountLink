@@ -79,6 +79,7 @@ void main() {
   const captures = <_StoreCapture>[
     _StoreCapture(scenario: 'splash', output: 'splash_login/splash.png'),
     _StoreCapture(scenario: 'login', output: 'splash_login/login.png'),
+    _StoreCapture(scenario: 'register', output: 'splash_login/register.png'),
     _StoreCapture(
       scenario: 'seller_marketplace',
       output: 'screenshots/01_seller_marketplace.png',

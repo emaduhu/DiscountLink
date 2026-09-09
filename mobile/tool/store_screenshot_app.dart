@@ -29,6 +29,7 @@ class _StoreScreenshotApp extends StatelessWidget {
     final page = switch (scenario) {
       'splash' => SplashPage(onContinue: () {}),
       'login' => LoginPage(client: client, onSignedIn: (_, _) {}),
+      'register' => RegisterPage(client: client, onSignedIn: (_, _) {}),
       'seller_marketplace' => _home(
         role: 'seller',
         selectedIndex: 1,
@@ -71,6 +72,10 @@ class _StorePromoFrame extends StatelessWidget {
     'login' => (
       title: 'Fast secure access',
       subtitle: 'Sign in with Google, email, phone, and password.',
+    ),
+    'register' => (
+      title: 'Create your account',
+      subtitle: 'Register as a buyer, seller, or deliverer in minutes.',
     ),
     'seller_marketplace' => (
       title: 'Sellers can shop too',
